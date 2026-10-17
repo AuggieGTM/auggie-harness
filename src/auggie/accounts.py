@@ -1,7 +1,7 @@
 """Accounts and recipients a run works on.
 
 They are inputs, like strategy: the Store does not hold them yet, and events
-refer to them by ID only.
+refer to them by ID only. Each account belongs to one customer.
 """
 
 from __future__ import annotations
@@ -25,6 +25,7 @@ class Account(Contract):
     """An account to research, with one URL per strategy source kind."""
 
     account_id: RecordId
+    customer_id: Slug
     key: Slug
     """Short, readable handle used in synthetic record IDs, such as ``northstar``."""
     name: Name

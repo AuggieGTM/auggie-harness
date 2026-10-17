@@ -30,6 +30,7 @@ from auggie.contracts import (
     QualificationDecision,
     RecordRef,
     SubjectRef,
+    ensure_in_scope,
 )
 from auggie.contracts.approval import DeliveryPlatform
 from auggie.contracts.common import RecordId, UtcDatetime
@@ -97,6 +98,7 @@ def activate_strategy(
     store: Store, strategy: LoadedStrategy, *, by: Actor, at: datetime
 ) -> Appended:
     """Record that a person made this strategy revision the active one."""
+    ensure_in_scope(store.scope, strategy.strategy)
     strategy_id = strategy.strategy.strategy_id
     return _append(
         store,
@@ -117,7 +119,13 @@ def research_run(
     qualifier: Qualifier,
     times: RunTimes,
 ) -> RunResult:
-    """Observe, validate, judge and compose for one account, then stop for review."""
+    """Observe, validate, judge and compose for one account, then stop for review.
+
+    The strategy and the account must belong to the store's customer; nothing
+    is acquired or written otherwise.
+    """
+    ensure_in_scope(store.scope, strategy.strategy)
+    ensure_in_scope(store.scope, account)
     customer_id = store.scope.customer_id
     subject = SubjectRef(kind="account", id=account.account_id)
     run_id = times.run_id

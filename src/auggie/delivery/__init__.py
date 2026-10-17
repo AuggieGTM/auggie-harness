@@ -12,6 +12,7 @@ from auggie.contracts import (
     CustomerScope,
     DeliveryTarget,
     HumanApproval,
+    ensure_in_scope,
 )
 
 SIMULATED_DELIVERY = Actor(kind="service", id="simulated-delivery", version="0")
@@ -32,11 +33,16 @@ def authorize_delivery(
 ) -> HumanApproval:
     """Return the delivery approval that permits sending ``requested`` to ``target`` at ``at``.
 
-    Raises ``DeliveryBlocked`` unless the scope allows simulated delivery, the
-    requested version is the latest one, no reviewer rejected that version,
-    and both a content approval and a delivery approval for this recipient
-    apply to exactly that version now.
+    Raises ``ScopeViolation`` if the draft or any approval belongs to another
+    customer. Raises ``DeliveryBlocked`` unless the scope allows simulated
+    delivery, the requested version is the latest one, no reviewer rejected
+    that version, and both a content approval and a delivery approval for
+    this recipient apply to exactly that version now.
     """
+    approvals = list(approvals)
+    ensure_in_scope(scope, latest)
+    for approval in approvals:
+        ensure_in_scope(scope, approval)
     if scope.execution.delivery != "simulated" or target.platform != "simulated":
         raise DeliveryBlocked(
             f"scope {scope.customer_id!r} allows {scope.execution.delivery!r} delivery and "

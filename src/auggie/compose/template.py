@@ -14,6 +14,7 @@ from auggie.contracts import (
     ArtifactRef,
     Play,
     QualificationDecision,
+    ScopeViolation,
     sha256_digest,
 )
 from auggie.strategy import LoadedStrategy
@@ -47,6 +48,9 @@ def compose_draft(
     at: datetime,
 ) -> Artifact:
     """Render ``play`` for ``account``. Every field must come from admitted evidence."""
+    for owner in (account.customer_id, strategy.strategy.customer_id):
+        if owner != decision.customer_id:
+            raise ScopeViolation(f"input belongs to {owner!r}, not {decision.customer_id!r}")
     if not applies(play, decision):
         raise ComposeBlocked(f"play {play.id!r} does not apply to {decision.decision_id!r}")
     findings = {f.criterion: f for f in decision.findings}

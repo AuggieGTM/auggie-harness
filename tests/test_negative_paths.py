@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 import pytest
 
+from auggie.acquisition.fixture import FixtureAcquisition
 from auggie.approval import ReviewDecision
 from auggie.contracts import (
     Artifact,
@@ -14,12 +16,20 @@ from auggie.contracts import (
     CustomerScope,
     DeliveryTarget,
     ExecutionBoundary,
+    HumanApproval,
     QualificationDecision,
     ScopeViolation,
     sha256_digest,
 )
 from auggie.delivery import DeliveryBlocked, authorize_delivery
-from auggie.pipeline import deliver, record_outcome, record_review
+from auggie.judgment.rules import RulesQualifier
+from auggie.pipeline import (
+    activate_strategy,
+    deliver,
+    record_outcome,
+    record_review,
+    research_run,
+)
 from auggie.store import RecordNotFound, Store
 from auggie.store.memory import InMemoryBackend
 from auggie.strategy import load_strategy
@@ -282,6 +292,74 @@ def test_a_record_from_another_scope_is_refused(other_scope: CustomerScope) -> N
         other.put_evidence(run.store.get_evidence("ev-northstar-careers"))
     with pytest.raises(ScopeViolation):
         other.append_event(run.store.list_events()[0])
+
+
+def test_another_customers_strategy_or_account_cannot_run_in_this_scope(
+    tmp_path: Path, other_scope: CustomerScope
+) -> None:
+    backend = InMemoryBackend()
+    run = until_review(backend=backend)
+    other = backend.open(other_scope)
+    northstar = load_inputs(NORTHSTAR)
+    times = northstar.run
+    with pytest.raises(ScopeViolation, match="'demo-msp'"):
+        activate_strategy(
+            other,
+            run.strategy,
+            by=northstar.strategy.activated_by,
+            at=northstar.strategy.activated_at,
+        )
+    with pytest.raises(ScopeViolation, match="'demo-msp'"):
+        research_run(
+            other,
+            strategy=run.strategy,
+            account=northstar.account,
+            acquisition=FixtureAcquisition(northstar.responses),
+            qualifier=RulesQualifier(),
+            times=times,
+        )
+    text = (NORTHSTAR / "inputs/strategy/msp.toml").read_text(encoding="utf-8")
+    (tmp_path / "other.toml").write_text(text.replace('"demo-msp"', '"demo-other"'))
+    own_strategy = load_strategy(tmp_path, "other.toml", commit="0" * 40, scope=other_scope)
+    with pytest.raises(ScopeViolation, match="'demo-msp'"):
+        research_run(
+            other,
+            strategy=own_strategy,
+            account=northstar.account,
+            acquisition=FixtureAcquisition(northstar.responses),
+            qualifier=RulesQualifier(),
+            times=times,
+        )
+    assert other.list_events() == () and other.list_evidence() == ()
+
+
+def test_the_delivery_gate_refuses_another_customers_draft_or_approvals(
+    other_scope: CustomerScope,
+) -> None:
+    run = until_review(review("content"), review("delivery"))
+    draft = draft_of(run)
+    with pytest.raises(ScopeViolation, match="'demo-msp'"):
+        authorize_delivery(
+            scope=other_scope,
+            requested=draft.ref,
+            latest=draft,
+            target=DeliveryTarget(platform="simulated", recipient_id="per-jordan-avery"),
+            approvals=run.store.list_approvals(draft.ref.artifact_id),
+            at=DELIVER_AT,
+        )
+    foreign = [
+        HumanApproval.model_validate(variant(a, customer_id="demo-other"))
+        for a in run.store.list_approvals(draft.ref.artifact_id)
+    ]
+    with pytest.raises(ScopeViolation, match="'demo-other'"):
+        authorize_delivery(
+            scope=run.store.scope,
+            requested=draft.ref,
+            latest=draft,
+            target=DeliveryTarget(platform="simulated", recipient_id="per-jordan-avery"),
+            approvals=foreign,
+            at=DELIVER_AT,
+        )
 
 
 def test_a_strategy_cannot_be_loaded_into_another_scope(other_scope: CustomerScope) -> None:

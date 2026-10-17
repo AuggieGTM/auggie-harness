@@ -16,6 +16,7 @@
   },
   "account": {
     "account_id": "acc-northstar",
+    "customer_id": "demo-msp",
     "key": "northstar",
     "name": "Northstar Works",
     "sources": {

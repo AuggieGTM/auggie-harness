@@ -14,6 +14,7 @@ from auggie.contracts import (
     JobPosting,
     Mentions,
     QualificationDecision,
+    ScopeViolation,
     Strategy,
 )
 from auggie.contracts.qualification import QualificationOutcome
@@ -138,6 +139,8 @@ class RulesQualifier:
         at: datetime,
     ) -> QualificationDecision:
         rules = strategy.strategy
+        if rules.customer_id != customer_id:
+            raise ScopeViolation(f"strategy belongs to {rules.customer_id!r}, not {customer_id!r}")
         findings = tuple(assess(criterion, rules, sources, at) for criterion in rules.criteria)
         assessed = {finding.criterion: finding.assessment for finding in findings}
         disqualifiers = tuple(
