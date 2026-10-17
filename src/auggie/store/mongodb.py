@@ -32,7 +32,7 @@ from auggie.contracts import (
     ensure_in_scope,
 )
 from auggie.contracts.events import EventType
-from auggie.store import Appended, IntegrityError, RecordConflict, RecordNotFound
+from auggie.store import Appended, IntegrityError, RecordConflict, RecordNotFound, StoreError
 from auggie.store.integrity import (
     check_approval,
     check_artifact,
@@ -111,7 +111,7 @@ class MongoBackend:
             raise ValueError(f"database name {name!r} is longer than MongoDB allows")
         return name
 
-    def open(self, scope: CustomerScope) -> MongoStore:
+    def _check(self, scope: CustomerScope) -> None:
         known = self._scopes.get(scope.customer_id)
         if known is None:
             check_isolated([*self._scopes.values(), scope])
@@ -119,11 +119,31 @@ class MongoBackend:
             raise ScopeViolation(
                 f"customer {scope.customer_id!r} is already open with another scope"
             )
+
+    def open(self, scope: CustomerScope) -> MongoStore:
+        self._check(scope)
         database = self._client[self.database_name(scope)]
         _claim(database, scope)
         _prepare(database, scope)
         self._scopes[scope.customer_id] = scope
         return MongoStore(scope, database)
+
+    def open_existing(self, scope: CustomerScope) -> MongoStore:
+        """Open a scope's existing store to read it. Claims, creates and changes nothing.
+
+        Needs only read access. Raises ``RecordNotFound`` if no store was ever
+        opened for this scope here, so a mistyped name cannot look like an
+        empty store.
+        """
+        self._check(scope)
+        database = self._client[self.database_name(scope)]
+        stored = database["_scope"].find_one({"_id": "scope"}, {"_id": False})
+        if stored is None:
+            raise RecordNotFound(f"no store for {scope.customer_id!r} in {database.name!r}")
+        if stored != _identity(scope):
+            raise ScopeViolation(f"database {database.name!r} belongs to {stored}")
+        self._scopes[scope.customer_id] = scope
+        return MongoStore(scope, database, writable=False)
 
 
 def _claim(database: Database[Document], scope: CustomerScope) -> None:
@@ -183,9 +203,16 @@ def _artifact_key(ref: ArtifactRef) -> str:
 class MongoStore:
     """A ``Store`` over one scope's database. Open it through ``MongoBackend``."""
 
-    def __init__(self, scope: CustomerScope, database: Database[Document]) -> None:
+    def __init__(
+        self, scope: CustomerScope, database: Database[Document], *, writable: bool = True
+    ) -> None:
         self._scope = scope
         self._db = database
+        self._writable = writable
+
+    def _writing(self) -> None:
+        if not self._writable:
+            raise StoreError(f"the store for {self._scope.customer_id!r} was opened read-only")
 
     @property
     def scope(self) -> CustomerScope:
@@ -247,6 +274,7 @@ class MongoStore:
     # Evidence
 
     def put_evidence(self, record: SourceEvidence) -> None:
+        self._writing()
         ensure_in_scope(self._scope, record)
         self._insert("evidence", record.evidence_id, record)
 
@@ -267,6 +295,7 @@ class MongoStore:
     # Qualifications
 
     def put_qualification(self, decision: QualificationDecision) -> None:
+        self._writing()
         check_qualification(self._scope, decision, self._find_evidence(decision.cited_evidence_ids))
         self._insert("qualifications", decision.decision_id, decision)
 
@@ -281,6 +310,7 @@ class MongoStore:
     # Artifacts
 
     def put_artifact(self, artifact: Artifact) -> None:
+        self._writing()
         ensure_in_scope(self._scope, artifact)
         key = _artifact_key(artifact.ref)
         stored = self._find_one("artifacts", Artifact, {"_id": key})
@@ -331,6 +361,7 @@ class MongoStore:
     # Approvals
 
     def put_approval(self, approval: HumanApproval) -> None:
+        self._writing()
         try:
             artifact: Artifact | None = self.get_artifact(approval.artifact)
         except RecordNotFound:
@@ -376,6 +407,7 @@ class MongoStore:
         return Appended(stored, created=False)
 
     def append_event(self, event: OperationalEvent) -> Appended:
+        self._writing()
         ensure_in_scope(self._scope, event)
         existing = self._by_key(event)
         if existing is not None:

@@ -177,3 +177,19 @@ def test_project_writes_a_stores_tabs_as_csv_or_to_its_sheet(
         assert "auggie: accounts, auggie: findings" in capsys.readouterr().out
     assert sheets.tabs["auggie: accounts"][1][:2] == ["acc-northstar", "qualified"]
     assert sheets.tabs["Notes"] == [["keep me"]]
+
+
+def test_project_stops_on_a_store_that_does_not_exist(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sheets = MemorySheets()
+    monkeypatch.setattr(cli, "sheets_api", lambda scope, credentials: sheets)
+    with mongo_backend() as backend:
+        run_scenario(NORTHSTAR, backend=backend)
+        mistyped = ["--mongodb", os.environ[MONGODB_URI], "--database-prefix", "typo_"]
+        sheet = ["--spreadsheet", "synthetic-spreadsheet-0000000001"]
+        online = scope_file(tmp_path, external=True)
+        assert main(["project", str(online), *mistyped, *sheet]) == 1
+        assert "stopped   RecordNotFound: no store" in capsys.readouterr().out
+        assert "typo_auggie_demo_msp" not in backend._client.list_database_names()
+    assert sheets.calls == []

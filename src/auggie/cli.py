@@ -300,12 +300,18 @@ def run_scenario_command(args: argparse.Namespace, out: Print) -> int:
 def project_command(args: argparse.Namespace, out: Print) -> int:
     """Project a scope's MongoDB Store, read-only, into CSV files or its Google Sheet."""
     from pydantic import ValidationError
-    from pymongo import MongoClient
-    from pymongo.errors import PyMongoError
 
     from auggie.credentials import CredentialError, CredentialFiles
     from auggie.external import ExternalCallRefused
-    from auggie.store.mongodb import MongoBackend
+
+    try:
+        from pymongo import MongoClient
+        from pymongo.errors import PyMongoError
+
+        from auggie.store.mongodb import MongoBackend
+    except ImportError:
+        out("stopped   reading a MongoDB Store needs the extra: auggie-harness[mongodb]")
+        return 1
 
     try:
         scope = CustomerScope.model_validate_json(args.scope.read_text(encoding="utf-8"))
@@ -314,7 +320,8 @@ def project_command(args: argparse.Namespace, out: Print) -> int:
         return 1
     client: MongoClient[dict[str, Any]] = MongoClient(args.mongodb, serverSelectionTimeoutMS=5000)
     try:
-        store = MongoBackend(client, database_prefix=args.database_prefix).open(scope)
+        backend = MongoBackend(client, database_prefix=args.database_prefix)
+        store = backend.open_existing(scope)
         workbook = project(store)
     except (PyMongoError, ScopeViolation, StoreError) as error:
         out(f"stopped   {type(error).__name__}: {error}")
@@ -343,9 +350,9 @@ def project_command(args: argparse.Namespace, out: Print) -> int:
 
 def sheets_api(scope: CustomerScope, credentials: CredentialFiles) -> SheetsApi:
     """The Sheets API that project writes through; tests replace it."""
-    from auggie.projections.sheets import GoogleSheetsApi, service_account_session
+    from auggie.projections.sheets import GoogleSheetsApi, sign_in
 
-    return GoogleSheetsApi(service_account_session(scope, credentials))
+    return GoogleSheetsApi(sign_in(scope, credentials))
 
 
 def treg_fetch(args: argparse.Namespace, out: Print) -> int:

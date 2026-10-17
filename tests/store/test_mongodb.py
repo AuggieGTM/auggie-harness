@@ -13,6 +13,7 @@ from pymongo.database import Database
 from pymongo.errors import DuplicateKeyError, WriteError
 
 from auggie.contracts import Artifact, CustomerScope, OperationalEvent, ScopeViolation
+from auggie.store import RecordNotFound, StoreError
 from auggie.store.mongodb import MongoBackend
 from tests.conftest import MONGODB_URI, Scenario, mongo_backend, variant
 
@@ -188,3 +189,37 @@ def other_scope() -> CustomerScope:
         credential_namespace="demo-other",
         knowledge_namespace="demo-other-strategy",
     )
+
+
+def test_open_existing_reads_without_creating_or_changing_anything(
+    backend: MongoBackend, scenario: Scenario
+) -> None:
+    fresh = MongoBackend(backend._client, database_prefix=backend.database_prefix)
+    with pytest.raises(RecordNotFound, match="no store"):
+        fresh.open_existing(scenario.scope)
+    name = backend.database_name(scenario.scope)
+    assert name not in backend._client.list_database_names()
+
+    backend.open(scenario.scope).put_evidence(scenario.evidence[0])
+    database = raw(backend, scenario.scope)
+    database.command("collMod", "evidence", validationAction="warn")
+    reader = MongoBackend(backend._client, database_prefix=backend.database_prefix)
+    store = reader.open_existing(scenario.scope)
+    assert store.list_evidence() == (scenario.evidence[0],)
+    assert database["evidence"].options()["validationAction"] == "warn"
+    with pytest.raises(StoreError, match="read-only"):
+        store.put_evidence(scenario.evidence[1])
+    with pytest.raises(StoreError, match="read-only"):
+        store.append_event(scenario.events[0])
+
+
+def test_open_existing_refuses_another_customers_database(
+    backend: MongoBackend, scenario: Scenario
+) -> None:
+    backend.open(scenario.scope)
+    impostor = CustomerScope.model_validate(
+        variant(scenario.scope, customer_id="demo-impostor", credential_namespace="demo-impostor")
+    )
+    reader = MongoBackend(backend._client, database_prefix=backend.database_prefix)
+    with pytest.raises(ScopeViolation, match="belongs to"):
+        reader.open_existing(impostor)
