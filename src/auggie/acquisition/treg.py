@@ -58,6 +58,9 @@ _URL: TypeAdapter[HttpUrl] = TypeAdapter(HttpUrl)
 _RECORD_ID: TypeAdapter[str] = TypeAdapter(RecordId)
 
 
+ECHOED = "The reply contained the request's credential; none of it was kept."
+
+
 class ExternalCallRefused(Exception):
     """The scope does not allow calls to external providers. Nothing was sent."""
 
@@ -213,12 +216,22 @@ class TregPageText:
             "cost_micro_usd": charged,
             "treg_idempotency_key": key,
         }
-        if response is not None:
-            for header, name in (("x-treg-call-id", "treg_call_id"), ("x-treg-cache", "cache")):
-                if response.headers.get(header):
-                    attributes[name] = response.headers[header][:200]
+        echoed = response is not None and _echoes(response, token.reveal())
+        if response is not None and not echoed:
+            for header, name, allowed in (
+                ("x-treg-call-id", "treg_call_id", r"[A-Za-z0-9_.:-]{1,200}"),
+                ("x-treg-cache", "cache", r"[a-z-]{1,20}"),
+            ):
+                value = response.headers.get(header, "")
+                if re.fullmatch(allowed, value):
+                    attributes[name] = value
 
-        status, details = _read(response, str(page), observed_at)
+        status: RetrievalStatus
+        details: dict[str, Any]
+        if echoed:
+            status, details = "failed", {"reason": ECHOED}
+        else:
+            status, details = _read(response, str(page), observed_at)
         retrieved = status == "retrieved"
         text: str = details.get("text", "")
         evidence = SourceEvidence(
@@ -236,6 +249,19 @@ class TregPageText:
             failure_reason=None if retrieved else details["reason"],
         )
         return Acquired(evidence, attributes)
+
+
+def _echoes(response: HttpResponse, secret: str) -> bool:
+    """Whether the reply repeats the credential anywhere: headers, raw body or decoded JSON."""
+    if any(secret in value for value in response.headers.values()):
+        return True
+    if secret.encode() in response.body:
+        return True
+    try:
+        decoded = json.dumps(json.loads(response.body), ensure_ascii=False)
+    except (ValueError, RecursionError):
+        return False
+    return secret in decoded
 
 
 def _charge(response: HttpResponse | None) -> int | None:
@@ -270,7 +296,7 @@ def _read(
         return failed("The response was larger than the adapter accepts.")
     try:
         body = json.loads(response.body)
-    except ValueError:
+    except (ValueError, RecursionError):
         return failed("The response was not valid JSON.")
     if not isinstance(body, dict):
         return failed("The response was not a JSON object.")
@@ -281,7 +307,10 @@ def _read(
     statuses = body.get("statuses")
     statuses = [] if statuses is None else statuses
     results = body.get("results")
-    if not isinstance(statuses, list) or not all(isinstance(s, dict) for s in statuses):
+    if not isinstance(statuses, list) or not all(
+        isinstance(s, dict) and isinstance(s.get("id"), str) and isinstance(s.get("status"), str)
+        for s in statuses
+    ):
         return failed("The response's statuses were malformed.")
     if not isinstance(results, list) or not all(isinstance(r, dict) for r in results):
         return failed("The response's results were malformed.")

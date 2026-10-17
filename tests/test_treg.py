@@ -491,3 +491,78 @@ def test_a_redirect_is_never_followed() -> None:
     finally:
         server.shutdown()
         server.server_close()
+
+
+# Recheck findings: status rows, nesting, and a reply that echoes the token
+
+
+@pytest.mark.parametrize(
+    "row",
+    [
+        {"status": "error"},
+        {"id": [CAREERS], "status": "error"},
+        {"id": CAREERS},
+        {"id": CAREERS, "status": 1},
+    ],
+    ids=["no-id", "list-id", "no-status", "number-status"],
+)
+def test_a_malformed_status_row_fails_the_retrieval(
+    row: dict[str, Any], scope: CustomerScope, credentials: CredentialFiles
+) -> None:
+    body = {"statuses": [row], "results": [{"id": CAREERS, "text": "Northstar Works page."}]}
+    response = HttpResponse(200, {"x-treg-cost-micro": "1000"}, json.dumps(body).encode())
+    evidence = fetch(adapter(scope, credentials, Replay(response))).evidence
+    assert evidence.status == "failed" and "statuses were malformed" in (
+        evidence.failure_reason or ""
+    )
+
+
+def test_deeply_nested_json_is_a_failed_retrieval(
+    scope: CustomerScope, credentials: CredentialFiles
+) -> None:
+    raw = b'{"extra": ' + b"[" * 20_000 + b"]" * 20_000 + b"}"
+    budget = RunBudget.for_scope(scope)
+    response = HttpResponse(200, {"x-treg-cost-micro": "1000"}, raw)
+    evidence = fetch(adapter(scope, credentials, Replay(response), budget)).evidence
+    assert evidence.status == "failed" and "not valid JSON" in (evidence.failure_reason or "")
+    assert budget.spent_micro_usd == 1000
+
+
+def echoing(where: str) -> HttpResponse:
+    body = json.loads((REPLIES / "page-text.json").read_text())["body"]
+    headers = {"x-treg-cost-micro": "1000", "x-treg-call-id": "call-synthetic-0300"}
+    if where == "request-id":
+        body["requestId"] = TOKEN_VALUE
+    elif where == "text":
+        body["results"][0]["text"] += f" Debug: {TOKEN_VALUE}"
+    elif where == "escaped-text":
+        body["results"][0]["text"] += " Debug: " + TOKEN_VALUE.replace("-", "\\u002d")
+    elif where == "error-tag":
+        body["statuses"] = [{"id": CAREERS, "status": "error", "error": {"tag": TOKEN_VALUE}}]
+    elif where == "header":
+        headers["x-treg-cache"] = TOKEN_VALUE
+    raw = json.dumps(body).replace("\\\\u002d", "\\u002d").encode()
+    return HttpResponse(200, headers, raw)
+
+
+@pytest.mark.parametrize("where", ["request-id", "text", "escaped-text", "error-tag", "header"])
+def test_a_reply_that_echoes_the_token_keeps_nothing_from_it(
+    where: str, scope: CustomerScope, credentials: CredentialFiles
+) -> None:
+    acquired = fetch(adapter(scope, credentials, Replay(echoing(where))))
+    evidence = acquired.evidence
+    assert evidence.status == "failed"
+    assert "contained the request's credential" in (evidence.failure_reason or "")
+    assert evidence.excerpt is None and evidence.provider_request_id is None
+    assert "treg_call_id" not in acquired.attributes and "cache" not in acquired.attributes
+    assert TOKEN_VALUE not in evidence.model_dump_json() + json.dumps(dict(acquired.attributes))
+    assert acquired.attributes["cost_micro_usd"] == 1000
+
+
+def test_only_plain_call_ids_and_cache_states_are_kept(
+    scope: CustomerScope, credentials: CredentialFiles
+) -> None:
+    case = reply("page-text.json")
+    odd = {**case.headers, "x-treg-call-id": "call <script>", "x-treg-cache": "MISS; extra"}
+    acquired = fetch(adapter(scope, credentials, Replay(HttpResponse(200, odd, case.body))))
+    assert "treg_call_id" not in acquired.attributes and "cache" not in acquired.attributes
