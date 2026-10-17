@@ -15,7 +15,7 @@ recorded evidence, not when its code is written. Status labels: **Done**, **In r
 **Gate:** checks pass (pytest, ruff, mypy); maintainer accepts or amends ADR 0012; repository
 reviewed for public-boundary compliance before the first push.
 
-## M1: Store kernel (In review)
+## M1: Store kernel (Done)
 
 - A typed Store API for the M0 contracts, bound to one `CustomerScope`. *Exists.*
 - An in-memory reference implementation and a MongoDB Community implementation (local
@@ -31,7 +31,7 @@ reviewed for public-boundary compliance before the first push.
 **Gate:** both implementations pass the same suite; cross-scope reads and writes are rejected;
 the MongoDB implementation runs only through the Store API.
 
-## M2: Synthetic vertical slice (In review)
+## M2: Synthetic vertical slice (Done)
 
 Research → validate evidence → qualify → draft → human approval → simulated delivery → record
 outcome, running through the Store with fixture adapters and no network access.
@@ -46,16 +46,18 @@ delivery approval, cross-scope record.
 **Decisions:** strategy file format ([ADR 0013](docs/adr/0013-strategy-files.md)) and artifact
 contract ([ADR 0014](docs/adr/0014-artifact-contract.md)), both Accepted.
 
-## M3: First live routes (Planned)
+## M3: First live routes (Next)
 
 - One Treg acquisition route ([ADR 0008](docs/adr/0008-treg-for-acquisition.md)).
-- A judgment engine chosen ([ADR 0009](docs/adr/0009-judgment-and-synthesis-engines.md)).
+- A judgment engine chosen ([ADR 0009](docs/adr/0009-judgment-and-synthesis-engines.md)). *Decided:
+  rules for judgment, templates for synthesis.*
 - Read-only Sheets/Docs projection.
 - Delivery stays simulated.
 
 **Gate:** per-customer credentials; provider spend bounded per run; no live delivery.
 **Decision needed first:** the task scheduler ([ADR 0007](docs/adr/0007-single-task-scheduler.md)),
-if any work must run in the background.
+if any work must run in the background. *M3 runs stay operator-triggered from the CLI, so ADR 0007
+can stay open.*
 
 ## M4: Proven in real deployments (Planned)
 

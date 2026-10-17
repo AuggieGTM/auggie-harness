@@ -1,8 +1,8 @@
 # Architecture
 
 > **Status: early, synthetic only.** The contracts, the Store (in-memory and MongoDB) and the
-> first vertical slice exist and run on synthetic fixtures. Every component below is labeled **Exists**, **Proposed** (recommended, not yet accepted or built) or **Open**
-> (unresolved). Decisions are recorded in [`docs/adr/`](adr/README.md).
+> first vertical slice exist and run on synthetic fixtures. Every component below is labeled
+> **Exists**, **Proposed** (recommended, not yet accepted or built) or **Open** (unresolved). Decisions are recorded in [`docs/adr/`](adr/README.md).
 
 ## Purpose
 
@@ -85,7 +85,7 @@ flowchart TB
 flowchart LR
   G[(GitHub: approved strategy)] --> S
   T[Treg acquisition adapter] --> S
-  J[Judgment: rules / Jev / OpenRouter] --> S
+  J[Judgment: rules; synthesis: templates] --> S
   S[Typed Store API] --> M[(MongoDB Community, per customer)]
   S --> P[Projections: Sheets / Docs]
   S --> DA[Delivery adapter] --> E[EmailBison / Instantly]
@@ -98,7 +98,7 @@ flowchart LR
 | Store API | The only path to operational data; typed operations; scope-bound | **Exists**: in-memory and MongoDB |
 | MongoDB Community | Per-customer operational database behind the Store | **Exists** for synthetic runs ([0015](adr/0015-mongodb-store-layout.md)) |
 | Acquisition (Treg) | Data acquisition, recorded as `SourceEvidence` | Accepted, not built ([0008](adr/0008-treg-for-acquisition.md)) |
-| Judgment and synthesis | Deterministic rules, Jev and OpenRouter under evaluation | **Open** ([0009](adr/0009-judgment-and-synthesis-engines.md)) |
+| Judgment and synthesis | Deterministic rules and play templates; model engines only after evaluation | **Exists** ([0009](adr/0009-judgment-and-synthesis-engines.md)) |
 | Task scheduler | Exactly one; Herdr or Foreman | **Open** ([0007](adr/0007-single-task-scheduler.md)) |
 | Delivery adapter | Thin hand-off to EmailBison/Instantly; simulated first | Simulated gate exists; platforms not built ([0006](adr/0006-delivery-through-existing-platforms.md)) |
 | Projections | Sheets/Docs views generated from the Store | Accepted, not built ([0003](adr/0003-systems-of-record.md)) |
@@ -157,7 +157,7 @@ src/auggie/
   strategy.py    Exists    load a TOML strategy file pinned to its exact bytes
   accounts.py    Exists    account and recipient inputs
   acquisition/   Exists    fixture replay and evidence validation; Treg adapter proposed
-  judgment/      Exists    deterministic rules behind the Qualifier interface (ADR 0009 open)
+  judgment/      Exists    deterministic rules behind the Qualifier interface (ADR 0009)
   compose/       Exists    draft composition from strategy play templates; briefs proposed
   approval/      Exists    recording a reviewer's decision; review workflow proposed
   delivery/      Exists    authorization gate, simulated only; EmailBison/Instantly later
@@ -176,7 +176,7 @@ Scheduler integration has no package until ADR 0007 is decided.
 These have no decision yet. Each needs an ADR before work depends on it.
 
 - Task scheduler: Herdr or Foreman ([ADR 0007](adr/0007-single-task-scheduler.md)).
-- Judgment and synthesis engines, and calibration thresholds for Jev
+- Whether a model engine (Jev, OpenRouter) ever earns a place, and its calibration thresholds
   ([ADR 0009](adr/0009-judgment-and-synthesis-engines.md)).
 - Per-customer deployment topology and sizing.
 - Authentication and usage terms for provider CLIs in production.

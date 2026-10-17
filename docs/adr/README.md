@@ -21,7 +21,7 @@ behavior or the public boundary. The process is described in
 | [0006](0006-delivery-through-existing-platforms.md) | Deliver through existing sending platforms; no SMTP | Accepted |
 | [0007](0007-single-task-scheduler.md) | One task scheduler: Herdr or Foreman | Open |
 | [0008](0008-treg-for-acquisition.md) | Treg for data acquisition, behind an adapter | Accepted |
-| [0009](0009-judgment-and-synthesis-engines.md) | Judgment and synthesis engines | Open |
+| [0009](0009-judgment-and-synthesis-engines.md) | Judgment and synthesis engines | Accepted |
 | [0010](0010-public-repository-boundary.md) | Public repository boundary | Accepted |
 | [0011](0011-sageox-engineering-context.md) | SageOx holds engineering context, not customer intelligence | Accepted |
 | [0012](0012-contract-conventions.md) | Contract conventions and development checks | Accepted |
