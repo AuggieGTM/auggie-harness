@@ -1,29 +1,12 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from typing import Any
 
 import pytest
 from pydantic import ValidationError
 
-from auggie.contracts import Actor, Artifact, sha256_digest
-from tests.conftest import NORTHSTAR, Scenario, variant
-
-
-@pytest.fixture
-def draft(scenario: Scenario) -> Artifact:
-    return Artifact(
-        customer_id=scenario.scope.customer_id,
-        ref=scenario.draft.artifact,
-        content=(NORTHSTAR / scenario.draft.file).read_text(encoding="utf-8"),
-        account_id=scenario.qualification.account_id,
-        recipient_id=scenario.draft.recipient_id,
-        qualification_id=scenario.qualification.decision_id,
-        evidence_ids=("ev-northstar-careers", "ev-northstar-technology"),
-        strategy=scenario.qualification.strategy,
-        composed_by=Actor(kind="service", id="fixture-composer", version="0"),
-        composed_at=datetime(2026, 10, 14, 16, 10, tzinfo=UTC),
-    )
+from auggie.contracts import Artifact, sha256_digest
+from tests.conftest import variant
 
 
 def edited(draft: Artifact, content: str, **changes: Any) -> dict[str, Any]:

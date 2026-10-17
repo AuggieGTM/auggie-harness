@@ -20,6 +20,7 @@ from auggie.contracts.qualification import (
     Finding,
     QualificationDecision,
     verify_citations,
+    verify_cited_evidence,
 )
 from auggie.contracts.scope import (
     CustomerScope,
@@ -72,4 +73,5 @@ __all__ = [
     "ensure_in_scope",
     "sha256_digest",
     "verify_citations",
+    "verify_cited_evidence",
 ]

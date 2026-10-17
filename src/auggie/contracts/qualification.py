@@ -93,17 +93,33 @@ def verify_citations(decision: QualificationDecision, evidence: Iterable[SourceE
     Cited evidence must belong to the same customer, have been retrieved, and
     (when about an account) be about the account being qualified.
     """
+    verify_cited_evidence(
+        customer_id=decision.customer_id,
+        account_id=decision.account_id,
+        evidence_ids=decision.cited_evidence_ids,
+        evidence=evidence,
+    )
+
+
+def verify_cited_evidence(
+    *,
+    customer_id: str,
+    account_id: str,
+    evidence_ids: Iterable[str],
+    evidence: Iterable[SourceEvidence],
+) -> None:
+    """Raise ``CitationError`` unless each ID names usable evidence about this account."""
     known = {record.evidence_id: record for record in evidence}
     problems: list[str] = []
-    for evidence_id in sorted(decision.cited_evidence_ids):
+    for evidence_id in sorted(set(evidence_ids)):
         record = known.get(evidence_id)
         if record is None:
             problems.append(f"{evidence_id}: not found")
-        elif record.customer_id != decision.customer_id:
+        elif record.customer_id != customer_id:
             problems.append(f"{evidence_id}: belongs to another customer")
         elif not record.usable:
             problems.append(f"{evidence_id}: {record.status}, cannot support a finding")
-        elif record.subject.kind == "account" and record.subject.id != decision.account_id:
+        elif record.subject.kind == "account" and record.subject.id != account_id:
             problems.append(f"{evidence_id}: about a different account")
     if problems:
         raise CitationError("; ".join(problems))
