@@ -12,7 +12,7 @@ from pymongo import MongoClient
 from pymongo.database import Database
 from pymongo.errors import DuplicateKeyError, WriteError
 
-from auggie.contracts import Artifact, CustomerScope, ScopeViolation
+from auggie.contracts import Artifact, CustomerScope, OperationalEvent, ScopeViolation
 from auggie.store.mongodb import MongoBackend
 from tests.conftest import MONGODB_URI, Scenario, mongo_backend, variant
 
@@ -119,6 +119,16 @@ def test_records_of_another_customer_are_never_returned(
         store.get_evidence("ev-foreign")
     with pytest.raises(ScopeViolation, match="demo-other"):
         store.list_evidence()
+    recorded = OperationalEvent.model_validate(
+        variant(
+            scenario.events[1],
+            refs=[{"kind": "evidence", "id": "ev-foreign"}],
+            idempotency_key="evidence.recorded:ev-foreign",
+        )
+    )
+    with pytest.raises(ScopeViolation, match="demo-other"):
+        store.append_event(recorded)
+    assert store.list_events() == ()
 
 
 def test_reopening_restores_the_validator_backstop(
@@ -136,7 +146,7 @@ def test_reopening_restores_the_validator_backstop(
 
 def race_to_open(uri: str, prefix: str, scope: CustomerScope, openers: int) -> list[Exception]:
     """Open ``scope`` from ``openers`` clients at once; separate clients stand in for processes."""
-    start = threading.Barrier(openers)
+    start = threading.Barrier(openers, timeout=30)
     failures: list[Exception] = []
 
     def open_scope() -> None:
@@ -148,14 +158,16 @@ def race_to_open(uri: str, prefix: str, scope: CustomerScope, openers: int) -> l
             own.open(scope)
         except Exception as error:  # collected and reported by the caller
             failures.append(error)
+            start.abort()  # release any opener still waiting, rather than leave it hanging
         finally:
             client.close()
 
-    threads = [threading.Thread(target=open_scope) for _ in range(openers)]
+    threads = [threading.Thread(target=open_scope, daemon=True) for _ in range(openers)]
     for thread in threads:
         thread.start()
     for thread in threads:
-        thread.join()
+        thread.join(timeout=60)
+    assert not any(thread.is_alive() for thread in threads), "an opener never finished"
     return failures
 
 

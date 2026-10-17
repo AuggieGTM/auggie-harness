@@ -353,16 +353,15 @@ class MongoStore:
     # Events
 
     def _exists(self, ref: RecordRef) -> bool:
-        query: Document = {"_id": ref.id}
-        if ref.kind == "artifact":
-            query = {"ref.artifact_id": ref.id}
-        collection = {
-            "evidence": "evidence",
-            "qualification": "qualifications",
-            "artifact": "artifacts",
-            "approval": "approvals",
-        }.get(ref.kind)
-        return collection is not None and self._collection(collection).find_one(query) is not None
+        """Whether ``ref`` names a stored record of this customer. Refuses a foreign one."""
+        lookups: dict[str, tuple[str, type[BaseModel], Document]] = {
+            "evidence": ("evidence", SourceEvidence, {"_id": ref.id}),
+            "qualification": ("qualifications", QualificationDecision, {"_id": ref.id}),
+            "artifact": ("artifacts", Artifact, {"ref.artifact_id": ref.id}),
+            "approval": ("approvals", HumanApproval, {"_id": ref.id}),
+        }
+        lookup = lookups.get(ref.kind)
+        return lookup is not None and self._find_one(*lookup) is not None
 
     def _by_key(self, event: OperationalEvent) -> Appended | None:
         stored = self._find_one(
