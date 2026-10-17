@@ -33,7 +33,13 @@ from auggie.contracts import (
 )
 from auggie.contracts.events import EventType
 from auggie.store import Appended, IntegrityError, RecordConflict, RecordNotFound
-from auggie.store.integrity import check_approval, check_artifact, check_event, check_qualification
+from auggie.store.integrity import (
+    check_approval,
+    check_artifact,
+    check_event,
+    check_qualification,
+    literal,
+)
 
 Document = dict[str, Any]
 
@@ -237,7 +243,9 @@ class MongoStore:
         self._insert("evidence", record.evidence_id, record)
 
     def get_evidence(self, evidence_id: str) -> SourceEvidence:
-        record = self._find_one("evidence", SourceEvidence, {"_id": evidence_id})
+        record = self._find_one(
+            "evidence", SourceEvidence, {"_id": literal(evidence_id, "evidence_id")}
+        )
         if record is None:
             raise RecordNotFound(f"evidence {evidence_id!r}")
         return record
@@ -255,7 +263,9 @@ class MongoStore:
         self._insert("qualifications", decision.decision_id, decision)
 
     def get_qualification(self, decision_id: str) -> QualificationDecision:
-        decision = self._find_one("qualifications", QualificationDecision, {"_id": decision_id})
+        decision = self._find_one(
+            "qualifications", QualificationDecision, {"_id": literal(decision_id, "decision_id")}
+        )
         if decision is None:
             raise RecordNotFound(f"qualification {decision_id!r}")
         return decision
@@ -300,12 +310,12 @@ class MongoStore:
 
     def get_artifact(self, ref: ArtifactRef) -> Artifact:
         artifact = self._find_one("artifacts", Artifact, {"_id": _artifact_key(ref)})
-        if artifact is None:
+        if artifact is None or artifact.ref != ref:
             raise RecordNotFound(f"artifact {ref.artifact_id!r} version {ref.content_hash}")
         return artifact
 
     def latest_artifact(self, artifact_id: str) -> Artifact:
-        artifact = self._latest(artifact_id)
+        artifact = self._latest(literal(artifact_id, "artifact_id"))
         if artifact is None:
             raise RecordNotFound(f"artifact {artifact_id!r}")
         return artifact
@@ -313,18 +323,24 @@ class MongoStore:
     # Approvals
 
     def put_approval(self, approval: HumanApproval) -> None:
-        artifact = self._find_one("artifacts", Artifact, {"_id": _artifact_key(approval.artifact)})
+        try:
+            artifact: Artifact | None = self.get_artifact(approval.artifact)
+        except RecordNotFound:
+            artifact = None
         check_approval(self._scope, approval, artifact)
         self._insert("approvals", approval.approval_id, approval)
 
     def get_approval(self, approval_id: str) -> HumanApproval:
-        approval = self._find_one("approvals", HumanApproval, {"_id": approval_id})
+        approval = self._find_one(
+            "approvals", HumanApproval, {"_id": literal(approval_id, "approval_id")}
+        )
         if approval is None:
             raise RecordNotFound(f"approval {approval_id!r}")
         return approval
 
     def list_approvals(self, artifact_id: str) -> tuple[HumanApproval, ...]:
-        return self._find("approvals", HumanApproval, {"artifact.artifact_id": artifact_id})
+        query = {"artifact.artifact_id": literal(artifact_id, "artifact_id")}
+        return self._find("approvals", HumanApproval, query)
 
     # Events
 
@@ -376,7 +392,7 @@ class MongoStore:
     ) -> tuple[OperationalEvent, ...]:
         query: Document = {}
         if type is not None:
-            query["type"] = type
+            query["type"] = literal(type, "type")
         if run_id is not None:
-            query["run_id"] = run_id
+            query["run_id"] = literal(run_id, "run_id")
         return self._find("events", OperationalEvent, query)

@@ -22,6 +22,17 @@ STORED_KINDS = frozenset({"evidence", "qualification", "artifact", "approval"})
 """Record kinds the Store holds. Event refs to these must resolve; others name outside records."""
 
 
+def literal(value: object, what: str) -> str:
+    """Return ``value`` if it is a plain string.
+
+    IDs and filters reach a database as literal values, never as query
+    objects, whatever a caller passes despite the type hints.
+    """
+    if not isinstance(value, str):
+        raise TypeError(f"{what} must be a string, not {type(value).__name__}")
+    return value
+
+
 def check_qualification(
     scope: CustomerScope, decision: QualificationDecision, cited: Iterable[SourceEvidence]
 ) -> None:

@@ -7,11 +7,13 @@ Add an implementation as a ``backend`` fixture parameter. The MongoDB runs need
 from __future__ import annotations
 
 from collections.abc import Iterator
+from typing import Any
 
 import pytest
 
 from auggie.contracts import (
     Artifact,
+    ArtifactRef,
     CitationError,
     CustomerScope,
     HumanApproval,
@@ -361,3 +363,37 @@ def test_lists_filter_and_keep_write_order(
     subject = scenario.evidence[0].subject
     assert store.list_evidence(subject=subject) == scenario.evidence
     assert store.list_approvals("draft-elsewhere") == ()
+
+
+def test_an_artifact_is_found_only_by_its_exact_ref(
+    store: Store, scenario: Scenario, draft: Artifact
+) -> None:
+    load(store, scenario, draft)
+    as_brief = variant(draft.ref, kind="brief")
+    with pytest.raises(RecordNotFound):
+        store.get_artifact(ArtifactRef.model_validate(as_brief))
+    approval = variant(scenario.approvals[0], approval_id="apr-brief", artifact=as_brief)
+    with pytest.raises(IntegrityError, match="has no version"):
+        store.put_approval(HumanApproval.model_validate(approval))
+
+
+@pytest.mark.parametrize(
+    "lookup",
+    ["get_evidence", "get_qualification", "latest_artifact", "get_approval", "list_approvals"],
+)
+def test_lookups_take_literal_ids_only(
+    store: Store, scenario: Scenario, draft: Artifact, lookup: str
+) -> None:
+    load(store, scenario, draft)
+    with pytest.raises(TypeError, match="must be a string"):
+        getattr(store, lookup)({"$ne": None})
+
+
+@pytest.mark.parametrize("name", ["type", "run_id"])
+def test_event_filters_take_literal_values_only(
+    store: Store, scenario: Scenario, draft: Artifact, name: str
+) -> None:
+    load(store, scenario, draft)
+    query_object: dict[str, Any] = {name: {"$ne": None}}  # what an unchecked caller might pass
+    with pytest.raises(TypeError, match="must be a string"):
+        store.list_events(**query_object)

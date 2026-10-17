@@ -27,7 +27,13 @@ from auggie.contracts import (
 )
 from auggie.contracts.events import EventType
 from auggie.store import Appended, RecordConflict, RecordNotFound
-from auggie.store.integrity import check_approval, check_artifact, check_event, check_qualification
+from auggie.store.integrity import (
+    check_approval,
+    check_artifact,
+    check_event,
+    check_qualification,
+    literal,
+)
 
 
 @dataclass
@@ -96,7 +102,7 @@ class InMemoryStore:
         _put(self._data.evidence, record.evidence_id, record)
 
     def get_evidence(self, evidence_id: str) -> SourceEvidence:
-        stored = self._data.evidence.get(evidence_id)
+        stored = self._data.evidence.get(literal(evidence_id, "evidence_id"))
         if stored is None:
             raise RecordNotFound(f"evidence {evidence_id!r}")
         return _load(SourceEvidence, stored)
@@ -119,7 +125,7 @@ class InMemoryStore:
         _put(self._data.qualifications, decision.decision_id, decision)
 
     def get_qualification(self, decision_id: str) -> QualificationDecision:
-        stored = self._data.qualifications.get(decision_id)
+        stored = self._data.qualifications.get(literal(decision_id, "decision_id"))
         if stored is None:
             raise RecordNotFound(f"qualification {decision_id!r}")
         return _load(QualificationDecision, stored)
@@ -155,7 +161,7 @@ class InMemoryStore:
         raise RecordNotFound(f"artifact {ref.artifact_id!r} version {ref.content_hash}")
 
     def latest_artifact(self, artifact_id: str) -> Artifact:
-        versions = self._data.artifacts.get(artifact_id)
+        versions = self._data.artifacts.get(literal(artifact_id, "artifact_id"))
         if not versions:
             raise RecordNotFound(f"artifact {artifact_id!r}")
         return _load(Artifact, versions[-1])
@@ -171,12 +177,13 @@ class InMemoryStore:
         _put(self._data.approvals, approval.approval_id, approval)
 
     def get_approval(self, approval_id: str) -> HumanApproval:
-        stored = self._data.approvals.get(approval_id)
+        stored = self._data.approvals.get(literal(approval_id, "approval_id"))
         if stored is None:
             raise RecordNotFound(f"approval {approval_id!r}")
         return _load(HumanApproval, stored)
 
     def list_approvals(self, artifact_id: str) -> tuple[HumanApproval, ...]:
+        literal(artifact_id, "artifact_id")
         approvals = (_load(HumanApproval, data) for data in self._data.approvals.values())
         return tuple(a for a in approvals if a.artifact.artifact_id == artifact_id)
 
@@ -212,6 +219,10 @@ class InMemoryStore:
     def list_events(
         self, *, type: EventType | None = None, run_id: str | None = None
     ) -> tuple[OperationalEvent, ...]:
+        if type is not None:
+            literal(type, "type")
+        if run_id is not None:
+            literal(run_id, "run_id")
         events = (_load(OperationalEvent, data) for data in self._data.events)
         return tuple(
             e
