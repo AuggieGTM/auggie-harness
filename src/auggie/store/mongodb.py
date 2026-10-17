@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from pymongo import ASCENDING, DESCENDING, MongoClient, ReturnDocument
 from pymongo.collection import Collection
 from pymongo.database import Database
-from pymongo.errors import CollectionInvalid, DuplicateKeyError
+from pymongo.errors import CollectionInvalid, DuplicateKeyError, OperationFailure
 
 from auggie.contracts import (
     Artifact,
@@ -42,6 +42,9 @@ from auggie.store.integrity import (
 )
 
 Document = dict[str, Any]
+
+NAMESPACE_EXISTS = 48
+"""MongoDB's error code when a collection is created twice with different options."""
 
 RECORD_COLLECTIONS = ("evidence", "qualifications", "artifacts", "approvals", "events")
 
@@ -159,6 +162,11 @@ def _prepare(database: Database[Document], scope: CustomerScope) -> None:
         try:
             database.create_collection(name, **options)
         except CollectionInvalid:
+            database.command("collMod", name, **options)
+        except OperationFailure as error:
+            # Another process created it between PyMongo's existence check and ours.
+            if error.code != NAMESPACE_EXISTS:
+                raise
             database.command("collMod", name, **options)
     for name, fields, unique in INDEXES:
         database[name].create_index([(field, ASCENDING) for field in fields], unique=unique)

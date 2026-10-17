@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
+import os
+import threading
 from collections.abc import Iterator
 from typing import Any
 
 import pytest
+from pymongo import MongoClient
 from pymongo.database import Database
 from pymongo.errors import DuplicateKeyError, WriteError
 
 from auggie.contracts import Artifact, CustomerScope, ScopeViolation
 from auggie.store.mongodb import MongoBackend
-from tests.conftest import Scenario, mongo_backend, variant
+from tests.conftest import MONGODB_URI, Scenario, mongo_backend, variant
 
 
 @pytest.fixture
@@ -129,3 +132,47 @@ def test_reopening_restores_the_validator_backstop(
     assert (options["validationAction"], options["validationLevel"]) == ("error", "strict")
     with pytest.raises(WriteError, match="Document failed validation"):
         database["evidence"].insert_one(foreign_evidence(scenario))
+
+
+def race_to_open(uri: str, prefix: str, scope: CustomerScope, openers: int) -> list[Exception]:
+    """Open ``scope`` from ``openers`` clients at once; separate clients stand in for processes."""
+    start = threading.Barrier(openers)
+    failures: list[Exception] = []
+
+    def open_scope() -> None:
+        client: MongoClient[dict[str, Any]] = MongoClient(uri, serverSelectionTimeoutMS=5000)
+        try:
+            own = MongoBackend(client, database_prefix=prefix)
+            client.admin.command("ping")
+            start.wait()
+            own.open(scope)
+        except Exception as error:  # collected and reported by the caller
+            failures.append(error)
+        finally:
+            client.close()
+
+    threads = [threading.Thread(target=open_scope) for _ in range(openers)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    return failures
+
+
+def test_many_processes_can_open_a_fresh_database_at_once(
+    backend: MongoBackend, scenario: Scenario, other_scope: CustomerScope
+) -> None:
+    for scope in (scenario.scope, other_scope):
+        assert race_to_open(os.environ[MONGODB_URI], backend.database_prefix, scope, 8) == []
+        assert backend.open(scope).list_events() == ()
+
+
+@pytest.fixture
+def other_scope() -> CustomerScope:
+    return CustomerScope(
+        customer_id="demo-other",
+        synthetic=True,
+        data_namespace="auggie_demo_other",
+        credential_namespace="demo-other",
+        knowledge_namespace="demo-other-strategy",
+    )
