@@ -48,13 +48,16 @@ contract ([ADR 0014](docs/adr/0014-artifact-contract.md)), both Accepted.
 
 ## M3: First live routes (Next)
 
-- One Treg acquisition route ([ADR 0008](docs/adr/0008-treg-for-acquisition.md)).
+- One Treg acquisition route ([ADR 0008](docs/adr/0008-treg-for-acquisition.md)). *Decided:
+  `exa.web.contents.get` over HTTP, one Treg organization per customer
+  ([ADR 0017](docs/adr/0017-first-treg-route.md)).*
 - A judgment engine chosen ([ADR 0009](docs/adr/0009-judgment-and-synthesis-engines.md)). *Decided:
   rules for judgment, templates for synthesis.*
 - Read-only Sheets/Docs projection.
 - Delivery stays simulated.
 
-**Gate:** per-customer credentials; provider spend bounded per run; no live delivery.
+**Gate:** per-customer credentials; provider spend bounded per run; no live delivery. *Credential
+files and the per-run spend limit are decided ([ADR 0016](docs/adr/0016-credentials-and-spend-limits.md)).*
 **Decision needed first:** the task scheduler ([ADR 0007](docs/adr/0007-single-task-scheduler.md)),
 if any work must run in the background. *M3 runs stay operator-triggered from the CLI, so ADR 0007
 can stay open.*

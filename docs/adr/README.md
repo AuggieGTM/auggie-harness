@@ -28,3 +28,5 @@ behavior or the public boundary. The process is described in
 | [0013](0013-strategy-files.md) | Strategy files are TOML, one file per revision | Accepted |
 | [0014](0014-artifact-contract.md) | One artifact contract for briefs and drafts | Accepted |
 | [0015](0015-mongodb-store-layout.md) | MongoDB Store layout | Accepted |
+| [0016](0016-credentials-and-spend-limits.md) | Per-customer credentials and run spend limits | Accepted |
+| [0017](0017-first-treg-route.md) | First Treg route: page text over HTTP | Accepted |

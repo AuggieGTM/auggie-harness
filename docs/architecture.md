@@ -2,7 +2,8 @@
 
 > **Status: early, synthetic only.** The contracts, the Store (in-memory and MongoDB) and the
 > first vertical slice exist and run on synthetic fixtures. Every component below is labeled
-> **Exists**, **Proposed** (recommended, not yet accepted or built) or **Open** (unresolved). Decisions are recorded in [`docs/adr/`](adr/README.md).
+> **Exists**, **Proposed** (recommended, not yet accepted or built) or **Open** (unresolved).
+> Decisions are recorded in [`docs/adr/`](adr/README.md).
 
 ## Purpose
 
@@ -97,7 +98,7 @@ flowchart LR
 | Contracts | Shared, versioned data shapes and invariants | **Exists** |
 | Store API | The only path to operational data; typed operations; scope-bound | **Exists**: in-memory and MongoDB |
 | MongoDB Community | Per-customer operational database behind the Store | **Exists** for synthetic runs ([0015](adr/0015-mongodb-store-layout.md)) |
-| Acquisition (Treg) | Data acquisition, recorded as `SourceEvidence` | Accepted, not built ([0008](adr/0008-treg-for-acquisition.md)) |
+| Acquisition (Treg) | Data acquisition, recorded as `SourceEvidence` | First route decided, not built ([0008](adr/0008-treg-for-acquisition.md), [0017](adr/0017-first-treg-route.md)) |
 | Judgment and synthesis | Deterministic rules and play templates; model engines only after evaluation | **Exists** ([0009](adr/0009-judgment-and-synthesis-engines.md)) |
 | Task scheduler | Exactly one; Herdr or Foreman | **Open** ([0007](adr/0007-single-task-scheduler.md)) |
 | Delivery adapter | Thin hand-off to EmailBison/Instantly; simulated first | Simulated gate exists; platforms not built ([0006](adr/0006-delivery-through-existing-platforms.md)) |
@@ -179,7 +180,8 @@ These have no decision yet. Each needs an ADR before work depends on it.
 - Whether a model engine (Jev, OpenRouter) ever earns a place, and its calibration thresholds
   ([ADR 0009](adr/0009-judgment-and-synthesis-engines.md)).
 - Per-customer deployment topology and sizing.
-- Authentication and usage terms for provider CLIs in production.
+- Authentication and usage terms for provider CLIs in production, and Treg's and Exa's
+  retention terms for fetched content ([ADR 0017](adr/0017-first-treg-route.md)).
 - Google token refresh, and how approvals made in Sheets/Docs come back as proposals.
 - Customer data ownership, retention and offboarding.
 - Backup, restore and monitoring.
