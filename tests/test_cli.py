@@ -8,7 +8,9 @@ import pytest
 
 from auggie import cli
 from auggie.cli import main
+from auggie.synthetic import run_scenario
 from tests.conftest import MONGODB_URI, NORTHSTAR, mongo_backend
+from tests.test_sheets import MemorySheets
 from tests.test_treg import CAREERS, TOKEN_VALUE, Replay, reply
 
 
@@ -136,3 +138,42 @@ def test_treg_fetch_refuses_an_invalid_url_before_calling(
     )
     assert "stopped   the URL is not a valid http(s) URL" in capsys.readouterr().out
     assert replay.requests == []
+
+
+def test_run_can_export_the_projection_as_csv(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main(["run", str(NORTHSTAR), "--csv", str(tmp_path / "out")]) == 0
+    assert "accounts.csv, findings.csv, evidence.csv, drafts.csv" in capsys.readouterr().out
+    accounts = (tmp_path / "out" / "accounts.csv").read_text(encoding="utf-8").splitlines()
+    assert accounts[1].startswith("acc-northstar,qualified,")
+
+
+def scope_file(tmp_path: Path, *, external: bool) -> Path:
+    scope = json.loads((NORTHSTAR / "inputs/inputs.json").read_text(encoding="utf-8"))["scope"]
+    scope["execution"] = {"delivery": "simulated", "external_providers": external}
+    path = tmp_path / "scope.json"
+    path.write_text(json.dumps(scope), encoding="utf-8")
+    return path
+
+
+def test_project_writes_a_stores_tabs_as_csv_or_to_its_sheet(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sheets = MemorySheets()
+    monkeypatch.setattr(cli, "sheets_api", lambda scope, credentials: sheets)
+    with mongo_backend() as backend:
+        run_scenario(NORTHSTAR, backend=backend)
+        store = ["--mongodb", os.environ[MONGODB_URI], "--database-prefix", backend.database_prefix]
+        offline = scope_file(tmp_path, external=False)
+        assert main(["project", str(offline), *store, "--csv", str(tmp_path / "csv")]) == 0
+        assert "Projected 9 rows" in capsys.readouterr().out
+        sheet = ["--spreadsheet", "synthetic-spreadsheet-0000000001"]
+        assert main(["project", str(offline), *store, *sheet]) == 1
+        assert "stopped   ExternalCallRefused" in capsys.readouterr().out
+        assert sheets.calls == []
+        online = scope_file(tmp_path, external=True)
+        assert main(["project", str(online), *store, *sheet]) == 0
+        assert "auggie: accounts, auggie: findings" in capsys.readouterr().out
+    assert sheets.tabs["auggie: accounts"][1][:2] == ["acc-northstar", "qualified"]
+    assert sheets.tabs["Notes"] == [["keep me"]]

@@ -1,6 +1,7 @@
 """Operator commands.
 
 ``auggie run <scenario>`` runs a synthetic scenario and reports each stage.
+``auggie project <scope.json> --mongodb URI`` projects a Store into CSV or its Google Sheet.
 ``auggie treg-fetch <scope.json> <url>`` makes one live, paid Treg call and stores nothing.
 """
 
@@ -22,12 +23,16 @@ from auggie.contracts import (
 from auggie.contracts.qualification import CitationError
 from auggie.delivery import DeliveryBlocked
 from auggie.pipeline import deliver
+from auggie.projections import project
+from auggie.projections.csv import write_csv
 from auggie.store import Backend, Store, StoreError
 from auggie.store.memory import InMemoryBackend
 from auggie.synthetic import ScenarioRun, load_inputs, run_scenario
 
 if TYPE_CHECKING:
     from auggie.acquisition.treg import Transport
+    from auggie.credentials import CredentialFiles
+    from auggie.projections.sheets import SheetsApi
     from auggie.store.mongodb import MongoBackend
 
 Print = Callable[[str], None]
@@ -219,6 +224,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         metavar="PREFIX",
         help="prefix for MongoDB database names, to keep demo and test runs apart",
     )
+    run.add_argument("--csv", type=Path, metavar="DIR", help="also export the projection as CSV")
+    project_ = commands.add_parser(
+        "project", help="project a scope's Store into CSV files or its Google Sheet (read-only)"
+    )
+    project_.add_argument("scope", type=Path, help="JSON file holding the CustomerScope")
+    project_.add_argument("--mongodb", metavar="URI", required=True, help="the Store's MongoDB")
+    project_.add_argument("--database-prefix", default="", metavar="PREFIX")
+    target = project_.add_mutually_exclusive_group(required=True)
+    target.add_argument("--csv", type=Path, metavar="DIR", help="write one CSV file per tab")
+    target.add_argument("--spreadsheet", metavar="ID", help="write the managed tabs of this sheet")
+    project_.add_argument(
+        "--credentials", type=Path, help="credentials root (default: $AUGGIE_CREDENTIALS_DIR)"
+    )
     fetch = commands.add_parser(
         "treg-fetch", help="make one live, paid Treg call for a scope and print what came back"
     )
@@ -232,6 +250,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.command == "treg-fetch":
         return treg_fetch(args, print)
+    if args.command == "project":
+        return project_command(args, print)
     return run_scenario_command(args, print)
 
 
@@ -267,11 +287,65 @@ def run_scenario_command(args: argparse.Namespace, out: Print) -> int:
     report(result, out, show_draft=args.show_draft)
     if mongo is not None:
         out(f"Stored in MongoDB database {mongo.database_name(result.store.scope)}.")
+    if args.csv is not None:
+        files = write_csv(project(result.store), args.csv)
+        out(f"Projected to {args.csv}: {', '.join(path.name for path in files)}.")
     if args.negative:
         out("")
         if not check_negative_paths(args.scenario, out):
             return 1
     return 0
+
+
+def project_command(args: argparse.Namespace, out: Print) -> int:
+    """Project a scope's MongoDB Store, read-only, into CSV files or its Google Sheet."""
+    from pydantic import ValidationError
+    from pymongo import MongoClient
+    from pymongo.errors import PyMongoError
+
+    from auggie.credentials import CredentialError, CredentialFiles
+    from auggie.external import ExternalCallRefused
+    from auggie.store.mongodb import MongoBackend
+
+    try:
+        scope = CustomerScope.model_validate_json(args.scope.read_text(encoding="utf-8"))
+    except (OSError, ValidationError) as error:
+        out(f"stopped   cannot read the scope: {type(error).__name__}")
+        return 1
+    client: MongoClient[dict[str, Any]] = MongoClient(args.mongodb, serverSelectionTimeoutMS=5000)
+    try:
+        store = MongoBackend(client, database_prefix=args.database_prefix).open(scope)
+        workbook = project(store)
+    except (PyMongoError, ScopeViolation, StoreError) as error:
+        out(f"stopped   {type(error).__name__}: {error}")
+        return 1
+    finally:
+        client.close()
+    rows = sum(len(tab) - 1 for tab in workbook.values())
+    if args.csv is not None:
+        files = write_csv(workbook, args.csv)
+        out(f"Projected {rows} rows to {args.csv}: {', '.join(path.name for path in files)}.")
+        return 0
+    try:
+        from auggie.projections.sheets import SheetsError, write_sheet
+    except ImportError:
+        out("stopped   Google Sheets support needs the extra: auggie-harness[google]")
+        return 1
+    try:
+        api = sheets_api(scope, CredentialFiles(args.credentials))
+        written = write_sheet(workbook, scope=scope, spreadsheet_id=args.spreadsheet, api=api)
+    except (ExternalCallRefused, CredentialError, SheetsError, ValueError) as error:
+        out(f"stopped   {type(error).__name__}: {error}")
+        return 1
+    out(f"Projected {rows} rows to the sheet's tabs: {', '.join(written)}.")
+    return 0
+
+
+def sheets_api(scope: CustomerScope, credentials: CredentialFiles) -> SheetsApi:
+    """The Sheets API that project writes through; tests replace it."""
+    from auggie.projections.sheets import GoogleSheetsApi, service_account_session
+
+    return GoogleSheetsApi(service_account_session(scope, credentials))
 
 
 def treg_fetch(args: argparse.Namespace, out: Print) -> int:
