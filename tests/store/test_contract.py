@@ -1,11 +1,12 @@
 """The Store contract. Every implementation must pass this suite unchanged.
 
-Add an implementation by adding its backend factory to ``BACKENDS``.
+Add an implementation as a ``backend`` fixture parameter. The MongoDB runs need
+``$AUGGIE_TEST_MONGODB_URI`` (see ``tests/conftest.py``).
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Iterator
 
 import pytest
 
@@ -22,15 +23,16 @@ from auggie.contracts import (
 )
 from auggie.store import Backend, IntegrityError, RecordConflict, RecordNotFound, Store
 from auggie.store.memory import InMemoryBackend
-from tests.conftest import Scenario, variant
-
-BACKENDS: list[Callable[[], Backend]] = [InMemoryBackend]
+from tests.conftest import Scenario, mongo_backend, variant
 
 
-@pytest.fixture(params=BACKENDS, ids=lambda factory: factory.__name__)
-def backend(request: pytest.FixtureRequest) -> Backend:
-    factory: Callable[[], Backend] = request.param
-    return factory()
+@pytest.fixture(params=["memory", "mongodb"])
+def backend(request: pytest.FixtureRequest) -> Iterator[Backend]:
+    if request.param == "memory":
+        yield InMemoryBackend()
+    else:
+        with mongo_backend() as mongo:
+            yield mongo
 
 
 @pytest.fixture

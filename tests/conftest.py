@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import os
+import secrets
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import pytest
 from pydantic import BaseModel
+from pymongo import MongoClient
 
 from auggie.contracts import (
     Actor,
@@ -18,9 +23,12 @@ from auggie.contracts import (
     QualificationDecision,
     SourceEvidence,
 )
+from auggie.store.mongodb import MongoBackend
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples" / "synthetic"
 NORTHSTAR = EXAMPLES / "northstar-msp"
+
+MONGODB_URI = "AUGGIE_TEST_MONGODB_URI"
 
 
 class DraftFixture(Contract):
@@ -74,3 +82,25 @@ def draft(scenario: Scenario) -> Artifact:
         composed_by=Actor(kind="service", id="fixture-composer", version="0"),
         composed_at=datetime(2026, 10, 14, 16, 10, tzinfo=UTC),
     )
+
+
+@contextmanager
+def mongo_backend() -> Iterator[MongoBackend]:
+    """A MongoBackend on ``$AUGGIE_TEST_MONGODB_URI`` whose databases are dropped afterwards.
+
+    Without the variable the test is skipped, except in CI, where it fails.
+    """
+    uri = os.environ.get(MONGODB_URI)
+    if not uri:
+        if os.environ.get("CI"):
+            pytest.fail(f"{MONGODB_URI} must be set in CI")
+        pytest.skip(f"set {MONGODB_URI} to run against MongoDB")
+    client: MongoClient[dict[str, Any]] = MongoClient(uri, serverSelectionTimeoutMS=5000)
+    prefix = f"test_{secrets.token_hex(4)}_"
+    try:
+        yield MongoBackend(client, database_prefix=prefix)
+    finally:
+        for name in client.list_database_names():
+            if name.startswith(prefix):
+                client.drop_database(name)
+        client.close()

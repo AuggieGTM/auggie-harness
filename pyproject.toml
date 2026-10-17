@@ -13,9 +13,15 @@ dependencies = [
 [project.scripts]
 auggie = "auggie.cli:main"
 
+[project.optional-dependencies]
+mongodb = [
+    "pymongo>=4.19,<5",
+]
+
 [dependency-groups]
 dev = [
     "mypy>=2.4",
+    "pymongo>=4.19,<5",
     "pytest>=9.1",
     "ruff>=0.17",
 ]
