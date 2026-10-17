@@ -37,7 +37,8 @@ outcome, running through the Store with fixture adapters and no network access.
 Negative paths are blocked: failed source, edited draft after approval, delivery without
 delivery approval, cross-scope record.
 
-**Decisions needed first:** strategy file format; artifact contract for briefs and drafts.
+**Decisions:** strategy file format ([ADR 0013](docs/adr/0013-strategy-files.md)) and artifact
+contract ([ADR 0014](docs/adr/0014-artifact-contract.md)), both Accepted.
 
 ## M3: First live routes (Planned)
 

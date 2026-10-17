@@ -24,4 +24,6 @@ behavior or the public boundary. The process is described in
 | [0009](0009-judgment-and-synthesis-engines.md) | Judgment and synthesis engines | Open |
 | [0010](0010-public-repository-boundary.md) | Public repository boundary | Accepted |
 | [0011](0011-sageox-engineering-context.md) | SageOx holds engineering context, not customer intelligence | Accepted |
-| [0012](0012-contract-conventions.md) | Contract conventions and development checks | Proposed |
+| [0012](0012-contract-conventions.md) | Contract conventions and development checks | Accepted |
+| [0013](0013-strategy-files.md) | Strategy files are TOML, one file per revision | Accepted |
+| [0014](0014-artifact-contract.md) | One artifact contract for briefs and drafts | Accepted |

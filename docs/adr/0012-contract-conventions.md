@@ -1,6 +1,6 @@
 # ADR 0012: Contract conventions and development checks
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-17
 
 ## Context
@@ -8,7 +8,7 @@
 Contracts are shared by every component that will exist, including storage, adapters, judgment,
 review and delivery. Their conventions are expensive to change once data has been stored.
 
-## Proposal
+## Decision
 
 **Contracts**
 
@@ -37,4 +37,4 @@ review and delivery. Their conventions are expensive to change once data has bee
 
 - Records are safe to share between components and to cache.
 - Some flexibility is traded for early errors. For example, a new event type needs a code change.
-- If accepted, this becomes the reference for the Store's database validators.
+- This is the reference for the Store's database validators.

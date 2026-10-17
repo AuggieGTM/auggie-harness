@@ -30,7 +30,7 @@ flowchart LR
 | Observe | Acquire sources about an account; record every attempt | `SourceEvidence`, `evidence.recorded` | Contract exists |
 | Validate | Admit usable evidence and reject the rest, keeping reasons | `evidence.validated`, `evidence.rejected` | Contract exists |
 | Judge | Qualify against an exact strategy revision, citing evidence | `QualificationDecision`, `qualification.decided` | Contract exists |
-| Compose | Write briefs and drafts from validated evidence only | `ArtifactRef`, `draft.composed` | Reference only; artifact contract proposed |
+| Compose | Write briefs and drafts from validated evidence only | `Artifact`, `draft.composed` | Contract decided ([ADR 0014](adr/0014-artifact-contract.md)), not built |
 | Approve | A person approves one artifact version for one scope | `HumanApproval`, `approval.recorded` | Contract exists |
 | Deliver | Hand approved drafts to an existing sending platform | `DeliveryTarget`, `delivery.simulated` | Simulated only |
 | Learn | Record outcomes; propose strategy changes for human review | `outcome.recorded` | Event exists; learning proposed |
@@ -106,7 +106,7 @@ flowchart LR
 ## Contracts
 
 All contracts are immutable Pydantic models that reject unknown fields and carry a
-`schema_version` ([ADR 0012](adr/0012-contract-conventions.md), Proposed).
+`schema_version` ([ADR 0012](adr/0012-contract-conventions.md)).
 
 | Contract | Key invariants enforced in code |
 |---|---|
@@ -160,13 +160,12 @@ These have no decision yet. Each needs an ADR before work depends on it.
 - Task scheduler: Herdr or Foreman ([ADR 0007](adr/0007-single-task-scheduler.md)).
 - Judgment and synthesis engines, and calibration thresholds for Jev
   ([ADR 0009](adr/0009-judgment-and-synthesis-engines.md)).
-- Strategy file format and layout in Git.
 - Per-customer deployment topology and sizing.
 - Authentication and usage terms for provider CLIs in production.
 - Google token refresh, and how approvals made in Sheets/Docs come back as proposals.
 - Customer data ownership, retention and offboarding.
 - Backup, restore and monitoring.
-- Whether outcomes and artifacts become first-class contracts or stay as events and references.
+- Whether outcomes become a first-class contract or stay as events.
 
 ## Related repositories
 
