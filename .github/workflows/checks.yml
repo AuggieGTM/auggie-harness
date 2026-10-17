@@ -9,7 +9,8 @@ permissions:
 
 jobs:
   checks:
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest moves to a new release on its own schedule.
+    runs-on: ubuntu-24.04
     services:
       # Official image, pulled by digest and never redistributed (ADR 0010, ADR 0015).
       mongodb:
