@@ -27,3 +27,4 @@ behavior or the public boundary. The process is described in
 | [0012](0012-contract-conventions.md) | Contract conventions and development checks | Accepted |
 | [0013](0013-strategy-files.md) | Strategy files are TOML, one file per revision | Accepted |
 | [0014](0014-artifact-contract.md) | One artifact contract for briefs and drafts | Accepted |
+| [0015](0015-mongodb-store-layout.md) | MongoDB Store layout | Accepted |
