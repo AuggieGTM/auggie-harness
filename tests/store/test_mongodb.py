@@ -83,3 +83,49 @@ def test_database_names_must_fit_mongodb(backend: MongoBackend, scenario: Scenar
     long = CustomerScope.model_validate(variant(scenario.scope, data_namespace="a" * 63))
     with pytest.raises(ValueError, match="longer than MongoDB allows"):
         backend.open(long)
+
+
+def foreign_evidence(scenario: Scenario) -> dict[str, Any]:
+    return scenario.evidence[0].model_dump(mode="json") | {
+        "_id": "ev-foreign",
+        "evidence_id": "ev-foreign",
+        "customer_id": "demo-other",
+        "seq": 999,
+    }
+
+
+def test_an_unmarked_database_that_holds_data_is_refused_untouched(
+    backend: MongoBackend, scenario: Scenario
+) -> None:
+    database = raw(backend, scenario.scope)
+    database["evidence"].insert_one(foreign_evidence(scenario))
+    with pytest.raises(ScopeViolation, match="no scope marker"):
+        backend.open(scenario.scope)
+    assert "_scope" not in database.list_collection_names()
+    assert database["evidence"].options() == {}
+
+
+def test_records_of_another_customer_are_never_returned(
+    backend: MongoBackend, scenario: Scenario
+) -> None:
+    store = backend.open(scenario.scope)
+    database = raw(backend, scenario.scope)
+    database.command("collMod", "evidence", validationLevel="off")  # someone bypassed the backstop
+    database["evidence"].insert_one(foreign_evidence(scenario))
+    with pytest.raises(ScopeViolation, match="demo-other"):
+        store.get_evidence("ev-foreign")
+    with pytest.raises(ScopeViolation, match="demo-other"):
+        store.list_evidence()
+
+
+def test_reopening_restores_the_validator_backstop(
+    backend: MongoBackend, scenario: Scenario
+) -> None:
+    backend.open(scenario.scope)
+    database = raw(backend, scenario.scope)
+    database.command("collMod", "evidence", validationAction="warn", validationLevel="moderate")
+    MongoBackend(backend._client, database_prefix=backend.database_prefix).open(scenario.scope)
+    options = database["evidence"].options()
+    assert (options["validationAction"], options["validationLevel"]) == ("error", "strict")
+    with pytest.raises(WriteError, match="Document failed validation"):
+        database["evidence"].insert_one(foreign_evidence(scenario))

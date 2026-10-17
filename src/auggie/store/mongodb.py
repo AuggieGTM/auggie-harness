@@ -118,26 +118,42 @@ class MongoBackend:
 
 
 def _claim(database: Database[Document], scope: CustomerScope) -> None:
-    """Mark the database as this scope's, or refuse if it belongs to another."""
+    """Mark the database as this scope's, or refuse if it belongs to another.
+
+    An unmarked database is claimed only while it is empty, so data already
+    there is never adopted silently. Collections are listed before the marker
+    is read: whoever creates collections writes the marker first.
+    """
     marker = database["_scope"]
     identity = _identity(scope)
-    try:
-        marker.insert_one({"_id": "scope", **identity})
-    except DuplicateKeyError:
-        stored = marker.find_one({"_id": "scope"}, {"_id": False})
-        if stored != identity:
+    existing = set(database.list_collection_names()) - {"_scope"}
+    stored = marker.find_one({"_id": "scope"}, {"_id": False})
+    if stored is None:
+        if existing:
             raise ScopeViolation(
-                f"database {database.name!r} belongs to {stored}, not {identity}"
-            ) from None
+                f"database {database.name!r} holds data but no scope marker; refusing to claim it"
+            )
+        try:
+            marker.insert_one({"_id": "scope", **identity})
+            return
+        except DuplicateKeyError:
+            stored = marker.find_one({"_id": "scope"}, {"_id": False})
+    if stored != identity:
+        raise ScopeViolation(f"database {database.name!r} belongs to {stored}, not {identity}")
 
 
 def _prepare(database: Database[Document], scope: CustomerScope) -> None:
     validator = _validator(scope)
     for name in RECORD_COLLECTIONS:
+        options: dict[str, Any] = {
+            "validator": validator,
+            "validationLevel": "strict",
+            "validationAction": "error",
+        }
         try:
-            database.create_collection(name, validator=validator, validationLevel="strict")
+            database.create_collection(name, **options)
         except CollectionInvalid:
-            database.command("collMod", name, validator=validator, validationLevel="strict")
+            database.command("collMod", name, **options)
     for name, fields, unique in INDEXES:
         database[name].create_index([(field, ASCENDING) for field in fields], unique=unique)
 
@@ -189,13 +205,27 @@ class MongoStore:
             ) from None
         return True
 
+    def _owned[M: BaseModel](self, model: type[M], document: Mapping[str, Any]) -> M:
+        """Load a stored record, refusing one that names another customer.
+
+        The validators keep such records out; this catches any written around them.
+        """
+        record = _load(model, document)
+        owner = getattr(record, "customer_id", None)
+        if owner != self._scope.customer_id:
+            raise ScopeViolation(
+                f"{self._db.name}.{model.__name__} holds a record of {owner!r}, "
+                f"not {self._scope.customer_id!r}"
+            )
+        return record
+
     def _find_one[M: BaseModel](self, name: str, model: type[M], query: Document) -> M | None:
         document = self._collection(name).find_one(query)
-        return None if document is None else _load(model, document)
+        return None if document is None else self._owned(model, document)
 
     def _find[M: BaseModel](self, name: str, model: type[M], query: Document) -> tuple[M, ...]:
         cursor = self._collection(name).find(query).sort("seq", ASCENDING)
-        return tuple(_load(model, document) for document in cursor)
+        return tuple(self._owned(model, document) for document in cursor)
 
     def _find_evidence(self, evidence_ids: Iterable[str]) -> tuple[SourceEvidence, ...]:
         return self._find("evidence", SourceEvidence, {"_id": {"$in": list(evidence_ids)}})
@@ -266,7 +296,7 @@ class MongoStore:
             .limit(1)
         )
         documents = list(cursor)
-        return _load(Artifact, documents[0]) if documents else None
+        return self._owned(Artifact, documents[0]) if documents else None
 
     def get_artifact(self, ref: ArtifactRef) -> Artifact:
         artifact = self._find_one("artifacts", Artifact, {"_id": _artifact_key(ref)})
