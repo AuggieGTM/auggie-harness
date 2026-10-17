@@ -44,6 +44,9 @@ time. Auggie is **not** an autonomous mass-outreach tool and not a hosted SaaS p
   (`src/auggie/credentials.py`) and a per-run spend limit (`src/auggie/spend.py`,
   [ADR 0016](docs/adr/0016-credentials-and-spend-limits.md)). Tests replay synthetic replies from
   `examples/synthetic/treg/`.
+- `src/auggie/projections/` turns the Store into read-only tabs (accounts, findings, evidence,
+  drafts) without page text, written as CSV or to a customer's Google Sheet by its service
+  account ([ADR 0018](docs/adr/0018-sheets-projection.md)).
 - `src/auggie/pipeline.py` runs the first vertical slice as plain sequential calls: research,
   validate evidence, qualify, draft, human approval, simulated delivery, record outcome.
 - `examples/synthetic/northstar-msp/` holds one fully synthetic scenario: its inputs, and the
@@ -85,6 +88,11 @@ uv run auggie run examples/synthetic/northstar-msp --mongodb mongodb://127.0.0.1
 The CLI writes to one database per scope (`auggie_demo_msp` for Northstar); `--database-prefix`
 keeps a demo apart from other data on the same server. Outside development, install the
 `auggie-harness[mongodb]` extra.
+
+`uv run auggie run examples/synthetic/northstar-msp --csv out/` also writes the run's projection
+as CSV. For a deployment's Store, `auggie project <scope.json> --mongodb URI --csv DIR` does the
+same, and `--spreadsheet ID` writes the managed tabs of the customer's Google Sheet instead (with
+the `auggie-harness[google]` extra and the scope's service account key).
 
 ## Documentation
 

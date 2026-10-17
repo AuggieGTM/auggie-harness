@@ -102,7 +102,7 @@ flowchart LR
 | Judgment and synthesis | Deterministic rules and play templates; model engines only after evaluation | **Exists** ([0009](adr/0009-judgment-and-synthesis-engines.md)) |
 | Task scheduler | Exactly one; Herdr or Foreman | **Open** ([0007](adr/0007-single-task-scheduler.md)) |
 | Delivery adapter | Thin hand-off to EmailBison/Instantly; simulated first | Simulated gate exists; platforms not built ([0006](adr/0006-delivery-through-existing-platforms.md)) |
-| Projections | Sheets/Docs views generated from the Store | Accepted, not built ([0003](adr/0003-systems-of-record.md)) |
+| Projections | Sheets/Docs views generated from the Store | CSV and Google Sheets built, not yet run against a real sheet ([0003](adr/0003-systems-of-record.md), [0018](adr/0018-sheets-projection.md)) |
 
 ## Contracts
 
@@ -166,8 +166,9 @@ src/auggie/
   delivery/      Exists    authorization gate, simulated only; EmailBison/Instantly later
   pipeline.py    Exists    the slice as plain sequential calls
   synthetic.py   Exists    run a synthetic scenario from its inputs
-  cli.py         Exists    `auggie run <scenario>`, `auggie treg-fetch <scope> <url>`
-  projections/   Proposed  Markdown/CSV exports; Sheets/Docs views later
+  cli.py         Exists    `auggie run`, `auggie project`, `auggie treg-fetch`
+  external.py    Exists    the gate in front of every external call
+  projections/   Exists    read-only tabs as CSV or a Google Sheet (ADR 0018); Docs later
 examples/synthetic/  Exists  synthetic fixtures only
 tests/               Exists  including the shared Store contract suite in tests/store/
 ```
@@ -184,7 +185,8 @@ These have no decision yet. Each needs an ADR before work depends on it.
 - Per-customer deployment topology and sizing.
 - Authentication and usage terms for provider CLIs in production, and Treg's and Exa's
   retention terms for fetched content ([ADR 0017](adr/0017-first-treg-route.md)).
-- Google token refresh, and how approvals made in Sheets/Docs come back as proposals.
+- How edits and approvals made in Sheets/Docs come back as proposals. (Token refresh is settled
+  for service accounts by [ADR 0018](adr/0018-sheets-projection.md).)
 - Customer data ownership, retention and offboarding.
 - Backup, restore and monitoring.
 - Whether outcomes become a first-class contract or stay as events.
