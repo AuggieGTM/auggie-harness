@@ -45,8 +45,8 @@ time. Auggie is **not** an autonomous mass-outreach tool and not a hosted SaaS p
   [ADR 0016](docs/adr/0016-credentials-and-spend-limits.md)). Tests replay synthetic replies from
   `examples/synthetic/treg/`.
 - `src/auggie/projections/` turns the Store into read-only tabs (accounts, findings, evidence,
-  drafts) without page text, written as CSV or to a customer's Google Sheet by its service
-  account ([ADR 0018](docs/adr/0018-sheets-projection.md)).
+  drafts) without page text, written as CSV, by your agent's Google connector, or by a customer's
+  service account ([ADR 0019](docs/adr/0019-projection-writers-and-agent-connectors.md)).
 - `src/auggie/pipeline.py` runs the first vertical slice as plain sequential calls: research,
   validate evidence, qualify, draft, human approval, simulated delivery, record outcome.
 - `examples/synthetic/northstar-msp/` holds one fully synthetic scenario: its inputs, and the
@@ -93,6 +93,23 @@ keeps a demo apart from other data on the same server. Outside development, inst
 as CSV. For a deployment's Store, `auggie project <scope.json> --mongodb URI --csv DIR` does the
 same, and `--spreadsheet ID` writes the managed tabs of the customer's Google Sheet instead (with
 the `auggie-harness[google]` extra and the scope's service account key).
+
+### Writing a projection with your agent
+
+If your agent (Claude, ChatGPT) has a Google Sheets connector, it can write the projection for
+you, as you, with no Google Cloud setup:
+
+1. Export the workbook: `auggie run <scenario> --workbook w.json`, or
+   `auggie project <scope.json> --mongodb URI --workbook w.json`.
+2. Ask your agent: *"Write `w.json` to my Google Sheet `<link>`. Add any missing tab named in
+   it, then for each tab write its `connector_rows` unchanged from A1, leaving every other tab
+   alone. Then read each of those tabs back with an open range (`'<tab>'!A:Z`) and save the
+   replies, unedited, as `{"valueRanges": [...]}` in `r.json`."*
+3. Check it: `auggie verify-sheet w.json r.json`. Only `match` counts as a projection.
+
+`connector_rows` carry a leading apostrophe on every value, so the connector stores each one as
+literal text instead of parsing it as a formula, number or date. The connector only ever writes
+views: evidence and approvals always go through the harness itself.
 
 ## Documentation
 

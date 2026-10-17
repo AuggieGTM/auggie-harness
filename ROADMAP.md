@@ -56,9 +56,10 @@ contract ([ADR 0014](docs/adr/0014-artifact-contract.md)), both Accepted.
 - A judgment engine chosen ([ADR 0009](docs/adr/0009-judgment-and-synthesis-engines.md)). *Decided:
   rules for judgment, templates for synthesis.*
 - Read-only Sheets/Docs projection. *Built: four managed tabs regenerated from the Store, with
-  no page text, written as CSV or by a per-customer service account to a Google Sheet
-  ([ADR 0018](docs/adr/0018-sheets-projection.md)); tested against a fake Google. Not yet run
-  against a real sheet.*
+  no page text, written as CSV, by an operator's agent connector, or by a per-customer service
+  account ([ADR 0019](docs/adr/0019-projection-writers-and-agent-connectors.md)). The connector
+  path passed a live check on 2026-10-17 (synthetic Northstar, read-back matched cell for cell);
+  the service-account path is tested against a fake Google only.*
 - Delivery stays simulated.
 
 **Gate:** per-customer credentials; provider spend bounded per run; no live delivery. *Credential
