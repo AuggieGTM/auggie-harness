@@ -1,0 +1,10 @@
+{
+  "status": 402,
+  "headers": {
+    "x-treg-call-id": "call-synthetic-0005",
+    "x-treg-cost-micro": "0"
+  },
+  "body": {
+    "error": "route_max_cost"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "status": 503,
+  "headers": {
+    "x-treg-call-id": "call-synthetic-0007",
+    "retry-after": "10"
+  },
+  "body": {
+    "error": "provider_unavailable"
+  }
+}

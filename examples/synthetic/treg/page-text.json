@@ -1,0 +1,30 @@
+{
+  "status": 200,
+  "headers": {
+    "x-treg-call-id": "call-synthetic-0001",
+    "x-treg-cost-micro": "1000",
+    "x-treg-cache": "miss"
+  },
+  "body": {
+    "requestId": "req-synthetic-0001",
+    "results": [
+      {
+        "id": "https://northstar.example/careers/it-operations-manager",
+        "url": "https://northstar.example/careers/it-operations-manager",
+        "title": "IT Operations Manager",
+        "publishedDate": "2026-10-09T00:00:00.000Z",
+        "text": "Northstar Works is hiring an IT Operations Manager to own endpoint management and help desk support for our 140 staff across two offices.\n\nApply by sending your CV."
+      }
+    ],
+    "statuses": [
+      {
+        "id": "https://northstar.example/careers/it-operations-manager",
+        "status": "success",
+        "source": "live"
+      }
+    ],
+    "costDollars": {
+      "total": 0.001
+    }
+  }
+}

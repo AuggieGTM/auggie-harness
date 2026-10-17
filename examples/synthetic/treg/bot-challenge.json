@@ -1,0 +1,25 @@
+{
+  "status": 200,
+  "headers": {
+    "x-treg-call-id": "call-synthetic-0001",
+    "x-treg-cost-micro": "1000",
+    "x-treg-cache": "miss"
+  },
+  "body": {
+    "requestId": "req-synthetic-0003",
+    "results": [
+      {
+        "id": "https://northstar.example/careers/it-operations-manager",
+        "url": "https://northstar.example/careers/it-operations-manager",
+        "text": "Just a moment... Checking your browser before accessing northstar.example."
+      }
+    ],
+    "statuses": [
+      {
+        "id": "https://northstar.example/careers/it-operations-manager",
+        "status": "success",
+        "source": "live"
+      }
+    ]
+  }
+}

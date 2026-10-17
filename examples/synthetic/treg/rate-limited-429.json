@@ -1,0 +1,10 @@
+{
+  "status": 429,
+  "headers": {
+    "x-treg-call-id": "call-synthetic-0006",
+    "retry-after": "30"
+  },
+  "body": {
+    "error": "rate_limited"
+  }
+}

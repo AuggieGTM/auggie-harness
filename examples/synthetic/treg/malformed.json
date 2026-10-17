@@ -1,0 +1,9 @@
+{
+  "status": 200,
+  "headers": {
+    "x-treg-call-id": "call-synthetic-0001",
+    "x-treg-cost-micro": "1000",
+    "x-treg-cache": "miss"
+  },
+  "body": "<html>not json</html>"
+}
