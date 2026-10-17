@@ -64,3 +64,11 @@ def test_check_isolated_rejects_shared_namespace() -> None:
 def test_check_isolated_rejects_duplicate_customer() -> None:
     with pytest.raises(ScopeViolation, match="configured twice"):
         check_isolated([make_scope("demo-a"), make_scope("demo-a")])
+
+
+def test_runs_may_spend_nothing_unless_a_limit_is_set(scenario: Scenario) -> None:
+    assert scenario.scope.execution.max_run_spend_micro_usd == 0
+    limited = make_scope("demo-paid", execution={"max_run_spend_micro_usd": 5000})
+    assert limited.execution.max_run_spend_micro_usd == 5000
+    with pytest.raises(ValidationError, match="greater than or equal to 0"):
+        make_scope("demo-paid", execution={"max_run_spend_micro_usd": -1})

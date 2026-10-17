@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Annotated, Literal, Protocol
 
-from pydantic import StringConstraints, model_validator
+from pydantic import Field, StringConstraints, model_validator
 
 from auggie.contracts.common import Contract, Slug
 
@@ -19,10 +19,15 @@ class ScopeViolation(ValueError):
 
 
 class ExecutionBoundary(Contract):
-    """What work a customer scope is allowed to perform."""
+    """What work a customer scope is allowed to perform.
+
+    ``max_run_spend_micro_usd`` caps what one run may spend on paid calls, in
+    millionths of a US dollar (ADR 0016). Zero allows no paid calls.
+    """
 
     delivery: DeliveryMode = "disabled"
     external_providers: bool = False
+    max_run_spend_micro_usd: Annotated[int, Field(ge=0)] = 0
 
 
 class CustomerScope(Contract):
