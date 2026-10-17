@@ -28,7 +28,7 @@ flowchart LR
 | Stage | Responsibility | Contract / events | Status |
 |---|---|---|---|
 | Define | Approved strategy and configuration, versioned in Git | `Strategy`, `StrategyRef`, `strategy.activated` | TOML files load ([ADR 0013](adr/0013-strategy-files.md)) |
-| Observe | Acquire sources about an account; record every attempt | `SourceEvidence`, `evidence.recorded` | Fixture replay only |
+| Observe | Acquire sources about an account; record every attempt | `SourceEvidence`, `evidence.recorded` | Fixture replay; Treg page text, not yet run live |
 | Validate | Admit usable evidence and reject the rest, keeping reasons | `evidence.validated`, `evidence.rejected` | Rules exist |
 | Judge | Qualify against an exact strategy revision, citing evidence | `QualificationDecision`, `qualification.decided` | Deterministic rules; engines open |
 | Compose | Write briefs and drafts from validated evidence only | `Artifact`, `draft.composed` | Draft templates ([ADR 0014](adr/0014-artifact-contract.md)); briefs not built |
@@ -98,7 +98,7 @@ flowchart LR
 | Contracts | Shared, versioned data shapes and invariants | **Exists** |
 | Store API | The only path to operational data; typed operations; scope-bound | **Exists**: in-memory and MongoDB |
 | MongoDB Community | Per-customer operational database behind the Store | **Exists** for synthetic runs ([0015](adr/0015-mongodb-store-layout.md)) |
-| Acquisition (Treg) | Data acquisition, recorded as `SourceEvidence` | First route decided, not built ([0008](adr/0008-treg-for-acquisition.md), [0017](adr/0017-first-treg-route.md)) |
+| Acquisition (Treg) | Data acquisition, recorded as `SourceEvidence` | First route built, tested on synthetic replies ([0008](adr/0008-treg-for-acquisition.md), [0017](adr/0017-first-treg-route.md)) |
 | Judgment and synthesis | Deterministic rules and play templates; model engines only after evaluation | **Exists** ([0009](adr/0009-judgment-and-synthesis-engines.md)) |
 | Task scheduler | Exactly one; Herdr or Foreman | **Open** ([0007](adr/0007-single-task-scheduler.md)) |
 | Delivery adapter | Thin hand-off to EmailBison/Instantly; simulated first | Simulated gate exists; platforms not built ([0006](adr/0006-delivery-through-existing-platforms.md)) |
@@ -157,14 +157,16 @@ src/auggie/
   store/         Exists    typed Store API; in-memory reference and MongoDB (ADR 0015)
   strategy.py    Exists    load a TOML strategy file pinned to its exact bytes
   accounts.py    Exists    account and recipient inputs
-  acquisition/   Exists    fixture replay and evidence validation; Treg adapter proposed
+  credentials.py Exists    per-customer secret files (ADR 0016)
+  spend.py       Exists    per-run spend limit (ADR 0016)
+  acquisition/   Exists    fixture replay, evidence validation, Treg page text (ADR 0017)
   judgment/      Exists    deterministic rules behind the Qualifier interface (ADR 0009)
   compose/       Exists    draft composition from strategy play templates; briefs proposed
   approval/      Exists    recording a reviewer's decision; review workflow proposed
   delivery/      Exists    authorization gate, simulated only; EmailBison/Instantly later
   pipeline.py    Exists    the slice as plain sequential calls
   synthetic.py   Exists    run a synthetic scenario from its inputs
-  cli.py         Exists    `auggie run <scenario>`
+  cli.py         Exists    `auggie run <scenario>`, `auggie treg-fetch <scope> <url>`
   projections/   Proposed  Markdown/CSV exports; Sheets/Docs views later
 examples/synthetic/  Exists  synthetic fixtures only
 tests/               Exists  including the shared Store contract suite in tests/store/

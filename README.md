@@ -2,9 +2,9 @@
 
 > **Status: early, synthetic only.** The harness runs one synthetic scenario end to end:
 > recorded sources, deterministic rules, a template draft, scripted human approvals and
-> simulated delivery, with records kept in memory or in a local MongoDB. No provider is called
-> and nothing is sent. There is no installer. Anything described below as planned or proposed is
-> not built.
+> simulated delivery, with records kept in memory or in a local MongoDB. One Treg acquisition
+> route exists for operators to try; the scenario and the tests never call a provider, and nothing
+> is sent. There is no installer. Anything described below as planned or proposed is not built.
 
 Auggie is a **GTM-as-code harness**. It turns versioned go-to-market strategy into an
 evidence-to-action-to-learning loop:
@@ -39,6 +39,11 @@ time. Auggie is **not** an autonomous mass-outreach tool and not a hosted SaaS p
   - **`Strategy`**: the validated shape of a TOML strategy file.
 - `src/auggie/store/` is the typed Store API, bound to one customer scope, with in-memory and
   MongoDB implementations that pass the same contract tests.
+- `src/auggie/acquisition/treg.py` fetches one page's text through Treg
+  ([ADR 0017](docs/adr/0017-first-treg-route.md)), with per-customer credential files
+  (`src/auggie/credentials.py`) and a per-run spend limit (`src/auggie/spend.py`,
+  [ADR 0016](docs/adr/0016-credentials-and-spend-limits.md)). Tests replay synthetic replies from
+  `examples/synthetic/treg/`.
 - `src/auggie/pipeline.py` runs the first vertical slice as plain sequential calls: research,
   validate evidence, qualify, draft, human approval, simulated delivery, record outcome.
 - `examples/synthetic/northstar-msp/` holds one fully synthetic scenario: its inputs, and the

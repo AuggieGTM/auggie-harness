@@ -8,8 +8,9 @@ Instructions for coding agents and human contributors working in this repository
 ## Project status
 
 Early and synthetic only. Contracts, the Store (in-memory and MongoDB) and the first vertical
-slice run end to end on the synthetic Northstar fixture. Nothing calls a provider or sends
-anything.
+slice run end to end on the synthetic Northstar fixture. One Treg acquisition route is built and
+tested against synthetic replies; it calls Treg only for a scope that allows external providers
+and sets a run budget, and no test does. Nothing is sent.
 Never describe planned or proposed work as built, supported or tested.
 
 ## Commands
