@@ -58,8 +58,9 @@ contract ([ADR 0014](docs/adr/0014-artifact-contract.md)), both Accepted.
 - Read-only Sheets/Docs projection. *Built: four managed tabs regenerated from the Store, with
   no page text, written as CSV, by an operator's agent connector, or by a per-customer service
   account ([ADR 0019](docs/adr/0019-projection-writers-and-agent-connectors.md)). The connector
-  path passed a live check on 2026-10-17 (synthetic Northstar, read-back matched cell for cell);
-  the service-account path is tested against a fake Google only.*
+  path passed a live check on 2026-10-17 on synthetic Northstar data: the grid read-back showed
+  every tab at exactly the projection's size, from A1, every cell literal text and equal. The
+  service-account path is tested against a fake Google only.*
 - Delivery stays simulated.
 
 **Gate:** per-customer credentials; provider spend bounded per run; no live delivery. *Credential
