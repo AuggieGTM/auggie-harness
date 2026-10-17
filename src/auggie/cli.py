@@ -2,6 +2,7 @@
 
 ``auggie run <scenario>`` runs a synthetic scenario and reports each stage.
 ``auggie project <scope.json> --mongodb URI`` projects a Store into CSV or its Google Sheet.
+``auggie verify-sheet <workbook> <readback>`` checks a sheet an agent wrote (ADR 0019).
 ``auggie treg-fetch <scope.json> <url>`` makes one live, paid Treg call and stores nothing.
 """
 
@@ -25,6 +26,7 @@ from auggie.delivery import DeliveryBlocked
 from auggie.pipeline import deliver
 from auggie.projections import project
 from auggie.projections.csv import write_csv
+from auggie.projections.exchange import compare, dump_workbook, load_readback, load_workbook
 from auggie.store import Backend, Store, StoreError
 from auggie.store.memory import InMemoryBackend
 from auggie.synthetic import ScenarioRun, load_inputs, run_scenario
@@ -225,6 +227,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="prefix for MongoDB database names, to keep demo and test runs apart",
     )
     run.add_argument("--csv", type=Path, metavar="DIR", help="also export the projection as CSV")
+    run.add_argument(
+        "--workbook", type=Path, metavar="FILE", help="also export the projection for an agent"
+    )
     project_ = commands.add_parser(
         "project", help="project a scope's Store into CSV files or its Google Sheet (read-only)"
     )
@@ -234,6 +239,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     target = project_.add_mutually_exclusive_group(required=True)
     target.add_argument("--csv", type=Path, metavar="DIR", help="write one CSV file per tab")
     target.add_argument("--spreadsheet", metavar="ID", help="write the managed tabs of this sheet")
+    target.add_argument(
+        "--workbook", type=Path, metavar="FILE", help="export for an agent to write (ADR 0019)"
+    )
+    verify = commands.add_parser(
+        "verify-sheet", help="check that a sheet read back by an agent matches its workbook"
+    )
+    verify.add_argument("workbook", type=Path, help="the file from --workbook")
+    verify.add_argument(
+        "readback", type=Path, help="what the agent read back: a workbook file or batchGet reply"
+    )
     project_.add_argument(
         "--credentials", type=Path, help="credentials root (default: $AUGGIE_CREDENTIALS_DIR)"
     )
@@ -252,6 +267,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return treg_fetch(args, print)
     if args.command == "project":
         return project_command(args, print)
+    if args.command == "verify-sheet":
+        return verify_sheet(args, print)
     return run_scenario_command(args, print)
 
 
@@ -290,6 +307,9 @@ def run_scenario_command(args: argparse.Namespace, out: Print) -> int:
     if args.csv is not None:
         files = write_csv(project(result.store), args.csv)
         out(f"Projected to {args.csv}: {', '.join(path.name for path in files)}.")
+    if args.workbook is not None:
+        digest = dump_workbook(project(result.store), args.workbook)
+        out(f"Workbook for an agent: {args.workbook} (sha256 {_short(digest)}).")
     if args.negative:
         out("")
         if not check_negative_paths(args.scenario, out):
@@ -333,6 +353,10 @@ def project_command(args: argparse.Namespace, out: Print) -> int:
         files = write_csv(workbook, args.csv)
         out(f"Projected {rows} rows to {args.csv}: {', '.join(path.name for path in files)}.")
         return 0
+    if args.workbook is not None:
+        digest = dump_workbook(workbook, args.workbook)
+        out(f"Workbook for an agent: {rows} rows in {args.workbook} (sha256 {_short(digest)}).")
+        return 0
     try:
         from auggie.projections.sheets import SheetsError, write_sheet
     except ImportError:
@@ -353,6 +377,25 @@ def sheets_api(scope: CustomerScope, credentials: CredentialFiles) -> SheetsApi:
     from auggie.projections.sheets import GoogleSheetsApi, sign_in
 
     return GoogleSheetsApi(sign_in(scope, credentials))
+
+
+def verify_sheet(args: argparse.Namespace, out: Print) -> int:
+    """Compare an agent's read-back of the sheet with the workbook it was asked to write."""
+    try:
+        expected = load_workbook(args.workbook)
+        actual = load_readback(args.readback)
+    except (OSError, ValueError) as error:
+        out(f"stopped   {type(error).__name__}: {error}")
+        return 1
+    differences = compare(expected, actual)
+    if differences:
+        out(f"MISMATCH  the sheet does not hold the projection ({len(differences)} shown):")
+        for difference in differences:
+            out(f"          {difference}")
+        return 1
+    cells = sum(len(row) for rows in expected.values() for row in rows)
+    out(f"match     the sheet holds exactly the projection: {len(expected)} tabs, {cells} cells")
+    return 0
 
 
 def treg_fetch(args: argparse.Namespace, out: Print) -> int:

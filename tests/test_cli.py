@@ -193,3 +193,22 @@ def test_project_stops_on_a_store_that_does_not_exist(
         assert "stopped   RecordNotFound: no store" in capsys.readouterr().out
         assert "typo_auggie_demo_msp" not in backend._client.list_database_names()
     assert sheets.calls == []
+
+
+def test_an_agent_written_sheet_is_verified_against_its_workbook(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    workbook = tmp_path / "workbook.json"
+    assert main(["run", str(NORTHSTAR), "--workbook", str(workbook)]) == 0
+    assert "Workbook for an agent:" in capsys.readouterr().out
+    assert main(["verify-sheet", str(workbook), str(workbook)]) == 0
+    assert "match     the sheet holds exactly the projection: 4 tabs" in capsys.readouterr().out
+
+    data = json.loads(workbook.read_text(encoding="utf-8"))
+    data["tabs"][0]["rows"][1][1] = "disqualified"
+    altered = tmp_path / "readback.json"
+    altered.write_text(json.dumps(data), encoding="utf-8")
+    assert main(["verify-sheet", str(workbook), str(altered)]) == 1
+    out = capsys.readouterr().out
+    assert "MISMATCH" in out and "'auggie: accounts'!B2" in out
+    assert main(["verify-sheet", str(workbook), str(tmp_path / "missing.json")]) == 1
