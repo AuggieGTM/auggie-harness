@@ -8,6 +8,7 @@ hash of the returned text become evidence.
 
 from __future__ import annotations
 
+import http.client
 import json
 import re
 import urllib.error
@@ -18,7 +19,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
-from pydantic import HttpUrl
+from pydantic import HttpUrl, TypeAdapter
 
 from auggie.acquisition import Acquired
 from auggie.contracts import (
@@ -29,10 +30,11 @@ from auggie.contracts import (
     SubjectRef,
     sha256_digest,
 )
+from auggie.contracts.common import RecordId
 from auggie.contracts.events import AttributeValue
 from auggie.contracts.evidence import RetrievalStatus
-from auggie.credentials import CredentialFiles
-from auggie.spend import RunBudget
+from auggie.credentials import CredentialError, CredentialFiles
+from auggie.spend import RunBudget, SpendRefused
 
 TREG_ORIGIN = "https://treg.to"
 ROUTE = "exa.web.contents.get"
@@ -50,6 +52,10 @@ MAX_BODY_BYTES = 2_000_000
 
 CHALLENGE_PHRASES = ("just a moment", "attention required", "enable javascript and cookies")
 """Openings of bot-challenge pages, which are not the page's content."""
+
+
+_URL: TypeAdapter[HttpUrl] = TypeAdapter(HttpUrl)
+_RECORD_ID: TypeAdapter[str] = TypeAdapter(RecordId)
 
 
 class ExternalCallRefused(Exception):
@@ -103,18 +109,22 @@ class HttpsTransport:
             request.url, data=request.body, headers=dict(request.headers), method=request.method
         )
         try:
-            with self._opener.open(outgoing, timeout=request.timeout) as reply:
+            try:
+                with self._opener.open(outgoing, timeout=request.timeout) as reply:
+                    return HttpResponse(
+                        reply.status,
+                        {k.lower(): v for k, v in reply.headers.items()},
+                        reply.read(MAX_BODY_BYTES + 1),
+                    )
+            except urllib.error.HTTPError as error:
                 return HttpResponse(
-                    reply.status,
-                    {k.lower(): v for k, v in reply.headers.items()},
-                    reply.read(MAX_BODY_BYTES + 1),
+                    error.code,
+                    {k.lower(): v for k, v in error.headers.items()},
+                    error.read(MAX_BODY_BYTES + 1),
                 )
-        except urllib.error.HTTPError as error:
-            return HttpResponse(
-                error.code,
-                {k.lower(): v for k, v in error.headers.items()},
-                error.read(MAX_BODY_BYTES + 1),
-            )
+        except (http.client.HTTPException, ValueError):
+            # Not chained: these errors can quote the request's headers, token included.
+            raise OSError("the Treg call failed before a complete reply arrived") from None
 
 
 def _utc_now() -> datetime:
@@ -140,6 +150,11 @@ class TregPageText:
         now: Callable[[], datetime] = _utc_now,
         new_key: Callable[[], str] = _new_key,
     ) -> None:
+        if budget.limit_micro_usd > scope.execution.max_run_spend_micro_usd:
+            raise SpendRefused(
+                f"a run budget of {budget.limit_micro_usd} micro-USD is more than the scope "
+                f"allows ({scope.execution.max_run_spend_micro_usd})"
+            )
         self._scope = scope
         self._credentials = credentials
         self._budget = budget
@@ -161,7 +176,14 @@ class TregPageText:
             raise ExternalCallRefused(
                 f"scope {customer_id!r} does not allow calls to external providers"
             )
+        page = _URL.validate_python(url)
+        _RECORD_ID.validate_python(evidence_id)
         token = self._credentials.secret(self._scope, TOKEN)
+        if not re.fullmatch(r"[!-~]+", token.reveal()):
+            raise CredentialError(
+                f"cannot use credential {self._scope.credential_namespace!r}/{TOKEN!r}: "
+                "it holds characters an HTTP header cannot carry"
+            )
         reservation = self._budget.reserve(CEILING_MICRO_USD)
         key = self._new_key()
         request = HttpRequest(
@@ -175,7 +197,7 @@ class TregPageText:
                 "X-Treg-Route-Max-Cost": f"{CEILING_MICRO_USD / 1_000_000:.6f}",
             },
             body=json.dumps(
-                {"urls": [str(url)], "text": {"maxCharacters": MAX_CHARACTERS}}
+                {"urls": [str(page)], "text": {"maxCharacters": MAX_CHARACTERS}}
             ).encode(),
             timeout=TIMEOUT_SECONDS,
         )
@@ -196,14 +218,14 @@ class TregPageText:
                 if response.headers.get(header):
                     attributes[name] = response.headers[header][:200]
 
-        status, details = _read(response, str(url), observed_at)
+        status, details = _read(response, str(page), observed_at)
         retrieved = status == "retrieved"
         text: str = details.get("text", "")
         evidence = SourceEvidence(
             evidence_id=evidence_id,
             customer_id=customer_id,
             subject=subject,
-            source_url=url,
+            source_url=page,
             acquired_via=self.actor,
             status=status,
             observed_at=observed_at,
@@ -221,28 +243,29 @@ def _charge(response: HttpResponse | None) -> int | None:
     if response is None:
         return None
     reported = response.headers.get("x-treg-cost-micro", "")
-    return int(reported) if reported.isdigit() else None
+    return int(reported) if re.fullmatch(r"[0-9]{1,12}", reported) else None
 
 
 def _read(
     response: HttpResponse | None, url: str, observed_at: datetime
 ) -> tuple[RetrievalStatus, dict[str, Any]]:
     """Classify a response as a retrieval outcome. Reasons never quote the response."""
+    known: dict[str, Any] = {}
 
     def failed(
         reason: str, status: RetrievalStatus = "failed"
     ) -> tuple[RetrievalStatus, dict[str, Any]]:
-        return status, {"reason": reason}
+        return status, {**known, "reason": reason}
 
     if response is None:
         return failed("The Treg call did not complete (timeout or network error).")
     if response.status != 200:
-        known = {
+        by_status = {
             402: "Treg refused the call: over its cost ceiling or the balance (402).",
             429: "Rate limited (429).",
             503: "Treg or the provider was unavailable (503).",
         }
-        return failed(known.get(response.status, f"Treg answered HTTP {response.status}."))
+        return failed(by_status.get(response.status, f"Treg answered HTTP {response.status}."))
     if len(response.body) > MAX_BODY_BYTES:
         return failed("The response was larger than the adapter accepts.")
     try:
@@ -251,35 +274,40 @@ def _read(
         return failed("The response was not valid JSON.")
     if not isinstance(body, dict):
         return failed("The response was not a JSON object.")
+    request_id = body.get("requestId")
+    if isinstance(request_id, str) and request_id:
+        known["request_id"] = request_id[:200]
 
-    for entry in body.get("statuses") or []:
-        if isinstance(entry, dict) and entry.get("id") == url and entry.get("status") != "success":
+    statuses = body.get("statuses")
+    statuses = [] if statuses is None else statuses
+    results = body.get("results")
+    if not isinstance(statuses, list) or not all(isinstance(s, dict) for s in statuses):
+        return failed("The response's statuses were malformed.")
+    if not isinstance(results, list) or not all(isinstance(r, dict) for r in results):
+        return failed("The response's results were malformed.")
+
+    for entry in statuses:
+        if entry.get("id") == url and entry.get("status") != "success":
             error = entry.get("error")
             raw_tag = error.get("tag", "") if isinstance(error, dict) else ""
             tag = re.sub(r"[^A-Z0-9_]", "", str(raw_tag).upper())[:64] or "UNKNOWN"
             outcome: RetrievalStatus = "not_found" if "NOT_FOUND" in tag else "failed"
             return failed(f"The provider could not fetch the page ({tag}).", outcome)
 
-    result = next(
-        (
-            r
-            for r in body.get("results") or []
-            if isinstance(r, dict) and url in (r.get("id"), r.get("url"))
-        ),
-        None,
-    )
+    result = next((r for r in results if url in (r.get("id"), r.get("url"))), None)
     if result is None:
         return failed("The response held no result for the requested page.")
     text = result.get("text")
     if not isinstance(text, str) or not text.strip():
         return failed("The page returned no text.")
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError:
+        return failed("The page text was not valid Unicode.")
     if text.strip().lower().startswith(CHALLENGE_PHRASES):
         return failed("The page served a bot challenge instead of its content.", "blocked")
 
-    details: dict[str, Any] = {"text": text}
-    request_id = body.get("requestId")
-    if isinstance(request_id, str) and request_id:
-        details["request_id"] = request_id[:200]
+    details: dict[str, Any] = {**known, "text": text}
     published = _published(result.get("publishedDate"), observed_at)
     if published is not None:
         details["published_at"] = published

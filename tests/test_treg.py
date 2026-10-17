@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+import http.client
+import http.server
 import json
+import threading
+import urllib.error
+import urllib.request
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
@@ -305,3 +310,184 @@ def test_a_research_run_records_what_each_treg_call_cost(
     assert budget.spent_micro_usd == 4000
     assert result.decision.outcome == "qualified"
     assert result.draft is not None
+
+
+# Refusals that must happen before a paid call (review findings 1 to 3)
+
+
+@pytest.mark.parametrize("token", ["two\nlines", "carriage\rreturn", "spaced token", "tök€n"])
+def test_a_token_a_header_cannot_carry_is_refused_without_showing_it(
+    token: str, scope: CustomerScope, tmp_path: Path
+) -> None:
+    folder = tmp_path / scope.credential_namespace
+    folder.mkdir(mode=0o700)
+    (folder / "treg-token").write_text(token, encoding="utf-8")
+    (folder / "treg-token").chmod(0o600)
+    replay = Replay(reply("page-text.json"))
+    budget = RunBudget.for_scope(scope)
+    with pytest.raises(CredentialError) as caught:
+        fetch(adapter(scope, CredentialFiles(tmp_path), replay, budget))
+    assert token not in str(caught.value)
+    assert replay.requests == [] and budget.committed_micro_usd == 0
+
+
+def test_a_budget_larger_than_the_scope_allows_is_refused(
+    scope: CustomerScope, credentials: CredentialFiles
+) -> None:
+    unfunded = CustomerScope.model_validate(
+        variant(scope, execution={"delivery": "simulated", "external_providers": True})
+    )
+    replay = Replay(reply("page-text.json"))
+    with pytest.raises(SpendRefused, match="more than the scope allows"):
+        adapter(unfunded, credentials, replay, RunBudget(10_000))
+    smaller = adapter(scope, credentials, replay, RunBudget(2000))
+    assert fetch(smaller).evidence.status == "retrieved"
+
+
+@pytest.mark.parametrize("url", ["not-a-url", "ftp://northstar.example/careers", ""])
+def test_an_invalid_url_is_refused_before_anything_is_sent(
+    url: str, scope: CustomerScope, credentials: CredentialFiles
+) -> None:
+    replay = Replay(reply("page-text.json"))
+    budget = RunBudget.for_scope(scope)
+    with pytest.raises(ValueError):
+        fetch(adapter(scope, credentials, replay, budget), url)
+    assert replay.requests == [] and budget.committed_micro_usd == 0
+
+
+def test_the_requested_url_is_normalized_before_it_is_sent(
+    scope: CustomerScope, credentials: CredentialFiles
+) -> None:
+    replay = Replay(page("https://northstar.example/", "Northstar Works builds things."))
+    acquired = fetch(adapter(scope, credentials, replay), "HTTPS://NORTHSTAR.example")
+    assert json.loads(replay.requests[0].body)["urls"] == ["https://northstar.example/"]
+    assert acquired.evidence.status == "retrieved"
+
+
+# Replies that must fail closed (review findings 4 to 6)
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"requestId": "req-synthetic-0200", "statuses": 1, "results": []},
+        {"requestId": "req-synthetic-0200", "results": 1},
+        {"requestId": "req-synthetic-0200", "results": ["text"]},
+        {
+            "requestId": "req-synthetic-0200",
+            "statuses": {"id": CAREERS, "status": "error"},
+            "results": [{"id": CAREERS, "text": "Error page"}],
+        },
+    ],
+)
+def test_a_malformed_reply_is_a_failed_retrieval_not_content(
+    body: dict[str, Any], scope: CustomerScope, credentials: CredentialFiles
+) -> None:
+    response = HttpResponse(200, {"x-treg-cost-micro": "1000"}, json.dumps(body).encode())
+    acquired = fetch(adapter(scope, credentials, Replay(response)))
+    assert acquired.evidence.status == "failed"
+    assert acquired.evidence.excerpt is None
+    assert acquired.evidence.provider_request_id == "req-synthetic-0200"
+    assert acquired.attributes["cost_micro_usd"] == 1000
+
+
+@pytest.mark.parametrize(
+    "header",
+    ["²", "1" * 4400, "-5", "1.5", ""],
+    ids=["superscript", "too-long", "negative", "decimal", "empty"],
+)
+def test_an_unreadable_charge_settles_at_the_ceiling(
+    header: str, scope: CustomerScope, credentials: CredentialFiles
+) -> None:
+    case = reply("page-text.json")
+    response = HttpResponse(200, {**case.headers, "x-treg-cost-micro": header}, case.body)
+    acquired = fetch(adapter(scope, credentials, Replay(response)))
+    assert acquired.attributes["cost_micro_usd"] == CEILING_MICRO_USD
+
+
+def test_text_that_is_not_valid_unicode_is_a_failed_retrieval(
+    scope: CustomerScope, credentials: CredentialFiles
+) -> None:
+    raw = json.dumps({"results": [{"id": CAREERS, "text": "broken \ud800 text"}]}).encode()
+    response = HttpResponse(200, {"x-treg-cost-micro": "1000"}, raw)
+    evidence = fetch(adapter(scope, credentials, Replay(response))).evidence
+    assert evidence.status == "failed" and "Unicode" in (evidence.failure_reason or "")
+
+
+@pytest.mark.parametrize("name", ["page-not-found.json", "bot-challenge.json", "empty-text.json"])
+def test_a_failed_result_keeps_the_providers_request_id(
+    name: str, scope: CustomerScope, credentials: CredentialFiles
+) -> None:
+    evidence = fetch(adapter(scope, credentials, Replay(reply(name)))).evidence
+    assert evidence.status != "retrieved"
+    assert (evidence.provider_request_id or "").startswith("req-synthetic-")
+
+
+# The real transport, without leaving this machine
+
+
+class FailingOpener:
+    """Stands in for urllib's opener and fails the way http.client can."""
+
+    def __init__(self, error: Exception) -> None:
+        self.error = error
+
+    def open(self, *args: Any, **kwargs: Any) -> Any:
+        raise self.error
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        http.client.IncompleteRead(b"partial"),
+        http.client.BadStatusLine("garbage"),
+        ValueError(f"Invalid header value b'{TOKEN_VALUE}\\nsecond-line'"),
+    ],
+    ids=["incomplete-read", "bad-status-line", "invalid-header"],
+)
+def test_protocol_failures_become_a_failed_retrieval_without_detail(
+    error: Exception, scope: CustomerScope, credentials: CredentialFiles
+) -> None:
+    transport = HttpsTransport()
+    transport._opener = FailingOpener(error)  # type: ignore[assignment]
+    request = HttpRequest("POST", "https://treg.to/call/x", {"X-Treg-Token": TOKEN_VALUE}, b"", 1.0)
+    with pytest.raises(OSError) as caught:
+        transport.send(request)
+    assert TOKEN_VALUE not in str(caught.value)
+    assert caught.value.__cause__ is None and caught.value.__suppress_context__
+    budget = RunBudget.for_scope(scope)
+    treg = TregPageText(scope=scope, credentials=credentials, budget=budget, transport=transport)
+    evidence = fetch(treg).evidence
+    assert evidence.status == "failed" and "did not complete" in (evidence.failure_reason or "")
+    assert budget.spent_micro_usd == CEILING_MICRO_USD
+
+
+def test_a_redirect_is_never_followed() -> None:
+    visited: list[str] = []
+
+    class Redirecting(http.server.BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            visited.append(self.path)
+            if self.path == "/start":
+                self.send_response(302)
+                self.send_header("Location", "/elsewhere")
+                self.end_headers()
+            else:
+                self.send_response(200)
+                self.end_headers()
+
+        def log_message(self, *args: Any) -> None:
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Redirecting)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        opener = urllib.request.build_opener(_NoRedirects)
+        with pytest.raises(urllib.error.HTTPError) as caught:
+            opener.open(f"http://127.0.0.1:{server.server_port}/start", timeout=5)
+        assert caught.value.code == 302
+        assert visited == ["/start"]
+    finally:
+        server.shutdown()
+        server.server_close()

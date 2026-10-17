@@ -123,3 +123,16 @@ def test_treg_fetch_stops_on_an_unreadable_scope(
     (tmp_path / "scope.json").write_text("{}", encoding="utf-8")
     assert main(["treg-fetch", str(tmp_path / "scope.json"), CAREERS]) == 1
     assert "stopped   cannot read the scope: ValidationError" in capsys.readouterr().out
+
+
+def test_treg_fetch_refuses_an_invalid_url_before_calling(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    replay = Replay(reply("page-text.json"))
+    monkeypatch.setattr(cli, "treg_transport", lambda: replay)
+    scope_file, credentials = treg_setup(tmp_path)
+    assert (
+        main(["treg-fetch", str(scope_file), "not-a-url", "--credentials", str(credentials)]) == 1
+    )
+    assert "stopped   the URL is not a valid http(s) URL" in capsys.readouterr().out
+    assert replay.requests == []
