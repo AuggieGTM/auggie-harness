@@ -1,6 +1,6 @@
 # ADR 0018: Read-only Google Sheets projection
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR 0019](0019-projection-writers-and-agent-connectors.md)
 - **Date:** 2026-10-17
 
 ## Context

@@ -30,4 +30,5 @@ behavior or the public boundary. The process is described in
 | [0015](0015-mongodb-store-layout.md) | MongoDB Store layout | Accepted |
 | [0016](0016-credentials-and-spend-limits.md) | Per-customer credentials and run spend limits | Accepted |
 | [0017](0017-first-treg-route.md) | First Treg route: page text over HTTP | Accepted |
-| [0018](0018-sheets-projection.md) | Read-only Google Sheets projection | Accepted |
+| [0018](0018-sheets-projection.md) | Read-only Google Sheets projection | Superseded by [0019](0019-projection-writers-and-agent-connectors.md) |
+| [0019](0019-projection-writers-and-agent-connectors.md) | Projection writers, and what an agent's connectors may do | Accepted |

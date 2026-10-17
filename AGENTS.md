@@ -41,6 +41,9 @@ If a task needs a decision that is Proposed or Open, stop and ask the maintainer
 
 - **Evidence is not inference.** `SourceEvidence` records what a source said. Models never produce
   evidence. A failed retrieval is recorded and never treated as a negative finding.
+- **Connectors write views, nothing else.** An agent's MCP tools or connectors may write and read
+  back projections, never fetch evidence or record approvals for the harness
+  ([ADR 0019](docs/adr/0019-projection-writers-and-agent-connectors.md)).
 - **Judgment cites.** Qualification names the exact strategy revision and the evidence for each
   finding.
 - **People approve.** Approval binds to one artifact hash and one scope. Content approval is not
