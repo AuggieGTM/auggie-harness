@@ -5,6 +5,7 @@ They have no I/O and no dependency on storage, providers or scheduling.
 """
 
 from auggie.contracts.approval import ArtifactRef, DeliveryTarget, HumanApproval
+from auggie.contracts.artifact import Artifact
 from auggie.contracts.common import Actor, Contract, StrategyRef, sha256_digest
 from auggie.contracts.events import (
     EVENT_STAGE,
@@ -27,12 +28,24 @@ from auggie.contracts.scope import (
     check_isolated,
     ensure_in_scope,
 )
+from auggie.contracts.strategy import (
+    BUILTIN_FIELDS,
+    HeadcountRange,
+    JobPosting,
+    Mentions,
+    MergeField,
+    Play,
+    Source,
+    Strategy,
+)
 
 __all__ = [
+    "BUILTIN_FIELDS",
     "EVENT_STAGE",
     "REQUIRED_REFS",
     "STAGES",
     "Actor",
+    "Artifact",
     "ArtifactRef",
     "CitationError",
     "Contract",
@@ -40,12 +53,19 @@ __all__ = [
     "DeliveryTarget",
     "ExecutionBoundary",
     "Finding",
+    "HeadcountRange",
     "HumanApproval",
+    "JobPosting",
+    "Mentions",
+    "MergeField",
     "OperationalEvent",
+    "Play",
     "QualificationDecision",
     "RecordRef",
     "ScopeViolation",
+    "Source",
     "SourceEvidence",
+    "Strategy",
     "StrategyRef",
     "SubjectRef",
     "check_isolated",

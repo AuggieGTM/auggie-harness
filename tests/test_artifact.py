@@ -1,0 +1,94 @@
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from typing import Any
+
+import pytest
+from pydantic import ValidationError
+
+from auggie.contracts import Actor, Artifact, sha256_digest
+from tests.conftest import NORTHSTAR, Scenario, variant
+
+
+@pytest.fixture
+def draft(scenario: Scenario) -> Artifact:
+    return Artifact(
+        customer_id=scenario.scope.customer_id,
+        ref=scenario.draft.artifact,
+        content=(NORTHSTAR / scenario.draft.file).read_text(encoding="utf-8"),
+        account_id=scenario.qualification.account_id,
+        recipient_id=scenario.draft.recipient_id,
+        qualification_id=scenario.qualification.decision_id,
+        evidence_ids=("ev-northstar-careers", "ev-northstar-technology"),
+        strategy=scenario.qualification.strategy,
+        composed_by=Actor(kind="service", id="fixture-composer", version="0"),
+        composed_at=datetime(2026, 10, 14, 16, 10, tzinfo=UTC),
+    )
+
+
+def edited(draft: Artifact, content: str, **changes: Any) -> dict[str, Any]:
+    ref = variant(draft.ref, content_hash=sha256_digest(content))
+    return variant(draft, ref=ref, content=content, **changes)
+
+
+def test_the_fixture_draft_is_a_valid_artifact(draft: Artifact) -> None:
+    assert draft.ref.content_hash == sha256_digest(draft.content)
+    assert Artifact.model_validate_json(draft.model_dump_json()) == draft
+
+
+def test_content_must_match_its_hash(draft: Artifact) -> None:
+    with pytest.raises(ValidationError, match=r"does not match ref\.content_hash"):
+        Artifact.model_validate(variant(draft, content=draft.content + "P.S."))
+
+
+def test_content_is_kept_byte_exact(draft: Artifact) -> None:
+    padded = "  " + draft.content + "\n\n"
+    assert Artifact.model_validate(edited(draft, padded)).content == padded
+
+
+def test_a_draft_needs_a_recipient(draft: Artifact) -> None:
+    with pytest.raises(ValidationError, match="a draft needs a recipient"):
+        Artifact.model_validate(variant(draft, recipient_id=None))
+
+
+def test_a_brief_has_no_recipient(draft: Artifact) -> None:
+    brief = variant(draft, ref=variant(draft.ref, kind="brief"))
+    with pytest.raises(ValidationError, match="only drafts have one"):
+        Artifact.model_validate(brief)
+    brief.pop("recipient_id")
+    assert Artifact.model_validate(brief).recipient_id is None
+
+
+def test_an_artifact_must_cite_evidence(draft: Artifact) -> None:
+    with pytest.raises(ValidationError, match="evidence_ids"):
+        Artifact.model_validate(variant(draft, evidence_ids=[]))
+
+
+def test_cited_evidence_must_not_repeat(draft: Artifact) -> None:
+    repeated = ["ev-northstar-careers", "ev-northstar-careers"]
+    with pytest.raises(ValidationError, match="must not repeat"):
+        Artifact.model_validate(variant(draft, evidence_ids=repeated))
+
+
+def test_an_edit_supersedes_the_previous_version(draft: Artifact) -> None:
+    content = draft.content.replace("Would that be useful?", "Worth a look?")
+    edit = Artifact.model_validate(
+        edited(
+            draft,
+            content,
+            supersedes=draft.ref.content_hash,
+            composed_by={"kind": "human", "id": "demo-reviewer"},
+        )
+    )
+    assert edit.ref.artifact_id == draft.ref.artifact_id
+    assert edit.ref.content_hash != draft.ref.content_hash
+
+
+def test_a_version_cannot_supersede_itself(draft: Artifact) -> None:
+    with pytest.raises(ValidationError, match="cannot supersede itself"):
+        Artifact.model_validate(variant(draft, supersedes=draft.ref.content_hash))
+
+
+def test_unknown_fields_are_rejected(draft: Artifact) -> None:
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        Artifact.model_validate(variant(draft, approved=True))
