@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import traceback
 import urllib.parse
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -293,3 +294,25 @@ def test_a_file_that_is_not_a_service_account_key_is_refused_without_showing_it(
     with pytest.raises(CredentialError, match="not a service account key") as caught:
         sign_in(scope, CredentialFiles(tmp_path))
     assert content not in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    "token",
+    [
+        {"access_token": GOOGLE_SECRET, "expires_in": GOOGLE_SECRET, "token_type": "Bearer"},
+        {"access_token": f"{GOOGLE_SECRET}\nInjected: header", "expires_in": 3600},
+        {"access_token": 12345, "expires_in": 3600},
+        {"expires_in": 3600},
+    ],
+    ids=["text-expiry", "header-breaking-token", "number-token", "no-token"],
+)
+def test_a_malformed_token_reply_quotes_nothing_and_stops(
+    token: dict[str, Any], scope: CustomerScope, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    google = FakeGoogle(token=(200, token, {}))
+    caplog.set_level(logging.DEBUG)
+    with pytest.raises(SheetsError, match="could not sign in") as caught:
+        write(scope, key_file(tmp_path, scope), google)
+    assert GOOGLE_SECRET not in str(caught.value) and GOOGLE_SECRET not in caplog.text
+    assert GOOGLE_SECRET not in "".join(traceback.format_exception(caught.value))
+    assert len(google.requests) == 1

@@ -17,7 +17,7 @@ from typing import Any, Protocol
 
 import google.auth.transport
 import requests
-from google.auth.exceptions import GoogleAuthError, TransportError
+from google.auth.exceptions import TransportError
 from google.oauth2 import service_account
 from requests.adapters import BaseAdapter
 
@@ -110,10 +110,13 @@ class ServiceAccount:
         if not self._account.valid:
             try:
                 self._account.refresh(_TokenEndpoint(self.session))  # type: ignore[no-untyped-call]
-            except GoogleAuthError:
-                # Not chained: google-auth's errors quote Google's reply.
+            except Exception:
+                # Any failure here, google-auth's or a parser's, may quote the token reply.
                 raise SheetsError("could not sign in as the service account") from None
-        return {"Authorization": f"Bearer {self._account.token}"}
+        token = self._account.token
+        if not isinstance(token, str) or not re.fullmatch(r"[!-~]+", token):
+            raise SheetsError("could not sign in as the service account")
+        return {"Authorization": f"Bearer {token}"}
 
 
 def sign_in(
