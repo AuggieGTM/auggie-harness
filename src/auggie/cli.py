@@ -1,4 +1,8 @@
-"""Operator commands. ``auggie run <scenario>`` runs a synthetic scenario and reports each stage."""
+"""Operator commands.
+
+``auggie run <scenario>`` runs a synthetic scenario and reports each stage.
+``auggie treg-fetch <scope.json> <url>`` makes one live, paid Treg call and stores nothing.
+"""
 
 from __future__ import annotations
 
@@ -23,6 +27,7 @@ from auggie.store.memory import InMemoryBackend
 from auggie.synthetic import ScenarioRun, load_inputs, run_scenario
 
 if TYPE_CHECKING:
+    from auggie.acquisition.treg import Transport
     from auggie.store.mongodb import MongoBackend
 
 Print = Callable[[str], None]
@@ -214,9 +219,24 @@ def main(argv: Sequence[str] | None = None) -> int:
         metavar="PREFIX",
         help="prefix for MongoDB database names, to keep demo and test runs apart",
     )
+    fetch = commands.add_parser(
+        "treg-fetch", help="make one live, paid Treg call for a scope and print what came back"
+    )
+    fetch.add_argument("scope", type=Path, help="JSON file holding the CustomerScope")
+    fetch.add_argument("url", help="the page to fetch")
+    fetch.add_argument("--account", default="acc-check", help="account the page is about")
+    fetch.add_argument(
+        "--credentials", type=Path, help="credentials root (default: $AUGGIE_CREDENTIALS_DIR)"
+    )
+    fetch.add_argument("--show-excerpt", action="store_true", help="print the stored excerpt")
     args = parser.parse_args(argv)
+    if args.command == "treg-fetch":
+        return treg_fetch(args, print)
+    return run_scenario_command(args, print)
 
-    out: Print = print
+
+def run_scenario_command(args: argparse.Namespace, out: Print) -> int:
+    """Run a synthetic scenario from its inputs and report each stage."""
     stops: tuple[type[Exception], ...] = (*BLOCKING, ValueError, OSError)
     backend: Backend = InMemoryBackend()
     mongo: MongoBackend | None = None
@@ -252,6 +272,71 @@ def main(argv: Sequence[str] | None = None) -> int:
         if not check_negative_paths(args.scenario, out):
             return 1
     return 0
+
+
+def treg_fetch(args: argparse.Namespace, out: Print) -> int:
+    """One live acquisition, for an operator to check a scope's Treg setup. Stores nothing."""
+    from pydantic import ValidationError
+
+    from auggie.acquisition.treg import ExternalCallRefused, TregPageText
+    from auggie.contracts import SubjectRef
+    from auggie.credentials import CredentialError, CredentialFiles
+    from auggie.spend import RunBudget, SpendRefused
+
+    try:
+        scope = CustomerScope.model_validate_json(args.scope.read_text(encoding="utf-8"))
+    except (OSError, ValidationError) as error:
+        out(f"stopped   cannot read the scope: {type(error).__name__}")
+        return 1
+    budget = RunBudget.for_scope(scope)
+    treg = TregPageText(
+        scope=scope,
+        credentials=CredentialFiles(args.credentials),
+        budget=budget,
+        transport=treg_transport(),
+    )
+    out(
+        f"{scope.customer_id}: one live Treg call, run limit "
+        f"{budget.limit_micro_usd} micro-USD, nothing stored"
+    )
+    try:
+        evidence, details = treg.acquire(
+            evidence_id=f"ev-check-{sha256_digest(args.url)[7:19]}",
+            customer_id=scope.customer_id,
+            subject=SubjectRef(kind="account", id=args.account),
+            url=args.url,
+        )
+    except (ExternalCallRefused, SpendRefused, CredentialError, ScopeViolation) as error:
+        out(f"stopped   {type(error).__name__}: {error}")
+        return 1
+    except ValidationError:
+        out("stopped   the URL is not a valid http(s) URL")
+        return 1
+    out(
+        f"status    {evidence.status}"
+        + (f": {evidence.failure_reason}" if evidence.failure_reason else "")
+    )
+    out(f"source    {evidence.source_url}")
+    if evidence.content_hash:
+        excerpt = len(evidence.excerpt or "")
+        out(f"content   sha256 {_short(evidence.content_hash)}, excerpt {excerpt} characters")
+        out(f"provider  request {evidence.provider_request_id or 'none'}")
+        out(f"published {evidence.published_at or 'unknown'}")
+    for name, value in details.items():
+        out(f"treg      {name}: {value}")
+    out(f"spent     {budget.spent_micro_usd} of {budget.limit_micro_usd} micro-USD")
+    if args.show_excerpt and evidence.excerpt:
+        out("")
+        for line in evidence.excerpt.splitlines():
+            out(f"          | {line}")
+    return 0 if evidence.usable else 2
+
+
+def treg_transport() -> Transport:
+    """The transport treg-fetch uses; tests replace it."""
+    from auggie.acquisition.treg import HttpsTransport
+
+    return HttpsTransport()
 
 
 if __name__ == "__main__":

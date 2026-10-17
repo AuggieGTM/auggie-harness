@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
 import pytest
 
+from auggie import cli
 from auggie.cli import main
 from tests.conftest import MONGODB_URI, NORTHSTAR, mongo_backend
+from tests.test_treg import CAREERS, TOKEN_VALUE, Replay, reply
 
 
 def test_run_reports_every_stage(capsys: pytest.CaptureFixture[str]) -> None:
@@ -56,3 +59,67 @@ def test_run_can_keep_records_in_mongodb(capsys: pytest.CaptureFixture[str]) -> 
         assert f"Stored in MongoDB database {prefix}auggie_demo_msp." in first
         assert main(argv) == 0
         assert "already delivered; nothing sent again" in capsys.readouterr().out
+
+
+def treg_setup(tmp_path: Path, *, external: bool = True) -> tuple[Path, Path]:
+    """A paid copy of the Northstar scope on disk, and a credentials root holding its token."""
+    scope = json.loads((NORTHSTAR / "inputs/inputs.json").read_text(encoding="utf-8"))["scope"]
+    scope["execution"] = {
+        "delivery": "simulated",
+        "external_providers": external,
+        "max_run_spend_micro_usd": 10_000,
+    }
+    scope_file = tmp_path / "scope.json"
+    scope_file.write_text(json.dumps(scope), encoding="utf-8")
+    folder = tmp_path / "credentials" / scope["credential_namespace"]
+    folder.mkdir(mode=0o700, parents=True)
+    (folder / "treg-token").write_text(TOKEN_VALUE, encoding="utf-8")
+    (folder / "treg-token").chmod(0o600)
+    return scope_file, tmp_path / "credentials"
+
+
+def test_treg_fetch_makes_one_call_and_reports_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    replay = Replay(reply("page-text.json"))
+    monkeypatch.setattr(cli, "treg_transport", lambda: replay)
+    scope_file, credentials = treg_setup(tmp_path)
+    argv = ["treg-fetch", str(scope_file), CAREERS, "--credentials", str(credentials)]
+    assert main([*argv, "--show-excerpt"]) == 0
+    out = capsys.readouterr().out
+    assert "status    retrieved" in out
+    assert "treg      cost_micro_usd: 1000" in out
+    assert "spent     1000 of 10000 micro-USD" in out
+    assert "| Northstar Works is hiring" in out
+    assert TOKEN_VALUE not in out
+    assert len(replay.requests) == 1
+
+
+def test_treg_fetch_reports_an_unusable_reply(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(cli, "treg_transport", lambda: Replay(reply("unavailable-503.json")))
+    scope_file, credentials = treg_setup(tmp_path)
+    assert main(["treg-fetch", str(scope_file), CAREERS, "--credentials", str(credentials)]) == 2
+    assert (
+        "status    failed: Treg or the provider was unavailable (503)." in capsys.readouterr().out
+    )
+
+
+def test_treg_fetch_refuses_a_scope_without_external_providers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    replay = Replay(reply("page-text.json"))
+    monkeypatch.setattr(cli, "treg_transport", lambda: replay)
+    scope_file, credentials = treg_setup(tmp_path, external=False)
+    assert main(["treg-fetch", str(scope_file), CAREERS, "--credentials", str(credentials)]) == 1
+    assert "stopped   ExternalCallRefused" in capsys.readouterr().out
+    assert replay.requests == []
+
+
+def test_treg_fetch_stops_on_an_unreadable_scope(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "scope.json").write_text("{}", encoding="utf-8")
+    assert main(["treg-fetch", str(tmp_path / "scope.json"), CAREERS]) == 1
+    assert "stopped   cannot read the scope: ValidationError" in capsys.readouterr().out
