@@ -30,13 +30,15 @@ def test_a_database_cannot_be_claimed_by_another_customer(
 ) -> None:
     backend.open(scenario.scope)
     # A second process, configured for a different customer on the same database.
-    elsewhere = MongoBackend(backend._client, database_prefix=backend._prefix)
+    elsewhere = MongoBackend(backend._client, database_prefix=backend.database_prefix)
     impostor = CustomerScope.model_validate(
         variant(scenario.scope, customer_id="demo-impostor", credential_namespace="demo-impostor")
     )
     with pytest.raises(ScopeViolation, match="belongs to"):
         elsewhere.open(impostor)
-    reopened = MongoBackend(backend._client, database_prefix=backend._prefix).open(scenario.scope)
+    reopened = MongoBackend(backend._client, database_prefix=backend.database_prefix).open(
+        scenario.scope
+    )
     assert reopened.scope == scenario.scope
 
 

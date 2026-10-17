@@ -6,7 +6,7 @@ import pytest
 
 from auggie.store.memory import InMemoryBackend
 from auggie.synthetic import ScenarioRun, run_scenario
-from tests.conftest import NORTHSTAR, Scenario
+from tests.conftest import NORTHSTAR, Scenario, mongo_backend
 
 
 @pytest.fixture
@@ -51,3 +51,13 @@ def test_running_the_same_inputs_again_writes_nothing_new(scenario: Scenario) ->
     assert not again.activation.created
     assert again.delivery is not None and not again.delivery.created
     assert again.store.list_events() == scenario.events
+
+
+def test_the_workflow_reproduces_the_scenario_on_mongodb(scenario: Scenario) -> None:
+    with mongo_backend() as backend:
+        run = run_scenario(NORTHSTAR, backend=backend)
+        assert run.store.list_evidence() == scenario.evidence
+        assert run.store.list_approvals(scenario.draft.artifact.artifact_id) == scenario.approvals
+        assert run.store.list_events() == scenario.events
+        again = run_scenario(NORTHSTAR, backend=backend)
+        assert again.store.list_events() == scenario.events

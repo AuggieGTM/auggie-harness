@@ -83,14 +83,18 @@ def _identity(scope: CustomerScope) -> Document:
 class MongoBackend:
     """Opens one database per scope on ``client``.
 
-    ``database_prefix`` exists for tests, so a test run never shares a
-    database with real data on the same server.
+    ``database_prefix`` keeps test and demo runs apart from real data on the
+    same server.
     """
 
     def __init__(self, client: MongoClient[Document], *, database_prefix: str = "") -> None:
         self._client = client
         self._prefix = database_prefix
         self._scopes: dict[str, CustomerScope] = {}
+
+    @property
+    def database_prefix(self) -> str:
+        return self._prefix
 
     def database_name(self, scope: CustomerScope) -> str:
         name = self._prefix + scope.data_namespace

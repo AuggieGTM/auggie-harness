@@ -6,6 +6,7 @@ import argparse
 import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from auggie.contracts import (
     Artifact,
@@ -17,9 +18,12 @@ from auggie.contracts import (
 from auggie.contracts.qualification import CitationError
 from auggie.delivery import DeliveryBlocked
 from auggie.pipeline import deliver
-from auggie.store import Store, StoreError
+from auggie.store import Backend, Store, StoreError
 from auggie.store.memory import InMemoryBackend
 from auggie.synthetic import ScenarioRun, load_inputs, run_scenario
+
+if TYPE_CHECKING:
+    from auggie.store.mongodb import MongoBackend
 
 Print = Callable[[str], None]
 
@@ -201,17 +205,48 @@ def main(argv: Sequence[str] | None = None) -> int:
     run.add_argument(
         "--negative", action="store_true", help="also try the paths that must be blocked"
     )
+    run.add_argument(
+        "--mongodb", metavar="URI", help="keep records in MongoDB at URI instead of in memory"
+    )
+    run.add_argument(
+        "--database-prefix",
+        default="",
+        metavar="PREFIX",
+        help="prefix for MongoDB database names, to keep demo and test runs apart",
+    )
     args = parser.parse_args(argv)
 
     out: Print = print
-    out(f"{args.scenario}: synthetic run, in-memory store, no network, simulated delivery only")
+    stops: tuple[type[Exception], ...] = (*BLOCKING, ValueError, OSError)
+    backend: Backend = InMemoryBackend()
+    mongo: MongoBackend | None = None
+    where = "in-memory store"
+    if args.mongodb:
+        try:
+            from pymongo import MongoClient
+            from pymongo.errors import PyMongoError
+
+            from auggie.store.mongodb import MongoBackend
+        except ImportError:
+            out("stopped   MongoDB support needs the extra: auggie-harness[mongodb]")
+            return 1
+        client: MongoClient[dict[str, Any]] = MongoClient(
+            args.mongodb, serverSelectionTimeoutMS=5000
+        )
+        backend = mongo = MongoBackend(client, database_prefix=args.database_prefix)
+        stops = (*stops, PyMongoError)
+        where = "MongoDB store"
+
+    out(f"{args.scenario}: synthetic run, {where}, no provider calls, simulated delivery only")
     out("")
     try:
-        result = run_scenario(args.scenario)
-    except (*BLOCKING, ValueError, OSError) as error:
+        result = run_scenario(args.scenario, backend=backend)
+    except stops as error:
         out(f"stopped   {type(error).__name__}: {error}")
         return 1
     report(result, out, show_draft=args.show_draft)
+    if mongo is not None:
+        out(f"Stored in MongoDB database {mongo.database_name(result.store.scope)}.")
     if args.negative:
         out("")
         if not check_negative_paths(args.scenario, out):

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
 
 from auggie.cli import main
-from tests.conftest import NORTHSTAR
+from tests.conftest import MONGODB_URI, NORTHSTAR, mongo_backend
 
 
 def test_run_reports_every_stage(capsys: pytest.CaptureFixture[str]) -> None:
@@ -43,3 +44,15 @@ def test_a_missing_scenario_stops_with_an_error(
 ) -> None:
     assert main(["run", str(tmp_path)]) == 1
     assert "stopped   FileNotFoundError" in capsys.readouterr().out
+
+
+def test_run_can_keep_records_in_mongodb(capsys: pytest.CaptureFixture[str]) -> None:
+    with mongo_backend() as backend:
+        uri = os.environ[MONGODB_URI]
+        prefix = backend.database_prefix
+        argv = ["run", str(NORTHSTAR), "--mongodb", uri, "--database-prefix", prefix]
+        assert main(argv) == 0
+        first = capsys.readouterr().out
+        assert f"Stored in MongoDB database {prefix}auggie_demo_msp." in first
+        assert main(argv) == 0
+        assert "already delivered; nothing sent again" in capsys.readouterr().out
