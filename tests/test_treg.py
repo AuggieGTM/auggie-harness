@@ -17,7 +17,6 @@ import pytest
 
 from auggie.acquisition.treg import (
     CEILING_MICRO_USD,
-    ExternalCallRefused,
     HttpRequest,
     HttpResponse,
     HttpsTransport,
@@ -26,6 +25,7 @@ from auggie.acquisition.treg import (
 )
 from auggie.contracts import CustomerScope, ScopeViolation, SubjectRef, sha256_digest
 from auggie.credentials import CredentialError, CredentialFiles
+from auggie.external import ExternalCallRefused
 from auggie.judgment.rules import RulesQualifier
 from auggie.pipeline import research_run
 from auggie.spend import RunBudget, SpendRefused

@@ -34,6 +34,7 @@ from auggie.contracts.common import RecordId
 from auggie.contracts.events import AttributeValue
 from auggie.contracts.evidence import RetrievalStatus
 from auggie.credentials import CredentialError, CredentialFiles
+from auggie.external import require_external_calls
 from auggie.spend import RunBudget, SpendRefused
 
 TREG_ORIGIN = "https://treg.to"
@@ -59,10 +60,6 @@ _RECORD_ID: TypeAdapter[str] = TypeAdapter(RecordId)
 
 
 ECHOED = "The reply contained the request's credential; none of it was kept."
-
-
-class ExternalCallRefused(Exception):
-    """The scope does not allow calls to external providers. Nothing was sent."""
 
 
 @dataclass(frozen=True)
@@ -175,10 +172,7 @@ class TregPageText:
         """
         if customer_id != self._scope.customer_id:
             raise ScopeViolation(f"this adapter serves {self._scope.customer_id!r}")
-        if not self._scope.execution.external_providers:
-            raise ExternalCallRefused(
-                f"scope {customer_id!r} does not allow calls to external providers"
-            )
+        require_external_calls(self._scope)
         page = _URL.validate_python(url)
         _RECORD_ID.validate_python(evidence_id)
         token = self._credentials.secret(self._scope, TOKEN)

@@ -278,9 +278,10 @@ def treg_fetch(args: argparse.Namespace, out: Print) -> int:
     """One live acquisition, for an operator to check a scope's Treg setup. Stores nothing."""
     from pydantic import ValidationError
 
-    from auggie.acquisition.treg import ExternalCallRefused, TregPageText
+    from auggie.acquisition.treg import TregPageText
     from auggie.contracts import SubjectRef
     from auggie.credentials import CredentialError, CredentialFiles
+    from auggie.external import ExternalCallRefused
     from auggie.spend import RunBudget, SpendRefused
 
     try:
