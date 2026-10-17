@@ -11,7 +11,14 @@ import pytest
 from auggie.accounts import Account
 from auggie.acquisition.validation import Verdict, check_evidence
 from auggie.compose.template import ComposeBlocked, compose_draft, select_play
-from auggie.contracts import QualificationDecision, SourceEvidence, SubjectRef, sha256_digest
+from auggie.contracts import (
+    MergeField,
+    Play,
+    QualificationDecision,
+    SourceEvidence,
+    SubjectRef,
+    sha256_digest,
+)
 from auggie.judgment.rules import RulesQualifier
 from auggie.strategy import LoadedStrategy, load_strategy
 from tests.conftest import NORTHSTAR, Scenario, variant
@@ -172,6 +179,68 @@ def test_a_field_missing_from_the_evidence_blocks_the_draft(
     play = select_play(strategy, decision)
     assert play is not None
     with pytest.raises(ComposeBlocked, match="'platform' is not found in the technology page"):
+        compose_draft(
+            artifact_id="draft-x",
+            play=play,
+            strategy=strategy,
+            decision=decision,
+            account=account,
+            sources=sources,
+            at=COMPOSED_AT,
+        )
+
+
+@pytest.mark.parametrize(
+    ("at", "assessment"),
+    [
+        (datetime(2026, 11, 8, tzinfo=UTC), "meets"),  # exactly 30 days after publication
+        (datetime(2026, 11, 8, 0, 0, 1, tzinfo=UTC), "unknown"),
+        (datetime(2026, 10, 1, tzinfo=UTC), "unknown"),  # before the posting was published
+    ],
+)
+def test_postings_count_only_within_their_window(
+    at: datetime, assessment: str, scenario: Scenario, strategy: LoadedStrategy
+) -> None:
+    decision = qualify(strategy, verdicts(scenario), at=at)
+    assert assessments(decision)["active-it-hiring"] == assessment
+
+
+@pytest.mark.parametrize(
+    ("at", "assessment"),
+    [(datetime(2026, 10, 14, tzinfo=UTC), "meets"), (datetime(2026, 10, 1, tzinfo=UTC), "unknown")],
+)
+def test_dated_mentions_count_only_once_published(
+    at: datetime, assessment: str, scenario: Scenario, strategy: LoadedStrategy
+) -> None:
+    news = SourceEvidence.model_validate(
+        variant(
+            scenario.evidence[2],
+            status="retrieved",
+            failure_reason=None,
+            published_at="2026-10-09T00:00:00Z",
+            excerpt="Northstar Works opens a second office.",
+            content_hash=sha256_digest("Northstar Works opens a second office."),
+        )
+    )
+    sources = verdicts(scenario)
+    sources["news"] = Verdict(news)
+    decision = qualify(strategy, sources, at=at)
+    assert assessments(decision)["recent-expansion"] == assessment
+
+
+@pytest.mark.parametrize("pattern", [r"run on (Google Workspace)?", r"run on ()"])
+def test_an_empty_or_missing_capture_blocks_the_draft(
+    pattern: str, scenario: Scenario, strategy: LoadedStrategy, account: Account
+) -> None:
+    sources = verdicts(scenario)
+    decision = qualify(strategy, sources)
+    play = Play(
+        id="optional-platform",
+        requires=("active-it-hiring",),
+        template="Hi {first_name}, about {platform}.\n",
+        fields={"platform": MergeField(source="technology", pattern=pattern)},
+    )
+    with pytest.raises(ComposeBlocked, match="'platform' is empty in the technology page"):
         compose_draft(
             artifact_id="draft-x",
             play=play,

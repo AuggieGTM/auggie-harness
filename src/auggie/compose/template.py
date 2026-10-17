@@ -64,7 +64,10 @@ def compose_draft(
         match = re.search(field.pattern, verdict.evidence.excerpt or "")
         if match is None:
             raise ComposeBlocked(f"field {name!r} is not found in the {label}")
-        values[name] = match.group(1)
+        value = match.group(1)
+        if value is None or not value.strip():
+            raise ComposeBlocked(f"field {name!r} is empty in the {label}")
+        values[name] = value
         used.add(verdict.evidence.evidence_id)
     content = play.template.format_map(values)
     in_source_order = [

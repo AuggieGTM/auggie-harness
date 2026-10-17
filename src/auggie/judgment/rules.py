@@ -39,7 +39,10 @@ def _not_admitted(label: str, verdict: Verdict | None) -> str:
 
 
 def _recent(published_at: datetime | None, at: datetime, max_age_days: int) -> bool:
-    return published_at is not None and at - published_at <= timedelta(days=max_age_days)
+    """Published at or before ``at``, and no more than ``max_age_days`` earlier."""
+    if published_at is None:
+        return False
+    return timedelta(0) <= at - published_at <= timedelta(days=max_age_days)
 
 
 def _headcount(criterion: HeadcountRange, label: str, evidence_id: str, text: str) -> Finding:
