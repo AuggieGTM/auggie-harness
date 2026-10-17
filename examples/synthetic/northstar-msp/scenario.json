@@ -1,0 +1,281 @@
+{
+  "note": "SYNTHETIC. Every company, person, URL and identifier here is invented. Domains use the reserved .example TLD. The strategy commit and digest are placeholders: no strategy file exists yet. Each evidence snapshot is its excerpt, so content_hash is the excerpt's digest.",
+  "scope": {
+    "customer_id": "demo-msp",
+    "synthetic": true,
+    "data_namespace": "auggie_demo_msp",
+    "credential_namespace": "demo-msp",
+    "knowledge_namespace": "demo-msp-strategy",
+    "execution": {"delivery": "simulated", "external_providers": false}
+  },
+  "evidence": [
+    {
+      "evidence_id": "ev-northstar-careers",
+      "customer_id": "demo-msp",
+      "subject": {"kind": "account", "id": "acc-northstar"},
+      "source_url": "https://northstar.example/careers/it-operations-manager",
+      "acquired_via": {"kind": "service", "id": "fixture-acquisition", "version": "0"},
+      "status": "retrieved",
+      "observed_at": "2026-10-14T16:00:00Z",
+      "published_at": "2026-10-09T00:00:00Z",
+      "excerpt": "Northstar Works is hiring an IT Operations Manager to own endpoint management and help desk support for our 140 staff across two offices.",
+      "content_hash": "sha256:920ba03c2b202804b3388c2c8b319f89b87608f47b545d59ebf60411a67b630d"
+    },
+    {
+      "evidence_id": "ev-northstar-technology",
+      "customer_id": "demo-msp",
+      "subject": {"kind": "account", "id": "acc-northstar"},
+      "source_url": "https://northstar.example/about/technology",
+      "acquired_via": {"kind": "service", "id": "fixture-acquisition", "version": "0"},
+      "status": "retrieved",
+      "observed_at": "2026-10-14T16:00:05Z",
+      "excerpt": "We run on Microsoft 365 and plan to consolidate onto a single device-management platform this year.",
+      "content_hash": "sha256:dfbecb11a1a12ee3b64745b545c7ae04103030de0a296fc594bf6e9bac95fd05"
+    },
+    {
+      "evidence_id": "ev-northstar-news",
+      "customer_id": "demo-msp",
+      "subject": {"kind": "account", "id": "acc-northstar"},
+      "source_url": "https://news.example/2026/northstar-works-opens-second-office",
+      "acquired_via": {"kind": "service", "id": "fixture-acquisition", "version": "0"},
+      "status": "failed",
+      "observed_at": "2026-10-14T16:00:10Z",
+      "failure_reason": "Timed out after 10 seconds."
+    }
+  ],
+  "qualification": {
+    "decision_id": "qual-northstar-001",
+    "customer_id": "demo-msp",
+    "account_id": "acc-northstar",
+    "strategy": {
+      "commit": "0000000000000000000000000000000000000001",
+      "path": "strategy/icp.yaml",
+      "digest": "sha256:f62cb8dd1db278109c01c846ac10a04abd8098ae5ddcce3cfb6940eab20b2cc8"
+    },
+    "outcome": "qualified",
+    "findings": [
+      {
+        "criterion": "headcount-50-to-500",
+        "assessment": "meets",
+        "basis": "source_fact",
+        "evidence_ids": ["ev-northstar-careers"],
+        "rationale": "The careers page states 140 staff."
+      },
+      {
+        "criterion": "active-it-hiring",
+        "assessment": "meets",
+        "basis": "source_fact",
+        "evidence_ids": ["ev-northstar-careers"],
+        "rationale": "An open IT Operations Manager role, published within the last 30 days."
+      },
+      {
+        "criterion": "device-management-change",
+        "assessment": "meets",
+        "basis": "inference",
+        "evidence_ids": ["ev-northstar-technology"],
+        "rationale": "A stated plan to consolidate device management this year suggests an active project, not a confirmed purchase."
+      },
+      {
+        "criterion": "recent-expansion",
+        "assessment": "unknown",
+        "basis": "hypothesis",
+        "rationale": "Two offices are mentioned, but the news source that might date the second one could not be retrieved."
+      }
+    ],
+    "unknowns": ["When the second office opened."],
+    "decided_by": {"kind": "rule", "id": "fixture-icp-rules", "version": "0"},
+    "decided_at": "2026-10-14T16:05:00Z"
+  },
+  "draft": {
+    "artifact": {
+      "artifact_id": "draft-northstar-001",
+      "kind": "draft",
+      "content_hash": "sha256:1c05fafeae998e3a0751e24f08f6a35f20f1b43539616af696da0927a2ed753f"
+    },
+    "file": "draft.md",
+    "recipient_id": "per-jordan-avery"
+  },
+  "approvals": [
+    {
+      "approval_id": "apr-northstar-content",
+      "customer_id": "demo-msp",
+      "artifact": {
+        "artifact_id": "draft-northstar-001",
+        "kind": "draft",
+        "content_hash": "sha256:1c05fafeae998e3a0751e24f08f6a35f20f1b43539616af696da0927a2ed753f"
+      },
+      "scope": "content",
+      "decision": "approved",
+      "reviewer": {"kind": "human", "id": "demo-reviewer"},
+      "decided_at": "2026-10-15T15:00:00Z",
+      "note": "Claims match the cited pages. Tone is right."
+    },
+    {
+      "approval_id": "apr-northstar-delivery",
+      "customer_id": "demo-msp",
+      "artifact": {
+        "artifact_id": "draft-northstar-001",
+        "kind": "draft",
+        "content_hash": "sha256:1c05fafeae998e3a0751e24f08f6a35f20f1b43539616af696da0927a2ed753f"
+      },
+      "scope": "delivery",
+      "target": {"platform": "simulated", "recipient_id": "per-jordan-avery"},
+      "decision": "approved",
+      "reviewer": {"kind": "human", "id": "demo-reviewer"},
+      "decided_at": "2026-10-15T15:02:00Z",
+      "expires_at": "2026-10-22T15:02:00Z"
+    }
+  ],
+  "events": [
+    {
+      "event_id": "evt-001",
+      "customer_id": "demo-msp",
+      "type": "strategy.activated",
+      "occurred_at": "2026-10-14T15:00:00Z",
+      "actor": {"kind": "human", "id": "demo-reviewer"},
+      "refs": [{"kind": "strategy", "id": "strategy-msp-icp-r1"}],
+      "idempotency_key": "strategy.activated:strategy-msp-icp-r1"
+    },
+    {
+      "event_id": "evt-002",
+      "customer_id": "demo-msp",
+      "type": "evidence.recorded",
+      "occurred_at": "2026-10-14T16:00:00Z",
+      "actor": {"kind": "service", "id": "fixture-acquisition", "version": "0"},
+      "refs": [{"kind": "evidence", "id": "ev-northstar-careers"}],
+      "idempotency_key": "evidence.recorded:ev-northstar-careers",
+      "run_id": "run-001"
+    },
+    {
+      "event_id": "evt-003",
+      "customer_id": "demo-msp",
+      "type": "evidence.recorded",
+      "occurred_at": "2026-10-14T16:00:05Z",
+      "actor": {"kind": "service", "id": "fixture-acquisition", "version": "0"},
+      "refs": [{"kind": "evidence", "id": "ev-northstar-technology"}],
+      "idempotency_key": "evidence.recorded:ev-northstar-technology",
+      "run_id": "run-001"
+    },
+    {
+      "event_id": "evt-004",
+      "customer_id": "demo-msp",
+      "type": "evidence.recorded",
+      "occurred_at": "2026-10-14T16:00:10Z",
+      "actor": {"kind": "service", "id": "fixture-acquisition", "version": "0"},
+      "refs": [{"kind": "evidence", "id": "ev-northstar-news"}],
+      "idempotency_key": "evidence.recorded:ev-northstar-news",
+      "run_id": "run-001",
+      "attributes": {"status": "failed"}
+    },
+    {
+      "event_id": "evt-005",
+      "customer_id": "demo-msp",
+      "type": "evidence.validated",
+      "occurred_at": "2026-10-14T16:01:00Z",
+      "actor": {"kind": "rule", "id": "evidence-checks", "version": "0"},
+      "refs": [{"kind": "evidence", "id": "ev-northstar-careers"}],
+      "idempotency_key": "evidence.validated:ev-northstar-careers",
+      "run_id": "run-001"
+    },
+    {
+      "event_id": "evt-006",
+      "customer_id": "demo-msp",
+      "type": "evidence.validated",
+      "occurred_at": "2026-10-14T16:01:00Z",
+      "actor": {"kind": "rule", "id": "evidence-checks", "version": "0"},
+      "refs": [{"kind": "evidence", "id": "ev-northstar-technology"}],
+      "idempotency_key": "evidence.validated:ev-northstar-technology",
+      "run_id": "run-001"
+    },
+    {
+      "event_id": "evt-007",
+      "customer_id": "demo-msp",
+      "type": "evidence.rejected",
+      "occurred_at": "2026-10-14T16:01:00Z",
+      "actor": {"kind": "rule", "id": "evidence-checks", "version": "0"},
+      "refs": [{"kind": "evidence", "id": "ev-northstar-news"}],
+      "idempotency_key": "evidence.rejected:ev-northstar-news",
+      "run_id": "run-001",
+      "attributes": {"reason": "retrieval_failed"}
+    },
+    {
+      "event_id": "evt-008",
+      "customer_id": "demo-msp",
+      "type": "qualification.decided",
+      "occurred_at": "2026-10-14T16:05:00Z",
+      "actor": {"kind": "rule", "id": "fixture-icp-rules", "version": "0"},
+      "refs": [
+        {"kind": "qualification", "id": "qual-northstar-001"},
+        {"kind": "account", "id": "acc-northstar"}
+      ],
+      "idempotency_key": "qualification.decided:qual-northstar-001",
+      "run_id": "run-001",
+      "attributes": {"outcome": "qualified"}
+    },
+    {
+      "event_id": "evt-009",
+      "customer_id": "demo-msp",
+      "type": "draft.composed",
+      "occurred_at": "2026-10-14T16:10:00Z",
+      "actor": {"kind": "service", "id": "fixture-composer", "version": "0"},
+      "refs": [
+        {"kind": "artifact", "id": "draft-northstar-001"},
+        {"kind": "qualification", "id": "qual-northstar-001"},
+        {"kind": "evidence", "id": "ev-northstar-careers"},
+        {"kind": "evidence", "id": "ev-northstar-technology"}
+      ],
+      "idempotency_key": "draft.composed:draft-northstar-001",
+      "run_id": "run-001"
+    },
+    {
+      "event_id": "evt-010",
+      "customer_id": "demo-msp",
+      "type": "approval.recorded",
+      "occurred_at": "2026-10-15T15:00:00Z",
+      "actor": {"kind": "human", "id": "demo-reviewer"},
+      "refs": [
+        {"kind": "approval", "id": "apr-northstar-content"},
+        {"kind": "artifact", "id": "draft-northstar-001"}
+      ],
+      "idempotency_key": "approval.recorded:apr-northstar-content"
+    },
+    {
+      "event_id": "evt-011",
+      "customer_id": "demo-msp",
+      "type": "approval.recorded",
+      "occurred_at": "2026-10-15T15:02:00Z",
+      "actor": {"kind": "human", "id": "demo-reviewer"},
+      "refs": [
+        {"kind": "approval", "id": "apr-northstar-delivery"},
+        {"kind": "artifact", "id": "draft-northstar-001"}
+      ],
+      "idempotency_key": "approval.recorded:apr-northstar-delivery"
+    },
+    {
+      "event_id": "evt-012",
+      "customer_id": "demo-msp",
+      "type": "delivery.simulated",
+      "occurred_at": "2026-10-15T15:05:00Z",
+      "actor": {"kind": "service", "id": "simulated-delivery", "version": "0"},
+      "refs": [
+        {"kind": "approval", "id": "apr-northstar-delivery"},
+        {"kind": "artifact", "id": "draft-northstar-001"},
+        {"kind": "person", "id": "per-jordan-avery"}
+      ],
+      "idempotency_key": "delivery.simulated:draft-northstar-001:per-jordan-avery"
+    },
+    {
+      "event_id": "evt-013",
+      "customer_id": "demo-msp",
+      "type": "outcome.recorded",
+      "occurred_at": "2026-10-16T18:30:00Z",
+      "actor": {"kind": "human", "id": "demo-reviewer"},
+      "refs": [
+        {"kind": "artifact", "id": "draft-northstar-001"},
+        {"kind": "person", "id": "per-jordan-avery"}
+      ],
+      "idempotency_key": "outcome.recorded:draft-northstar-001:per-jordan-avery:1",
+      "attributes": {"outcome": "positive_reply"}
+    }
+  ]
+}

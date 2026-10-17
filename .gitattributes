@@ -1,0 +1,2 @@
+# Fixture digests are computed over exact bytes; keep LF on every platform.
+examples/** text eol=lf
