@@ -1,8 +1,7 @@
 # Architecture
 
-> **Status: early, synthetic only.** The contracts, an in-memory Store and the first vertical
-> slice exist and run on synthetic fixtures. Every component
-> below is labeled **Exists**, **Proposed** (recommended, not yet accepted or built) or **Open**
+> **Status: early, synthetic only.** The contracts, the Store (in-memory and MongoDB) and the
+> first vertical slice exist and run on synthetic fixtures. Every component below is labeled **Exists**, **Proposed** (recommended, not yet accepted or built) or **Open**
 > (unresolved). Decisions are recorded in [`docs/adr/`](adr/README.md).
 
 ## Purpose
@@ -44,7 +43,7 @@ later runs use it ([ADR 0005](adr/0005-evidence-and-approval-gates.md)).
 | System | Holds | Authority | ADR |
 |---|---|---|---|
 | GitHub | Approved strategy and executable configuration | Authoritative for what is approved | [0003](adr/0003-systems-of-record.md) |
-| MongoDB Community, one database per customer, behind a typed Store API | Evidence, decisions, approvals, events, outcomes | Operational system of record (planned) | [0003](adr/0003-systems-of-record.md) |
+| MongoDB Community, one database per customer, behind a typed Store API | Evidence, decisions, approvals, events, outcomes | Operational system of record | [0003](adr/0003-systems-of-record.md), [0015](adr/0015-mongodb-store-layout.md) |
 | Google Sheets / Docs | Customer-facing reports and review views | None: projections of the Store | [0003](adr/0003-systems-of-record.md) |
 | EmailBison / Instantly | Sending | Delivery receipts only | [0006](adr/0006-delivery-through-existing-platforms.md) |
 | SageOx | Shared engineering context and rationale | None over execution; never customer intelligence | [0011](adr/0011-sageox-engineering-context.md) |
@@ -96,8 +95,8 @@ flowchart LR
 | Component | Role | Status |
 |---|---|---|
 | Contracts | Shared, versioned data shapes and invariants | **Exists** |
-| Store API | The only path to operational data; typed operations; scope-bound | **Exists**, in-memory only |
-| MongoDB Community | Per-customer operational database behind the Store | Accepted, not built |
+| Store API | The only path to operational data; typed operations; scope-bound | **Exists**: in-memory and MongoDB |
+| MongoDB Community | Per-customer operational database behind the Store | **Exists** for synthetic runs ([0015](adr/0015-mongodb-store-layout.md)) |
 | Acquisition (Treg) | Data acquisition, recorded as `SourceEvidence` | Accepted, not built ([0008](adr/0008-treg-for-acquisition.md)) |
 | Judgment and synthesis | Deterministic rules, Jev and OpenRouter under evaluation | **Open** ([0009](adr/0009-judgment-and-synthesis-engines.md)) |
 | Task scheduler | Exactly one; Herdr or Foreman | **Open** ([0007](adr/0007-single-task-scheduler.md)) |
@@ -125,8 +124,8 @@ and its recipient, event refs resolve, and an idempotency key is stored once.
 
 ## First vertical slice
 
-The slice runs end to end on synthetic fixtures, through the in-memory Store:
-`uv run auggie run examples/synthetic/northstar-msp`. From `inputs/` (scope, TOML strategy,
+The slice runs end to end on synthetic fixtures, through the in-memory Store or MongoDB:
+`uv run auggie run examples/synthetic/northstar-msp [--mongodb URI]`. From `inputs/` (scope, TOML strategy,
 account, recorded responses, timeline and scripted human decisions) it produces every record in
 `scenario.json` and the exact bytes of `draft.md`; the tests compare them.
 
@@ -154,7 +153,7 @@ scope.
 ```text
 src/auggie/
   contracts/     Exists    versioned data shapes and invariants; no I/O
-  store/         Exists    typed Store API and in-memory reference; MongoDB proposed
+  store/         Exists    typed Store API; in-memory reference and MongoDB (ADR 0015)
   strategy.py    Exists    load a TOML strategy file pinned to its exact bytes
   accounts.py    Exists    account and recipient inputs
   acquisition/   Exists    fixture replay and evidence validation; Treg adapter proposed

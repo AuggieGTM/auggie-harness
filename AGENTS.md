@@ -7,8 +7,9 @@ Instructions for coding agents and human contributors working in this repository
 
 ## Project status
 
-Early and synthetic only. Contracts, an in-memory Store and the first vertical slice run end to
-end on the synthetic Northstar fixture. Nothing persists data, calls a provider or sends anything.
+Early and synthetic only. Contracts, the Store (in-memory and MongoDB) and the first vertical
+slice run end to end on the synthetic Northstar fixture. Nothing calls a provider or sends
+anything.
 Never describe planned or proposed work as built, supported or tested.
 
 ## Commands
@@ -21,8 +22,10 @@ uv run ruff format --check .
 uv run mypy
 ```
 
-All five must pass before a commit. `uv run auggie run examples/synthetic/northstar-msp --negative`
-runs the slice and tries the paths it must refuse.
+All five must pass before a commit. The MongoDB half of the Store suite runs only when
+`AUGGIE_TEST_MONGODB_URI` is set (see README); CI always sets it.
+`uv run auggie run examples/synthetic/northstar-msp --negative` runs the slice and tries the paths
+it must refuse.
 
 ## Where decisions live
 

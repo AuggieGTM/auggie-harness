@@ -1,9 +1,10 @@
 # Auggie Harness
 
-> **Status: early, synthetic only.** The harness runs one synthetic scenario end to end, in
-> memory: recorded sources, deterministic rules, a template draft, scripted human approvals and
-> simulated delivery. Nothing is stored persistently, no provider is called and nothing is sent.
-> There is no installer. Anything described below as planned or proposed is not built.
+> **Status: early, synthetic only.** The harness runs one synthetic scenario end to end:
+> recorded sources, deterministic rules, a template draft, scripted human approvals and
+> simulated delivery, with records kept in memory or in a local MongoDB. No provider is called
+> and nothing is sent. There is no installer. Anything described below as planned or proposed is
+> not built.
 
 Auggie is a **GTM-as-code harness**. It turns versioned go-to-market strategy into an
 evidence-to-action-to-learning loop:
@@ -36,8 +37,8 @@ time. Auggie is **not** an autonomous mass-outreach tool and not a hosted SaaS p
   - **`OperationalEvent`**: append-only facts covering every stage of the loop.
   - **`Artifact`**: one exact version of a brief or draft, with what it was composed from.
   - **`Strategy`**: the validated shape of a TOML strategy file.
-- `src/auggie/store/` is the typed Store API, bound to one customer scope, with an in-memory
-  implementation. MongoDB is planned against the same contract tests.
+- `src/auggie/store/` is the typed Store API, bound to one customer scope, with in-memory and
+  MongoDB implementations that pass the same contract tests.
 - `src/auggie/pipeline.py` runs the first vertical slice as plain sequential calls: research,
   validate evidence, qualify, draft, human approval, simulated delivery, record outcome.
 - `examples/synthetic/northstar-msp/` holds one fully synthetic scenario: its inputs, and the
@@ -66,6 +67,19 @@ uv run auggie run examples/synthetic/northstar-msp --show-draft --negative
 
 `--negative` also tries the paths the slice must refuse (citing a failed source, delivering an
 edited or unapproved draft, crossing customer scopes) and fails unless each is blocked.
+
+To use MongoDB, start the official image and point the tests or the CLI at it (Docker works
+the same way as Podman):
+
+```sh
+podman run -d --rm --name auggie-mongo -p 127.0.0.1:27017:27017 docker.io/library/mongo:8
+AUGGIE_TEST_MONGODB_URI=mongodb://127.0.0.1:27017 uv run pytest   # MongoDB tests skip without it
+uv run auggie run examples/synthetic/northstar-msp --mongodb mongodb://127.0.0.1:27017
+```
+
+The CLI writes to one database per scope (`auggie_demo_msp` for Northstar); `--database-prefix`
+keeps a demo apart from other data on the same server. Outside development, install the
+`auggie-harness[mongodb]` extra.
 
 ## Documentation
 

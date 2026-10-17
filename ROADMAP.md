@@ -15,16 +15,18 @@ recorded evidence, not when its code is written. Status labels: **Done**, **In r
 **Gate:** checks pass (pytest, ruff, mypy); maintainer accepts or amends ADR 0012; repository
 reviewed for public-boundary compliance before the first push.
 
-## M1: Store kernel (In progress)
+## M1: Store kernel (In review)
 
 - A typed Store API for the M0 contracts, bound to one `CustomerScope`. *Exists.*
 - An in-memory reference implementation and a MongoDB Community implementation (local
   container, one database per scope), both run against **one shared contract test suite**.
-  *The in-memory implementation and the suite (`tests/store/`) exist; MongoDB does not.*
+  *Both exist and pass the suite in `tests/store/`; CI runs it against MongoDB
+  ([ADR 0015](docs/adr/0015-mongodb-store-layout.md)).*
 - Append-only events with idempotency: appending the same key twice stores one fact. *Exists.*
-- Secret scanning in CI.
+- Secret scanning in CI. *gitleaks over full history in CI, and GitHub secret scanning with push
+  protection.*
 - Decide what, if anything, to reuse from existing private code. Nothing is copied until a
-  licensing and confidentiality review is done.
+  licensing and confidentiality review is done. *Decided for M1: nothing reused.*
 
 **Gate:** both implementations pass the same suite; cross-scope reads and writes are rejected;
 the MongoDB implementation runs only through the Store API.
@@ -34,8 +36,8 @@ the MongoDB implementation runs only through the Store API.
 Research → validate evidence → qualify → draft → human approval → simulated delivery → record
 outcome, running through the Store with fixture adapters and no network access.
 
-*Runs through the in-memory Store (`uv run auggie run examples/synthetic/northstar-msp`), and the
-tests show the gate below. It will run against MongoDB once M1 lands.*
+*Runs through the in-memory Store (`uv run auggie run examples/synthetic/northstar-msp`) and
+through MongoDB (`--mongodb URI`), and the tests show the gate below on both.*
 
 **Gate:** the Northstar scenario is produced by the workflow from its inputs, not prewritten.
 Negative paths are blocked: failed source, edited draft after approval, delivery without
