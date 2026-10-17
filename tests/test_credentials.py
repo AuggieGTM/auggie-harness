@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -188,3 +189,19 @@ def test_secret_formatting_never_shows_the_value() -> None:
     assert str(secret) == repr(secret) == f"{secret}" == "***"
     assert "%s" % secret == "%r" % secret == "***"  # noqa: UP031 -- test percent formatting
     assert f"{secret!r}" == "***"
+
+
+@pytest.mark.parametrize(
+    ("damage", "reason"),
+    [
+        (lambda path: path.unlink(), "not found"),
+        (lambda path: path.chmod(0o640), "use mode 0600"),
+        (lambda path: path.parent.chmod(0o777), "writable by group or others"),
+        (lambda path: path.write_bytes(b""), "empty"),
+        (lambda path: path.write_bytes(b"\xff"), "not UTF-8"),
+    ],
+)
+def test_a_refusal_says_why(tmp_path: Path, damage: Callable[[Path], None], reason: str) -> None:
+    damage(secret_file(tmp_path))
+    with pytest.raises(CredentialError, match=reason):
+        CredentialFiles(tmp_path).secret(scope(), "token")

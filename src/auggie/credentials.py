@@ -50,48 +50,57 @@ class CredentialFiles:
     def secret(self, scope: CustomerScope, name: str) -> Secret:
         """Read <root>/<scope.credential_namespace>/<name>."""
         namespace = scope.credential_namespace
-        message = f"cannot read credential {namespace!r}/{name!r}"
+
+        def refused(reason: str) -> CredentialError:
+            return CredentialError(f"cannot read credential {namespace!r}/{name!r}: {reason}")
+
         if re.fullmatch(r"[a-z0-9][a-z0-9_.-]{0,63}", name) is None:
-            raise CredentialError(message)
+            raise refused("not a valid secret name")
         if re.fullmatch(r"[a-z0-9][a-z0-9_.-]{0,62}", namespace) is None:
-            raise CredentialError(message)
+            raise refused("not a valid namespace")
         try:
             folder = self.root / namespace
             path = folder / name
             info = folder.lstat()
-            if not stat.S_ISDIR(info.st_mode) or info.st_mode & 0o022:
-                raise CredentialError(message)
+            if not stat.S_ISDIR(info.st_mode):
+                raise refused("the namespace is not a real folder")
+            if info.st_mode & 0o022:
+                raise refused("the folder is writable by group or others")
             if not path.resolve().is_relative_to(folder.resolve()):
-                raise CredentialError(message)
+                raise refused("the path leaves the namespace folder")
             info = path.lstat()
             if not stat.S_ISREG(info.st_mode):
-                raise CredentialError(message)
+                raise refused("not a regular file")
             # Pin the directory and refuse symlinks again at open, avoiding check/open races.
             directory = os.open(folder, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
             try:
                 info = os.fstat(directory)
                 if info.st_mode & 0o022:
-                    raise CredentialError(message)
+                    raise refused("the folder is writable by group or others")
                 descriptor = os.open(
                     name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory
                 )
                 with os.fdopen(descriptor, "rb") as stream:
                     info = os.fstat(stream.fileno())
-                    if (
-                        not stat.S_ISREG(info.st_mode)
-                        or info.st_uid != os.getuid()
-                        or info.st_mode & 0o077
-                    ):
-                        raise CredentialError(message)
+                    if not stat.S_ISREG(info.st_mode):
+                        raise refused("not a regular file")
+                    if info.st_uid != os.getuid():
+                        raise refused("owned by another user")
+                    if info.st_mode & 0o077:
+                        raise refused("readable or writable by group or others; use mode 0600")
                     value = stream.read().decode("utf-8")
             finally:
                 os.close(directory)
+        except FileNotFoundError:
+            raise refused("not found") from None
+        except UnicodeDecodeError:
+            raise refused("not UTF-8") from None
         except (OSError, ValueError, RuntimeError):
-            raise CredentialError(message) from None
+            raise refused("cannot be opened safely") from None
         if value.endswith("\r\n"):
             value = value[:-2]
         elif value.endswith("\n"):
             value = value[:-1]
         if not value:
-            raise CredentialError(message)
+            raise refused("empty")
         return Secret(value)
