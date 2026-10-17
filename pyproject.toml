@@ -17,13 +17,20 @@ auggie = "auggie.cli:main"
 mongodb = [
     "pymongo>=4.19,<5",
 ]
+google = [
+    "google-auth>=2.62",
+    "requests>=2.34",
+]
 
 [dependency-groups]
 dev = [
+    "google-auth>=2.62",
     "mypy>=2.4",
     "pymongo>=4.19,<5",
     "pytest>=9.1",
+    "requests>=2.34",
     "ruff>=0.17",
+    "types-requests>=2.33.0.20261006",
 ]
 
 [build-system]
