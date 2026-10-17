@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from datetime import UTC, datetime
 from types import MappingProxyType
 from typing import Annotated, Any, Literal, TypeVar
@@ -32,8 +33,38 @@ K = TypeVar("K")
 V = TypeVar("V")
 
 
+class ReadOnlyDict[Key, Value](Mapping[Key, Value]):
+    """An immutable mapping. Copies and pickles like a value, since it never changes."""
+
+    __slots__ = ("_data",)
+
+    def __init__(self, data: Mapping[Key, Value]) -> None:
+        self._data = MappingProxyType(dict(data))
+
+    def __getitem__(self, key: Key) -> Value:
+        return self._data[key]
+
+    def __iter__(self) -> Iterator[Key]:
+        return iter(self._data)
+
+    def __len__(self) -> int:
+        return len(self._data)
+
+    def __repr__(self) -> str:
+        return f"ReadOnlyDict({dict(self._data)!r})"
+
+    def __copy__(self) -> ReadOnlyDict[Key, Value]:
+        return self
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> ReadOnlyDict[Key, Value]:
+        return ReadOnlyDict({k: copy.deepcopy(v, memo) for k, v in self._data.items()})
+
+    def __reduce__(self) -> tuple[type[ReadOnlyDict[Key, Value]], tuple[dict[Key, Value]]]:
+        return (ReadOnlyDict, (dict(self._data),))
+
+
 def _read_only[Key, Value](value: Mapping[Key, Value]) -> Mapping[Key, Value]:
-    return MappingProxyType(dict(value))
+    return ReadOnlyDict(value)
 
 
 def _as_dict(value: Mapping[Any, Any], handler: SerializerFunctionWrapHandler) -> Any:

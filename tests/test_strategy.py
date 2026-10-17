@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import pickle
 from typing import Any
 
 import pytest
@@ -143,3 +144,10 @@ def test_merge_fields_must_name_a_known_source() -> None:
     fields = {"city": {"source": "rumor", "pattern": r"office in (\w+)"}}
     with pytest.raises(ValidationError, match="unknown source 'rumor'"):
         strategy(plays=play(fields=fields))
+
+
+def test_a_strategy_survives_deep_copies_and_pickling() -> None:
+    loaded = strategy()
+    assert loaded.model_copy(deep=True) == loaded
+    assert copy.deepcopy(loaded) == loaded
+    assert pickle.loads(pickle.dumps(loaded)) == loaded

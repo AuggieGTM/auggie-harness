@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pickle
 from typing import get_args
 
 import pytest
@@ -80,3 +81,9 @@ def test_event_attributes_cannot_be_changed_in_place(scenario: Scenario) -> None
     with pytest.raises(TypeError):
         event.attributes["outcome"] = "meeting_booked"  # type: ignore[index]
     assert event.attributes == {"outcome": "positive_reply"}
+
+
+def test_events_survive_deep_copies_and_pickling(scenario: Scenario) -> None:
+    event = scenario.events[-1]
+    assert event.model_copy(deep=True) == event
+    assert pickle.loads(pickle.dumps(event)) == event
