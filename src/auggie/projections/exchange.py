@@ -117,7 +117,16 @@ def _cell_value(cell: object, where: str) -> tuple[str, str]:
     kind = VALUE_KINDS.get(key)
     if kind is None:
         raise ValueError(f"{where}: unknown value kind {key!r}")
+    if kind == "text" and not isinstance(value, str):
+        raise ValueError(f"{where}: a stringValue must be a string")
     return (kind, value if isinstance(value, str) else json.dumps(value))
+
+
+def _size(grid: Mapping[str, object], key: str, where: str) -> int:
+    value = grid.get(key)
+    if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+        raise ValueError(f"{where}: gridProperties.{key} must be a positive whole number")
+    return value
 
 
 def load_readback(path: Path) -> dict[str, TabReadBack]:
@@ -144,8 +153,11 @@ def load_readback(path: Path) -> dict[str, TabReadBack]:
         [block] = data_ranges
         if not isinstance(block, dict) or block.get("startRow", 0) or block.get("startColumn", 0):
             raise ValueError(f"{path} {title!r}: the read-back must start at A1")
+        row_data = block.get("rowData", [])
+        if not isinstance(row_data, list):
+            raise ValueError(f"{path} {title!r}: rowData must be a list")
         rows: list[tuple[tuple[str, str], ...]] = []
-        for r, row in enumerate(block.get("rowData") or []):
+        for r, row in enumerate(row_data):
             values = (row.get("values") or []) if isinstance(row, dict) else None
             if not isinstance(values, list):
                 raise ValueError(f"{path} {title!r} row {r + 1}: values must be a list")
@@ -156,8 +168,8 @@ def load_readback(path: Path) -> dict[str, TabReadBack]:
                 )
             )
         tabs[title] = TabReadBack(
-            row_count=int(grid.get("rowCount", 0)),
-            column_count=int(grid.get("columnCount", 0)),
+            row_count=_size(grid, "rowCount", f"{path} {title!r}"),
+            column_count=_size(grid, "columnCount", f"{path} {title!r}"),
             cells=tuple(rows),
         )
     return tabs

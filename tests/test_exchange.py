@@ -166,3 +166,34 @@ def test_the_expected_workbook_must_be_a_complete_projection(
     path.write_text(json.dumps(data), encoding="utf-8")
     with pytest.raises(ValueError, match=r"exactly the tabs|appears twice"):
         load_workbook(path)
+
+
+@pytest.mark.parametrize(
+    ("damage", "message"),
+    [
+        (
+            lambda s: s["properties"]["gridProperties"].update(rowCount=None),
+            "positive whole number",
+        ),
+        (
+            lambda s: s["properties"]["gridProperties"].update(columnCount=True),
+            "positive whole number",
+        ),
+        (lambda s: s["properties"]["gridProperties"].update(rowCount=0), "positive whole number"),
+        (lambda s: s["data"][0].update(rowData=1), "rowData must be a list"),
+        (
+            lambda s: s["data"][0]["rowData"][1]["values"].__setitem__(
+                3, {"userEnteredValue": {"stringValue": 1}}
+            ),
+            "stringValue must be a string",
+        ),
+    ],
+    ids=["null-rows", "boolean-columns", "zero-rows", "rowdata-not-list", "number-as-string"],
+)
+def test_a_malformed_grid_reply_is_refused_not_coerced(
+    damage: Any, message: str, workbook: Workbook, tmp_path: Path
+) -> None:
+    reply = as_grid(workbook)
+    damage(reply["sheets"][3])
+    with pytest.raises(ValueError, match=message):
+        differences(workbook, reply, tmp_path)
