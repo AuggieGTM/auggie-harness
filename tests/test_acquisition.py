@@ -50,7 +50,7 @@ def acquire_all(inputs: dict[str, Any], account: Account) -> list[SourceEvidence
             customer_id="demo-msp",
             subject=SubjectRef(kind="account", id=account.account_id),
             url=url,
-        )
+        ).evidence
         for source, url in account.sources.items()
     ]
 

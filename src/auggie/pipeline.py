@@ -135,7 +135,7 @@ def research_run(
         url = account.sources.get(kind)
         if url is None:
             continue
-        evidence = acquisition.acquire(
+        evidence, details = acquisition.acquire(
             evidence_id=f"ev-{account.key}-{kind}",
             customer_id=customer_id,
             subject=subject,
@@ -150,7 +150,7 @@ def research_run(
             refs=[RecordRef(kind="evidence", id=evidence.evidence_id)],
             key=f"evidence.recorded:{evidence.evidence_id}",
             run_id=run_id,
-            attributes={} if evidence.usable else {"status": evidence.status},
+            attributes={**details, **({} if evidence.usable else {"status": evidence.status})},
         )
         sources[kind] = check_evidence(evidence, scope=store.scope, subject=subject)
 

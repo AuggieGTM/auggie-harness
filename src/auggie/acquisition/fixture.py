@@ -6,6 +6,7 @@ from collections.abc import Iterable
 
 from pydantic import HttpUrl
 
+from auggie.acquisition import Acquired
 from auggie.contracts import Actor, Contract, SourceEvidence, SubjectRef, sha256_digest
 from auggie.contracts.common import Text, UtcDatetime
 from auggie.contracts.evidence import RetrievalStatus
@@ -32,11 +33,11 @@ class FixtureAcquisition:
 
     def acquire(
         self, *, evidence_id: str, customer_id: str, subject: SubjectRef, url: HttpUrl
-    ) -> SourceEvidence:
+    ) -> Acquired:
         response = self._responses.get(str(url))
         if response is None:
             raise LookupError(f"no recorded response for {url}")
-        return SourceEvidence(
+        evidence = SourceEvidence(
             evidence_id=evidence_id,
             customer_id=customer_id,
             subject=subject,
@@ -49,3 +50,4 @@ class FixtureAcquisition:
             content_hash=sha256_digest(response.excerpt) if response.excerpt else None,
             failure_reason=response.failure_reason,
         )
+        return Acquired(evidence)
