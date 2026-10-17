@@ -101,11 +101,15 @@ you, as you, with no Google Cloud setup:
 
 1. Export the workbook: `auggie run <scenario> --workbook w.json`, or
    `auggie project <scope.json> --mongodb URI --workbook w.json`.
-2. Ask your agent: *"Write `w.json` to my Google Sheet `<link>`. Add any missing tab named in
-   it, then for each tab write its `connector_rows` unchanged from A1, leaving every other tab
-   alone. Then read each of those tabs back with an open range (`'<tab>'!A:Z`) and save the
-   replies, unedited, as `{"valueRanges": [...]}` in `r.json`."*
-3. Check it: `auggie verify-sheet w.json r.json`. Only `match` counts as a projection.
+2. Ask your agent: *"Write the projection in `w.json` to my Google Sheet `<link>`, touching only
+   the tabs it names. Add any that are missing. Resize each to exactly its size (the number of
+   `rows`, and the length of a row), clear it, and write its `connector_rows` unchanged from A1.
+   Then read those tabs back with `spreadsheets.get`, `includeGridData: true`, the tab names as
+   ranges, and the fields `sheets.properties.title`, `sheets.properties.gridProperties`,
+   `sheets.data.startRow`, `sheets.data.startColumn` and
+   `sheets.data.rowData.values.userEnteredValue`, and save the reply, unedited, as `r.json`."*
+3. Check it: `auggie verify-sheet w.json r.json`. It confirms each tab is exactly the
+   projection's size, starts at A1, and holds every value as literal text. Only `match` counts.
 
 `connector_rows` carry a leading apostrophe on every value, so the connector stores each one as
 literal text instead of parsing it as a formula, number or date. The connector only ever writes

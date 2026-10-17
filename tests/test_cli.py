@@ -8,8 +8,10 @@ import pytest
 
 from auggie import cli
 from auggie.cli import main
+from auggie.projections.exchange import load_workbook
 from auggie.synthetic import run_scenario
 from tests.conftest import MONGODB_URI, NORTHSTAR, mongo_backend
+from tests.test_exchange import as_grid
 from tests.test_sheets import MemorySheets
 from tests.test_treg import CAREERS, TOKEN_VALUE, Replay, reply
 
@@ -201,14 +203,19 @@ def test_an_agent_written_sheet_is_verified_against_its_workbook(
     workbook = tmp_path / "workbook.json"
     assert main(["run", str(NORTHSTAR), "--workbook", str(workbook)]) == 0
     assert "Workbook for an agent:" in capsys.readouterr().out
-    assert main(["verify-sheet", str(workbook), str(workbook)]) == 0
+    reply = as_grid(load_workbook(workbook))
+    readback = tmp_path / "readback.json"
+    readback.write_text(json.dumps(reply), encoding="utf-8")
+    assert main(["verify-sheet", str(workbook), str(readback)]) == 0
     assert "match     the sheet holds exactly the projection: 4 tabs" in capsys.readouterr().out
 
-    data = json.loads(workbook.read_text(encoding="utf-8"))
-    data["tabs"][0]["rows"][1][1] = "disqualified"
-    altered = tmp_path / "readback.json"
-    altered.write_text(json.dumps(data), encoding="utf-8")
-    assert main(["verify-sheet", str(workbook), str(altered)]) == 1
+    reply["sheets"][0]["data"][0]["rowData"][1]["values"][1] = {
+        "userEnteredValue": {"stringValue": "disqualified"}
+    }
+    readback.write_text(json.dumps(reply), encoding="utf-8")
+    assert main(["verify-sheet", str(workbook), str(readback)]) == 1
     out = capsys.readouterr().out
     assert "MISMATCH" in out and "'auggie: accounts'!B2" in out
+    assert main(["verify-sheet", str(workbook), str(workbook)]) == 1
+    assert "not a spreadsheets.get grid reply" in capsys.readouterr().out
     assert main(["verify-sheet", str(workbook), str(tmp_path / "missing.json")]) == 1
