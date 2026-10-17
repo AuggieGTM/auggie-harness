@@ -252,16 +252,26 @@ class TregPageText:
 
 
 def _echoes(response: HttpResponse, secret: str) -> bool:
-    """Whether the reply repeats the credential anywhere: headers, raw body or decoded JSON."""
+    """Whether the reply repeats the credential: in a header, the raw body or any JSON string."""
     if any(secret in value for value in response.headers.values()):
         return True
     if secret.encode() in response.body:
         return True
     try:
-        decoded = json.dumps(json.loads(response.body), ensure_ascii=False)
+        pending: list[object] = [json.loads(response.body)]
     except (ValueError, RecursionError):
         return False
-    return secret in decoded
+    while pending:  # iterative, so a deep reply cannot exhaust the stack
+        item = pending.pop()
+        if isinstance(item, str):
+            if secret in item:
+                return True
+        elif isinstance(item, dict):
+            pending.extend(item.keys())
+            pending.extend(item.values())
+        elif isinstance(item, list):
+            pending.extend(item)
+    return False
 
 
 def _charge(response: HttpResponse | None) -> int | None:

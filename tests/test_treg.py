@@ -566,3 +566,30 @@ def test_only_plain_call_ids_and_cache_states_are_kept(
     odd = {**case.headers, "x-treg-call-id": "call <script>", "x-treg-cache": "MISS; extra"}
     acquired = fetch(adapter(scope, credentials, Replay(HttpResponse(200, odd, case.body))))
     assert "treg_call_id" not in acquired.attributes and "cache" not in acquired.attributes
+
+
+@pytest.mark.parametrize(
+    "token", ['synthetic"token', "synthetic\\token"], ids=["quote", "backslash"]
+)
+@pytest.mark.parametrize("where", ["requestId", "text", "key"])
+def test_an_echo_of_a_token_json_must_escape_is_still_caught(
+    token: str, where: str, scope: CustomerScope, tmp_path: Path
+) -> None:
+    folder = tmp_path / scope.credential_namespace
+    folder.mkdir(mode=0o700)
+    (folder / "treg-token").write_text(token, encoding="utf-8")
+    (folder / "treg-token").chmod(0o600)
+    body: dict[str, Any] = {
+        "requestId": "req-synthetic-0400",
+        "results": [{"id": CAREERS, "text": "Northstar Works page."}],
+    }
+    if where == "requestId":
+        body["requestId"] = token
+    elif where == "text":
+        body["results"][0]["text"] += token
+    else:
+        body["results"][0][token] = "x"
+    response = HttpResponse(200, {"x-treg-cost-micro": "1000"}, json.dumps(body).encode())
+    acquired = fetch(adapter(scope, CredentialFiles(tmp_path), Replay(response)))
+    assert acquired.evidence.status == "failed"
+    assert token not in acquired.evidence.model_dump_json()
