@@ -64,6 +64,15 @@ def test_a_valid_strategy_loads_each_rule_kind() -> None:
         loaded.criterion("missing")
 
 
+def test_a_loaded_strategy_cannot_be_changed_in_place() -> None:
+    loaded = strategy()
+    with pytest.raises(TypeError):
+        loaded.sources["rumor"] = loaded.sources["news"]  # type: ignore[index]
+    with pytest.raises(TypeError):
+        del loaded.plays[0].fields["city"]  # type: ignore[attr-defined]
+    assert Strategy.model_validate_json(loaded.model_dump_json()) == loaded
+
+
 def test_unknown_rule_kinds_are_rejected() -> None:
     criteria = copy.deepcopy(BASE["criteria"])
     criteria[1]["rule"] = "vibes"

@@ -73,3 +73,10 @@ def test_attribute_values_are_flat(scenario: Scenario) -> None:
 def test_event_stage_is_derived_from_type(scenario: Scenario) -> None:
     assert event_of_type(scenario, "qualification.decided").stage == "judge"
     assert event_of_type(scenario, "outcome.recorded").stage == "learn"
+
+
+def test_event_attributes_cannot_be_changed_in_place(scenario: Scenario) -> None:
+    event = scenario.events[-1]
+    with pytest.raises(TypeError):
+        event.attributes["outcome"] = "meeting_booked"  # type: ignore[index]
+    assert event.attributes == {"outcome": "positive_reply"}

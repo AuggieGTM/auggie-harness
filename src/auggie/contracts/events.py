@@ -8,7 +8,7 @@ from typing import Annotated, Literal, get_args
 
 from pydantic import Field, StringConstraints, field_validator, model_validator
 
-from auggie.contracts.common import Actor, Contract, RecordId, Slug, UtcDatetime
+from auggie.contracts.common import Actor, Contract, FrozenMap, RecordId, Slug, UtcDatetime
 
 Stage = Literal["define", "observe", "validate", "judge", "compose", "approve", "deliver", "learn"]
 STAGES: tuple[Stage, ...] = get_args(Stage)
@@ -90,11 +90,13 @@ class OperationalEvent(Contract):
     refs: Annotated[tuple[RecordRef, ...], Field(min_length=1)]
     idempotency_key: Annotated[str, StringConstraints(min_length=1, max_length=200)]
     run_id: RecordId | None = None
-    attributes: dict[AttributeKey, AttributeValue] = Field(default_factory=dict)
+    attributes: FrozenMap[AttributeKey, AttributeValue] = Field(
+        default_factory=dict, validate_default=True
+    )
 
     @field_validator("attributes")
     @classmethod
-    def _bounded(cls, value: dict[str, AttributeValue]) -> dict[str, AttributeValue]:
+    def _bounded(cls, value: Mapping[str, AttributeValue]) -> Mapping[str, AttributeValue]:
         if len(value) > 32:
             raise ValueError("attributes is limited to 32 entries")
         return value

@@ -13,7 +13,7 @@ from typing import Annotated, Literal
 
 from pydantic import Field, StringConstraints, field_validator, model_validator
 
-from auggie.contracts.common import Contract, RecordId, Slug, Text
+from auggie.contracts.common import Contract, FrozenMap, RecordId, Slug, Text
 
 FieldName = Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]{0,31}$")]
 
@@ -102,7 +102,7 @@ class Play(Contract):
     id: Slug
     requires: Annotated[tuple[Slug, ...], Field(min_length=1)]
     template: Annotated[str, StringConstraints(min_length=1, max_length=20_000)]
-    fields: dict[FieldName, MergeField] = Field(default_factory=dict)
+    fields: FrozenMap[FieldName, MergeField] = Field(default_factory=dict, validate_default=True)
 
     @model_validator(mode="after")
     def _placeholders_are_declared(self) -> Play:
@@ -122,7 +122,7 @@ class Strategy(Contract):
     schema_version: Literal[1] = 1
     strategy_id: RecordId
     customer_id: Slug
-    sources: dict[Slug, Source]
+    sources: FrozenMap[Slug, Source]
     criteria: Annotated[tuple[Criterion, ...], Field(min_length=1)]
     required: Annotated[tuple[Slug, ...], Field(min_length=1)]
     plays: tuple[Play, ...] = ()

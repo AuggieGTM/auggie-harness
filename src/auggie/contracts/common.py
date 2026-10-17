@@ -3,10 +3,20 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Mapping
 from datetime import UTC, datetime
-from typing import Annotated, Literal
+from types import MappingProxyType
+from typing import Annotated, Any, Literal, TypeVar
 
-from pydantic import AfterValidator, AwareDatetime, BaseModel, ConfigDict, StringConstraints
+from pydantic import (
+    AfterValidator,
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    SerializerFunctionWrapHandler,
+    StringConstraints,
+    WrapSerializer,
+)
 
 
 class Contract(BaseModel):
@@ -16,6 +26,23 @@ class Contract(BaseModel):
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+K = TypeVar("K")
+V = TypeVar("V")
+
+
+def _read_only[Key, Value](value: Mapping[Key, Value]) -> Mapping[Key, Value]:
+    return MappingProxyType(dict(value))
+
+
+def _as_dict(value: Mapping[Any, Any], handler: SerializerFunctionWrapHandler) -> Any:
+    return handler(dict(value))
+
+
+FrozenMap = Annotated[Mapping[K, V], AfterValidator(_read_only), WrapSerializer(_as_dict)]
+"""A mapping field that cannot be changed after validation. ``frozen`` alone stops
+attribute assignment, not changes inside a dict. Serializes as a plain object."""
 
 
 def _to_utc(value: datetime) -> datetime:
