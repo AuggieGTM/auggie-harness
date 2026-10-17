@@ -1,5 +1,5 @@
 {
-  "note": "SYNTHETIC. Every company, person, URL and identifier here is invented. Domains use the reserved .example TLD. The strategy commit and digest are placeholders: no strategy file exists yet. Each evidence snapshot is its excerpt, so content_hash is the excerpt's digest.",
+  "note": "SYNTHETIC. Every company, person, URL and identifier here is invented. Domains use the reserved .example TLD. These are the records the workflow must produce from inputs/. The strategy commit is a placeholder because no strategy repository exists; the digest is that of inputs/strategy/msp.toml. Each evidence snapshot is its excerpt, so content_hash is the excerpt's digest.",
   "scope": {
     "customer_id": "demo-msp",
     "synthetic": true,
@@ -49,8 +49,8 @@
     "account_id": "acc-northstar",
     "strategy": {
       "commit": "0000000000000000000000000000000000000001",
-      "path": "strategy/icp.yaml",
-      "digest": "sha256:f62cb8dd1db278109c01c846ac10a04abd8098ae5ddcce3cfb6940eab20b2cc8"
+      "path": "strategy/msp.toml",
+      "digest": "sha256:5030b04313551007c83777255264c31f9561ef995a0050414e94bf78bc3e9cfa"
     },
     "outcome": "qualified",
     "findings": [
@@ -79,10 +79,10 @@
         "criterion": "recent-expansion",
         "assessment": "unknown",
         "basis": "hypothesis",
-        "rationale": "Two offices are mentioned, but the news source that might date the second one could not be retrieved."
+        "rationale": "The news source could not be retrieved (failed)."
       }
     ],
-    "unknowns": ["When the second office opened."],
+    "unknowns": ["Has the account opened a new office in the last year?"],
     "decided_by": {"kind": "rule", "id": "fixture-icp-rules", "version": "0"},
     "decided_at": "2026-10-14T16:05:00Z"
   },
