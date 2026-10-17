@@ -76,9 +76,15 @@ class ScenarioRun:
     outcome: Appended | None
 
 
-def run_scenario(directory: Path, *, backend: Backend | None = None) -> ScenarioRun:
-    """Run every stage the inputs call for, in order. Blocked steps raise."""
-    inputs = load_inputs(directory)
+def run_scenario(
+    directory: Path, *, backend: Backend | None = None, inputs: SyntheticInputs | None = None
+) -> ScenarioRun:
+    """Run every stage the inputs call for, in order. Blocked steps raise.
+
+    ``inputs`` replaces the directory's own inputs; its strategy is still read
+    from the directory.
+    """
+    inputs = inputs or load_inputs(directory)
     if not inputs.scope.synthetic:
         raise ValueError("synthetic scenarios must use a synthetic scope")
     store = (backend or InMemoryBackend()).open(inputs.scope)
@@ -102,15 +108,12 @@ def run_scenario(directory: Path, *, backend: Backend | None = None) -> Scenario
     if result.draft is None:
         return ScenarioRun(store, strategy, activation, result, (), None, None)
     shown = result.draft.ref
-    approvals = tuple(
-        record_review(
-            store,
-            shown=shown,
-            review=review,
-            approval_id=f"apr-{inputs.account.key}-{review.scope}",
-        )
-        for review in inputs.reviews
-    )
+    approvals: list[HumanApproval] = []
+    for review in inputs.reviews:
+        seen = sum(a.scope == review.scope for a in approvals)
+        suffix = f"-{seen + 1}" if seen else ""
+        approval_id = f"apr-{inputs.account.key}-{review.scope}{suffix}"
+        approvals.append(record_review(store, shown=shown, review=review, approval_id=approval_id))
     delivery = None
     if inputs.delivery is not None:
         delivery = deliver(
@@ -122,4 +125,4 @@ def run_scenario(directory: Path, *, backend: Backend | None = None) -> Scenario
     outcome = None
     if inputs.outcome is not None:
         outcome = record_outcome(store, artifact_id=shown.artifact_id, report=inputs.outcome)
-    return ScenarioRun(store, strategy, activation, result, approvals, delivery, outcome)
+    return ScenarioRun(store, strategy, activation, result, tuple(approvals), delivery, outcome)
