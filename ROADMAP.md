@@ -55,7 +55,9 @@ contract ([ADR 0014](docs/adr/0014-artifact-contract.md)), both Accepted.
   retention terms confirmed.*
 - A judgment engine chosen ([ADR 0009](docs/adr/0009-judgment-and-synthesis-engines.md)). *Decided:
   rules for judgment, templates for synthesis.*
-- Read-only Sheets/Docs projection.
+- Read-only Sheets/Docs projection. *Decided: a service account per customer writes managed
+  tabs regenerated from the Store, with no page text
+  ([ADR 0018](docs/adr/0018-sheets-projection.md)).*
 - Delivery stays simulated.
 
 **Gate:** per-customer credentials; provider spend bounded per run; no live delivery. *Credential
