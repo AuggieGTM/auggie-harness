@@ -93,3 +93,15 @@ def test_unmanaged_tabs_and_malformed_files_are_refused(tmp_path: Path) -> None:
     path.write_text(json.dumps([1, 2]), encoding="utf-8")
     with pytest.raises(ValueError, match="neither a workbook file"):
         load_readback(path)
+
+
+def test_connector_rows_store_every_value_as_literal_text(tmp_path: Path) -> None:
+    workbook: Workbook = {
+        "auggie: accounts": (("account_id", "outcome", "notes"), ("=1+1", "0012", "")),
+    }
+    path = tmp_path / "workbook.json"
+    dump_workbook(workbook, path)
+    [tab] = json.loads(path.read_text(encoding="utf-8"))["tabs"]
+    assert tab["rows"] == [["account_id", "outcome", "notes"], ["=1+1", "0012", ""]]
+    assert tab["connector_rows"] == [["'account_id", "'outcome", "'notes"], ["'=1+1", "'0012", ""]]
+    assert load_workbook(path) == workbook

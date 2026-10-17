@@ -1,10 +1,12 @@
 """Hand a projection to an operator's agent, and check what it wrote back (ADR 0019).
 
-The harness exports the exact workbook as a file. The agent writes it to the
-sheet with its own connector, as raw values, then saves what it reads back:
-either in the same file shape, or as the Sheets API's ``values.batchGet``
-reply, unedited. ``compare`` then decides, in code, whether the sheet holds
-exactly the projection.
+The harness exports the exact workbook as a file. Each tab carries ``rows``,
+the values, and ``connector_rows``: the same values with a leading apostrophe,
+which Google's connectors need so that a value is stored as literal text and
+never parsed as a formula, number or date. The agent writes ``connector_rows``
+unchanged, then saves what it reads back: either in the same file shape, or as
+the Sheets API's ``values.batchGet`` reply, unedited. ``compare`` then decides,
+in code, whether the sheet holds exactly the projection.
 """
 
 from __future__ import annotations
@@ -26,13 +28,22 @@ MAX_DIFFERENCES = 20
 Grid = Sequence[Sequence[str]]
 
 
+def as_text(cell: str) -> str:
+    """A cell as a connector must send it to be stored as literal text."""
+    return "'" + cell if cell else ""
+
+
 def dump_workbook(workbook: Workbook, path: Path) -> str:
     """Write ``workbook`` to ``path`` and return the digest of the file's bytes."""
     data = {
         "format": FORMAT,
         "version": VERSION,
         "tabs": [
-            {"title": title, "rows": [list(row) for row in rows]}
+            {
+                "title": title,
+                "rows": [list(row) for row in rows],
+                "connector_rows": [[as_text(cell) for cell in row] for row in rows],
+            }
             for title, rows in workbook.items()
         ],
     }
