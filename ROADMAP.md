@@ -1,0 +1,69 @@
+# Roadmap
+
+Milestones are an order of work, not dates. A milestone is done when its gate passes with
+recorded evidence, not when its code is written. Status labels: **In review**, **Next**,
+**Planned**, **Later**.
+
+## M0: Foundation (In review)
+
+- README, AGENTS.md/CLAUDE.md, architecture, ADRs 0001–0012, this roadmap.
+- Contracts: `CustomerScope`, `SourceEvidence`, `QualificationDecision`, `HumanApproval`,
+  `OperationalEvent`.
+- One synthetic scenario covering the first vertical slice, plus tests.
+
+**Gate:** checks pass (pytest, ruff, mypy); maintainer accepts or amends ADR 0012; repository
+reviewed for public-boundary compliance before the first push.
+
+## M1: Store kernel (Next, proposed)
+
+- A typed Store API for the M0 contracts, bound to one `CustomerScope`.
+- An in-memory reference implementation and a MongoDB Community implementation (local
+  container, one database per scope), both run against **one shared contract test suite**.
+- Append-only events with idempotency: appending the same key twice stores one fact.
+- Continuous integration running pytest, ruff and mypy, plus secret scanning.
+- Decide what, if anything, to reuse from existing private code. Nothing is copied until a
+  licensing and confidentiality review is done.
+
+**Gate:** both implementations pass the same suite; cross-scope reads and writes are rejected;
+the MongoDB implementation runs only through the Store API.
+
+## M2: Synthetic vertical slice (Planned)
+
+Research → validate evidence → qualify → draft → human approval → simulated delivery → record
+outcome, running through the Store with fixture adapters and no network access.
+
+**Gate:** the Northstar scenario is produced by the workflow from its inputs, not prewritten.
+Negative paths are blocked: failed source, edited draft after approval, delivery without
+delivery approval, cross-scope record.
+
+**Decisions needed first:** strategy file format; artifact contract for briefs and drafts.
+
+## M3: First live routes (Planned)
+
+- One Treg acquisition route ([ADR 0008](docs/adr/0008-treg-for-acquisition.md)).
+- A judgment engine chosen ([ADR 0009](docs/adr/0009-judgment-and-synthesis-engines.md)).
+- Read-only Sheets/Docs projection.
+- Delivery stays simulated.
+
+**Gate:** per-customer credentials; provider spend bounded per run; no live delivery.
+**Decision needed first:** the task scheduler ([ADR 0007](docs/adr/0007-single-task-scheduler.md)),
+if any work must run in the background.
+
+## M4: Proven in real deployments (Planned)
+
+Operators deploy the harness outside this repository, including the maintainer's own private
+service. Their configuration, strategy and data stay in their own private repositories and
+systems. Only generic fixes, and synthetic regression fixtures that reproduce what was learned,
+land here.
+
+**Gate:** two independent deployments differ by configuration only.
+
+## M5: Delivery and learning (Later)
+
+- EmailBison/Instantly delivery adapter behind delivery approval.
+- Outcome intake and strategy-revision proposals that people review in Git.
+
+## Public release readiness (Later)
+
+`SECURITY.md`, `CONTRIBUTING.md`, third-party notices, and installation verified on fresh
+machines.
