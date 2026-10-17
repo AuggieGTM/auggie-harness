@@ -1,0 +1,85 @@
+# SYNTHETIC strategy for the demo-msp scope. The seller, accounts and people are invented.
+# Records cite this file by the sha256 digest of its exact bytes, so any edit, even to a
+# comment, is a new revision (ADR 0013).
+
+schema_version = 1
+strategy_id = "strategy-msp-icp-r1"
+customer_id = "demo-msp"
+
+# An account qualifies only when every required criterion is met.
+required = ["headcount-50-to-500", "active-it-hiring"]
+
+# What the research step looks at for each account.
+[sources.careers]
+label = "careers page"
+
+[sources.technology]
+label = "technology page"
+
+[sources.news]
+label = "news source"
+
+[[criteria]]
+id = "headcount-50-to-500"
+question = "Does the account have 50 to 500 staff?"
+rule = "headcount_range"
+source = "careers"
+min = 50
+max = 500
+disqualifying = true
+
+[[criteria]]
+id = "active-it-hiring"
+question = "Is the account hiring for an IT role right now?"
+rule = "job_posting"
+source = "careers"
+title_keywords = ["IT", "Help Desk"]
+max_age_days = 30
+
+[[criteria]]
+id = "device-management-change"
+question = "Is the account changing how it manages devices?"
+rule = "mentions"
+source = "technology"
+phrases = ["consolidate", "device-management"]
+basis = "inference"
+rationale = "A stated plan to consolidate device management this year suggests an active project, not a confirmed purchase."
+
+[[criteria]]
+id = "recent-expansion"
+question = "Has the account opened a new office in the last year?"
+rule = "mentions"
+source = "news"
+phrases = ["office"]
+basis = "source_fact"
+max_age_days = 365
+rationale = "The news source reports a new office within the last year."
+
+# The wording below is approved copy. Only the {placeholders} are filled: first_name and
+# account_name from the account records, the rest from admitted evidence.
+[[plays]]
+id = "device-consolidation"
+requires = ["active-it-hiring", "device-management-change"]
+template = '''
+Subject: One device-management platform before your new hire starts
+
+Hi {first_name},
+
+I noticed {account_name} is hiring {role} to own endpoint
+management and the help desk across your {offices} offices. Your technology page also
+mentions consolidating onto a single device-management platform this year.
+
+Teams in that spot often finish the consolidation plan before the new manager
+starts, so they inherit one system instead of two. If it would help, I can send
+the short checklist we use for {platform} device-management migrations.
+
+Would that be useful?
+
+Sam
+Harbor IT (synthetic example seller)
+'''
+
+[plays.fields]
+role = { source = "careers", pattern = 'is hiring (an? [A-Z][\w-]*(?: [A-Z][\w-]*)*)' }
+offices = { source = "careers", pattern = 'across (\w+) offices' }
+platform = { source = "technology", pattern = 'run on (Microsoft 365|Google Workspace)' }
