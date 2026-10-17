@@ -10,11 +10,31 @@ permissions:
 jobs:
   checks:
     runs-on: ubuntu-latest
+    services:
+      # Official image, pulled by digest and never redistributed (ADR 0010, ADR 0015).
+      mongodb:
+        image: mongo:8@sha256:0e900a3364da37b76d642b73b0bba56bd4c6c509ab470cf700436fd866bee3ff # 8.3.13
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ping: 1}).ok'"
+          --health-interval 5s --health-timeout 5s --health-retries 12
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # The public-boundary test scans every commit message.
+          # The public-boundary test and gitleaks scan every commit.
           fetch-depth: 0
+      - name: Scan history for secrets with gitleaks (pinned by checksum)
+        env:
+          GITLEAKS_VERSION: 8.30.1
+          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+        run: |
+          archive="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -fsSL -o "$RUNNER_TEMP/$archive" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/$archive"
+          echo "$GITLEAKS_SHA256  $RUNNER_TEMP/$archive" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP" gitleaks
+          "$RUNNER_TEMP/gitleaks" git --redact --no-banner --exit-code 1 .
       - name: Load the private denylist from a repository secret
         env:
           DENYLIST: ${{ secrets.AUGGIE_PUBLIC_DENYLIST }}
@@ -28,6 +48,9 @@ jobs:
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
       - run: uv sync --locked
       - run: uv run pytest
+        env:
+          # Runs the Store contract suite against MongoDB too; CI fails if it is missing.
+          AUGGIE_TEST_MONGODB_URI: mongodb://localhost:27017
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run mypy
