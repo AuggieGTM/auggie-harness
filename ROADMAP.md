@@ -1,10 +1,10 @@
 # Roadmap
 
 Milestones are an order of work, not dates. A milestone is done when its gate passes with
-recorded evidence, not when its code is written. Status labels: **In review**, **Next**,
-**Planned**, **Later**.
+recorded evidence, not when its code is written. Status labels: **Done**, **In review**,
+**In progress**, **Next**, **Planned**, **Later**.
 
-## M0: Foundation (In review)
+## M0: Foundation (Done)
 
 - README, AGENTS.md/CLAUDE.md, architecture, ADRs 0001–0012, this roadmap.
 - Contracts: `CustomerScope`, `SourceEvidence`, `QualificationDecision`, `HumanApproval`,
@@ -15,12 +15,13 @@ recorded evidence, not when its code is written. Status labels: **In review**, *
 **Gate:** checks pass (pytest, ruff, mypy); maintainer accepts or amends ADR 0012; repository
 reviewed for public-boundary compliance before the first push.
 
-## M1: Store kernel (Next, proposed)
+## M1: Store kernel (In progress)
 
-- A typed Store API for the M0 contracts, bound to one `CustomerScope`.
+- A typed Store API for the M0 contracts, bound to one `CustomerScope`. *Exists.*
 - An in-memory reference implementation and a MongoDB Community implementation (local
   container, one database per scope), both run against **one shared contract test suite**.
-- Append-only events with idempotency: appending the same key twice stores one fact.
+  *The in-memory implementation and the suite (`tests/store/`) exist; MongoDB does not.*
+- Append-only events with idempotency: appending the same key twice stores one fact. *Exists.*
 - Secret scanning in CI.
 - Decide what, if anything, to reuse from existing private code. Nothing is copied until a
   licensing and confidentiality review is done.
@@ -28,10 +29,13 @@ reviewed for public-boundary compliance before the first push.
 **Gate:** both implementations pass the same suite; cross-scope reads and writes are rejected;
 the MongoDB implementation runs only through the Store API.
 
-## M2: Synthetic vertical slice (Planned)
+## M2: Synthetic vertical slice (In review)
 
 Research → validate evidence → qualify → draft → human approval → simulated delivery → record
 outcome, running through the Store with fixture adapters and no network access.
+
+*Runs through the in-memory Store (`uv run auggie run examples/synthetic/northstar-msp`), and the
+tests show the gate below. It will run against MongoDB once M1 lands.*
 
 **Gate:** the Northstar scenario is produced by the workflow from its inputs, not prewritten.
 Negative paths are blocked: failed source, edited draft after approval, delivery without

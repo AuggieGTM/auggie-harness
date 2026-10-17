@@ -1,8 +1,9 @@
 # Auggie Harness
 
-> **Status: foundation only.** This repository contains design documents, decision records and
-> typed contracts with tests. It does not run a GTM workflow yet. There is no installer, no live
-> integration and no quickstart. Anything described below as planned or proposed is not built.
+> **Status: early, synthetic only.** The harness runs one synthetic scenario end to end, in
+> memory: recorded sources, deterministic rules, a template draft, scripted human approvals and
+> simulated delivery. Nothing is stored persistently, no provider is called and nothing is sent.
+> There is no installer. Anything described below as planned or proposed is not built.
 
 Auggie is a **GTM-as-code harness**. It turns versioned go-to-market strategy into an
 evidence-to-action-to-learning loop:
@@ -33,10 +34,15 @@ time. Auggie is **not** an autonomous mass-outreach tool and not a hosted SaaS p
     findings.
   - **`HumanApproval`**: a reviewer's decision bound to an artifact hash and a scope.
   - **`OperationalEvent`**: append-only facts covering every stage of the loop.
-- `examples/synthetic/` holds one fully synthetic scenario that walks the first planned vertical
-  slice: research, validate evidence, qualify, draft, human approval, simulated delivery, record
-  outcome.
-- `tests/` checks the contracts' invariants and the synthetic scenario.
+  - **`Artifact`**: one exact version of a brief or draft, with what it was composed from.
+  - **`Strategy`**: the validated shape of a TOML strategy file.
+- `src/auggie/store/` is the typed Store API, bound to one customer scope, with an in-memory
+  implementation. MongoDB is planned against the same contract tests.
+- `src/auggie/pipeline.py` runs the first vertical slice as plain sequential calls: research,
+  validate evidence, qualify, draft, human approval, simulated delivery, record outcome.
+- `examples/synthetic/northstar-msp/` holds one fully synthetic scenario: its inputs, and the
+  records the workflow must produce from them.
+- `tests/` checks the contracts, the Store contract, the slice and the paths it must refuse.
 
 ## Development
 
@@ -51,6 +57,15 @@ uv run mypy                # strict type checking
 ```
 
 These are development checks, not a product installation.
+
+Run the synthetic scenario and print what each stage did:
+
+```sh
+uv run auggie run examples/synthetic/northstar-msp --show-draft --negative
+```
+
+`--negative` also tries the paths the slice must refuse (citing a failed source, delivering an
+edited or unapproved draft, crossing customer scopes) and fails unless each is blocked.
 
 ## Documentation
 

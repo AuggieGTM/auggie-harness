@@ -7,9 +7,9 @@ Instructions for coding agents and human contributors working in this repository
 
 ## Project status
 
-Foundation only: documentation, decision records, typed contracts and their tests. Nothing here
-runs a GTM workflow, calls a provider or stores data. Never describe planned or proposed work as
-built, supported or tested.
+Early and synthetic only. Contracts, an in-memory Store and the first vertical slice run end to
+end on the synthetic Northstar fixture. Nothing persists data, calls a provider or sends anything.
+Never describe planned or proposed work as built, supported or tested.
 
 ## Commands
 
@@ -21,7 +21,8 @@ uv run ruff format --check .
 uv run mypy
 ```
 
-All five must pass before a commit.
+All five must pass before a commit. `uv run auggie run examples/synthetic/northstar-msp --negative`
+runs the slice and tries the paths it must refuse.
 
 ## Where decisions live
 
@@ -48,6 +49,8 @@ If a task needs a decision that is Proposed or Open, stop and ask the maintainer
 - **No sending infrastructure.** Delivery goes through existing platforms. No SMTP.
 - **Google Sheets and Docs are views**, never the source of truth.
 - **Contracts stay pure.** Immutable, unknown fields rejected, versioned, no I/O.
+- **One path to records.** Operational records are read and written only through the `Store`
+  API (`src/auggie/store/`), each write together with the event that records it.
 
 ## Public repository rules
 

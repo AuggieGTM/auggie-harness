@@ -1,6 +1,7 @@
 # Architecture
 
-> **Status: design stage.** Only the contracts in `src/auggie/contracts/` exist. Every component
+> **Status: early, synthetic only.** The contracts, an in-memory Store and the first vertical
+> slice exist and run on synthetic fixtures. Every component
 > below is labeled **Exists**, **Proposed** (recommended, not yet accepted or built) or **Open**
 > (unresolved). Decisions are recorded in [`docs/adr/`](adr/README.md).
 
@@ -26,13 +27,13 @@ flowchart LR
 
 | Stage | Responsibility | Contract / events | Status |
 |---|---|---|---|
-| Define | Approved strategy and configuration, versioned in Git | `StrategyRef`, `strategy.activated` | Contract exists |
-| Observe | Acquire sources about an account; record every attempt | `SourceEvidence`, `evidence.recorded` | Contract exists |
-| Validate | Admit usable evidence and reject the rest, keeping reasons | `evidence.validated`, `evidence.rejected` | Contract exists |
-| Judge | Qualify against an exact strategy revision, citing evidence | `QualificationDecision`, `qualification.decided` | Contract exists |
-| Compose | Write briefs and drafts from validated evidence only | `Artifact`, `draft.composed` | Contract decided ([ADR 0014](adr/0014-artifact-contract.md)), not built |
-| Approve | A person approves one artifact version for one scope | `HumanApproval`, `approval.recorded` | Contract exists |
-| Deliver | Hand approved drafts to an existing sending platform | `DeliveryTarget`, `delivery.simulated` | Simulated only |
+| Define | Approved strategy and configuration, versioned in Git | `Strategy`, `StrategyRef`, `strategy.activated` | TOML files load ([ADR 0013](adr/0013-strategy-files.md)) |
+| Observe | Acquire sources about an account; record every attempt | `SourceEvidence`, `evidence.recorded` | Fixture replay only |
+| Validate | Admit usable evidence and reject the rest, keeping reasons | `evidence.validated`, `evidence.rejected` | Rules exist |
+| Judge | Qualify against an exact strategy revision, citing evidence | `QualificationDecision`, `qualification.decided` | Deterministic rules; engines open |
+| Compose | Write briefs and drafts from validated evidence only | `Artifact`, `draft.composed` | Draft templates ([ADR 0014](adr/0014-artifact-contract.md)); briefs not built |
+| Approve | A person approves one artifact version for one scope | `HumanApproval`, `approval.recorded` | Recorded from scripted decisions; no review UI |
+| Deliver | Hand approved drafts to an existing sending platform | `DeliveryTarget`, `delivery.simulated` | Authorization gate; simulated only |
 | Learn | Record outcomes; propose strategy changes for human review | `outcome.recorded` | Event exists; learning proposed |
 
 Learning never rewrites active strategy. A proposed change becomes a reviewed Git change, and only
@@ -95,12 +96,12 @@ flowchart LR
 | Component | Role | Status |
 |---|---|---|
 | Contracts | Shared, versioned data shapes and invariants | **Exists** |
-| Store API | The only path to operational data; typed operations; scope-bound | Proposed |
+| Store API | The only path to operational data; typed operations; scope-bound | **Exists**, in-memory only |
 | MongoDB Community | Per-customer operational database behind the Store | Accepted, not built |
 | Acquisition (Treg) | Data acquisition, recorded as `SourceEvidence` | Accepted, not built ([0008](adr/0008-treg-for-acquisition.md)) |
 | Judgment and synthesis | Deterministic rules, Jev and OpenRouter under evaluation | **Open** ([0009](adr/0009-judgment-and-synthesis-engines.md)) |
 | Task scheduler | Exactly one; Herdr or Foreman | **Open** ([0007](adr/0007-single-task-scheduler.md)) |
-| Delivery adapter | Thin hand-off to EmailBison/Instantly; simulated first | Accepted, not built ([0006](adr/0006-delivery-through-existing-platforms.md)) |
+| Delivery adapter | Thin hand-off to EmailBison/Instantly; simulated first | Simulated gate exists; platforms not built ([0006](adr/0006-delivery-through-existing-platforms.md)) |
 | Projections | Sheets/Docs views generated from the Store | Accepted, not built ([0003](adr/0003-systems-of-record.md)) |
 
 ## Contracts
@@ -115,40 +116,58 @@ All contracts are immutable Pydantic models that reject unknown fields and carry
 | `QualificationDecision` | Facts and settled criteria cite evidence; hypotheses cannot settle a criterion; disqualifiers must be evidenced misses; citations must resolve to usable, in-scope evidence about the same account |
 | `HumanApproval` | Human reviewers only; bound to an artifact hash and a scope; delivery approvals name a target; edits, expiry and revocation void it |
 | `OperationalEvent` | Closed set of event types, each mapped to a loop stage and required record references; bounded flat attributes; idempotency key |
+| `Artifact` | Content matches its hash; drafts have a recipient and briefs none; cites evidence; an edit is a new version that supersedes the old one |
+| `Strategy` | Closed set of rule kinds; criteria, required criteria and plays resolve to each other; templates use only declared, plain placeholders |
+
+The Store adds the checks that span records when it writes them: citations resolve to usable
+evidence in the same scope, artifact versions form one line, approvals bind to a stored version
+and its recipient, event refs resolve, and an idempotency key is stored once.
 
 ## First vertical slice
 
-The first slice to build end-to-end. Today it exists only as a synthetic fixture
-(`examples/synthetic/northstar-msp/`) that the tests check for consistency.
+The slice runs end to end on synthetic fixtures, through the in-memory Store:
+`uv run auggie run examples/synthetic/northstar-msp`. From `inputs/` (scope, TOML strategy,
+account, recorded responses, timeline and scripted human decisions) it produces every record in
+`scenario.json` and the exact bytes of `draft.md`; the tests compare them.
 
 | Step | Stage | Records | Status |
 |---|---|---|---|
-| Research | Observe | `SourceEvidence` (including a failed retrieval), `evidence.recorded` | Fixture |
-| Validate evidence | Validate | `evidence.validated`, `evidence.rejected` | Fixture |
-| Qualify | Judge | `QualificationDecision`, `qualification.decided` | Fixture |
-| Draft | Compose | `draft.md` plus `ArtifactRef`, `draft.composed` | Fixture |
-| Human approval | Approve | Two `HumanApproval` records (content, delivery), `approval.recorded` | Fixture |
-| Simulated delivery | Deliver | `delivery.simulated`, authorized by the delivery approval | Fixture |
-| Record outcome | Learn | `outcome.recorded` | Fixture |
+| Research | Observe | `SourceEvidence` (including a failed retrieval), `evidence.recorded` | Runs; fixture replay |
+| Validate evidence | Validate | `evidence.validated`, `evidence.rejected` | Runs |
+| Qualify | Judge | `QualificationDecision`, `qualification.decided` | Runs; deterministic rules |
+| Draft | Compose | `Artifact`, `draft.composed` | Runs; strategy play template |
+| Human approval | Approve | Two `HumanApproval` records (content, delivery), `approval.recorded` | Runs; scripted decisions |
+| Simulated delivery | Deliver | `delivery.simulated`, authorized by the delivery approval | Runs; simulated |
+| Record outcome | Learn | `outcome.recorded` | Runs; reported outcome |
 
-Until the scheduler decision is made, the slice will run as a plain sequential call chain:
+The automated run stops at the draft. Approval, delivery and outcome are separate calls a person
+triggers. Until the scheduler decision is made, the slice runs as a plain sequential call chain:
 no retries, leases or background execution.
 
-## Proposed package layout
+These paths are blocked, each by a test: a decision or draft citing a failed source; delivery of a
+draft edited after approval, or of the version it replaced; delivery without both a content and a
+delivery approval in force for that version and recipient; and any record crossing a customer
+scope.
+
+## Package layout
 
 ```text
 src/auggie/
   contracts/     Exists    versioned data shapes and invariants; no I/O
-  store/         Proposed  typed Store API; in-memory reference and MongoDB implementations
-  acquisition/   Proposed  source adapters (Treg first) that emit SourceEvidence
-  judgment/      Proposed  qualification engines behind one interface (ADR 0009)
-  compose/       Proposed  brief and draft composition from validated evidence
-  approval/      Proposed  review workflow over HumanApproval
-  delivery/      Proposed  simulated adapter first; EmailBison/Instantly later
+  store/         Exists    typed Store API and in-memory reference; MongoDB proposed
+  strategy.py    Exists    load a TOML strategy file pinned to its exact bytes
+  accounts.py    Exists    account and recipient inputs
+  acquisition/   Exists    fixture replay and evidence validation; Treg adapter proposed
+  judgment/      Exists    deterministic rules behind the Qualifier interface (ADR 0009 open)
+  compose/       Exists    draft composition from strategy play templates; briefs proposed
+  approval/      Exists    recording a reviewer's decision; review workflow proposed
+  delivery/      Exists    authorization gate, simulated only; EmailBison/Instantly later
+  pipeline.py    Exists    the slice as plain sequential calls
+  synthetic.py   Exists    run a synthetic scenario from its inputs
+  cli.py         Exists    `auggie run <scenario>`
   projections/   Proposed  Markdown/CSV exports; Sheets/Docs views later
-  cli/           Proposed  operator commands
 examples/synthetic/  Exists  synthetic fixtures only
-tests/               Exists
+tests/               Exists  including the shared Store contract suite in tests/store/
 ```
 
 Scheduler integration has no package until ADR 0007 is decided.
