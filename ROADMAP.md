@@ -10,6 +10,7 @@ recorded evidence, not when its code is written. Status labels: **In review**, *
 - Contracts: `CustomerScope`, `SourceEvidence`, `QualificationDecision`, `HumanApproval`,
   `OperationalEvent`.
 - One synthetic scenario covering the first vertical slice, plus tests.
+- CI (pytest, ruff, mypy) and a public-boundary check run on every push.
 
 **Gate:** checks pass (pytest, ruff, mypy); maintainer accepts or amends ADR 0012; repository
 reviewed for public-boundary compliance before the first push.
@@ -20,7 +21,7 @@ reviewed for public-boundary compliance before the first push.
 - An in-memory reference implementation and a MongoDB Community implementation (local
   container, one database per scope), both run against **one shared contract test suite**.
 - Append-only events with idempotency: appending the same key twice stores one fact.
-- Continuous integration running pytest, ruff and mypy, plus secret scanning.
+- Secret scanning in CI.
 - Decide what, if anything, to reuse from existing private code. Nothing is copied until a
   licensing and confidentiality review is done.
 

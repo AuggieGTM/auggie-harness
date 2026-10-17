@@ -20,6 +20,9 @@ the repository.
   invented names. Tests enforce reserved domains under `examples/`.
 - Public documents don't link to private repositories or documents.
 - Public releases require IP and license, secret and confidentiality checks first.
+- `scripts/check_public_boundary.py` checks tracked paths, contents and commit messages. It runs
+  in the test suite, in CI and as local pre-commit and commit-msg hooks. Private terms it looks
+  for live in a local file outside the repository.
 
 ## License
 

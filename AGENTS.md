@@ -78,6 +78,16 @@ SageOx state (`.sageox/`, `.claude/` hooks) is local to each maintainer's clone 
 Git. Never commit it, and never put SageOx session, recording or dashboard links in commits,
 pull requests or docs. They point to private material.
 
+`scripts/check_public_boundary.py` enforces this in the test suite and CI. In each clone:
+
+- Install the local guard hooks once: `python3 scripts/check_public_boundary.py --install-hooks`.
+- Keep private terms (customer names, personal emails) in `~/.config/auggie/public-denylist.txt`,
+  never in the repository. CI reads the same list from the `AUGGIE_PUBLIC_DENYLIST` repository
+  secret.
+- Keep SageOx's `prepare-commit-msg` hook disabled; it adds private session links to commits.
+- `ox doctor` auto-fixes re-stage `.sageox/` and edit `.gitignore` and `.gitattributes`. Unstage
+  and restore them before committing; the hooks block the commit otherwise.
+
 <!-- ox:prime --> Run SageOx `ox agent prime` on session start, after compaction, or clear. (DO NOT REMOVE)
 
 <!-- ox:prime:pi:start -->

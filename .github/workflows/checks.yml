@@ -1,0 +1,33 @@
+name: checks
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The public-boundary test scans every commit message.
+          fetch-depth: 0
+      - name: Load the private denylist from a repository secret
+        env:
+          DENYLIST: ${{ secrets.AUGGIE_PUBLIC_DENYLIST }}
+        run: |
+          if [ -n "$DENYLIST" ]; then
+            printf '%s\n' "$DENYLIST" > "$RUNNER_TEMP/public-denylist.txt"
+            echo "AUGGIE_PUBLIC_DENYLIST=$RUNNER_TEMP/public-denylist.txt" >> "$GITHUB_ENV"
+          else
+            echo "::warning::AUGGIE_PUBLIC_DENYLIST is not set; private terms are not checked."
+          fi
+      - uses: astral-sh/setup-uv@v10
+      - run: uv sync --locked
+      - run: uv run pytest
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy

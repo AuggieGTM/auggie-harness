@@ -21,6 +21,9 @@ where sensitive material could leak.
 - SageOx state stays out of this public repository. `.sageox/` and the `.claude/` agent hooks
   are local to each maintainer's clone and ignored by Git, because they name private teams and
   people. No commit, pull request or document links to a SageOx session, recording or dashboard.
+- SageOx attribution is turned off for this repository, and its `prepare-commit-msg` hook stays
+  disabled in maintainers' clones, because it adds private session links to commit messages.
+  Session recording itself is unaffected.
 
 ## Consequences
 
