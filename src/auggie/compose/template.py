@@ -20,7 +20,7 @@ from auggie.contracts import (
     sha256_digest,
 )
 from auggie.contracts.strategy import (
-    PROOF_FIELD_NAMES,
+    PROOF_FIELDS,
     FamilyOpenings,
     Strategy,
     template_fields,
@@ -108,6 +108,41 @@ def _hiring_values(
     }
 
 
+def _point_of_view(
+    play: Play, strategy: Strategy, quoted: ProofCheck | None, values: Mapping[str, str]
+) -> PointOfView | None:
+    """What review shows beside the draft. A quoted proof is bound to each template line that
+    renders one of its fields, exactly as rendered, so an edit to any of them unbinds it."""
+    if play.pain is None:
+        return None
+    pain = strategy.pains[play.pain]
+    proof = None
+    if quoted is not None and quoted.read is not None:
+        lines = [
+            line for line in play.template.splitlines() if template_fields(line) & PROOF_FIELDS
+        ]
+        proof = QuotedProof(
+            proof_id=quoted.proof_id,
+            customer=quoted.proof.customer,
+            claim=quoted.proof.claim,
+            url=quoted.proof.url,
+            kind=quoted.proof.kind,
+            caveat=quoted.proof.caveat,
+            evidence_id=quoted.read.evidence_id,
+            passages=tuple(line.format_map(values) for line in lines),
+        )
+    return PointOfView(
+        play=play.id,
+        pain=play.pain,
+        fit=pain.fit,
+        limits=pain.limits,
+        metric=pain.metric,
+        threshold=pain.threshold,
+        consequence=pain.consequence,
+        proof=proof,
+    )
+
+
 def compose_draft(
     *,
     artifact_id: str,
@@ -132,13 +167,11 @@ def compose_draft(
     snapshots = [sid for name in play.requires for sid in findings[name].snapshot_ids]
     values = {"first_name": account.recipient.first_name, "account_name": account.name}
     rules = strategy.strategy
-    used_fields = template_fields(play.template)
     values.update(_hiring_values(play, rules, decision, account, listing))
-    point_of_view = None
+    quoted: ProofCheck | None = None
     if play.pain is not None:
         pain = rules.pains[play.pain]
         values.update(pain=pain.statement, offer=pain.offer)
-        quoted = None
         check = proof_for(play, rules, proofs)
         if play.uses_proof:
             if check is None or check.read is None:
@@ -157,26 +190,7 @@ def compose_draft(
             if problem is not None:
                 raise ComposeBlocked(f"proof {check.proof_id!r}: {problem}")
             values.update(proof_claim=proof.claim, proof_customer=proof.customer)
-            quoted = QuotedProof(
-                proof_id=check.proof_id,
-                customer=proof.customer,
-                claim=proof.claim,
-                url=proof.url,
-                kind=proof.kind,
-                caveat=proof.caveat,
-                evidence_id=check.read.evidence_id,
-                rendered=tuple(f for f in PROOF_FIELD_NAMES if f in used_fields),
-            )
-        point_of_view = PointOfView(
-            play=play.id,
-            pain=play.pain,
-            fit=pain.fit,
-            limits=pain.limits,
-            metric=pain.metric,
-            threshold=pain.threshold,
-            consequence=pain.consequence,
-            proof=quoted,
-        )
+            quoted = check
     for name, field in play.fields.items():
         label = strategy.strategy.sources[field.source].label
         verdict = sources.get(field.source)
@@ -191,6 +205,7 @@ def compose_draft(
         values[name] = value
         used.add(verdict.evidence.evidence_id)
     content = play.template.format_map(values)
+    point_of_view = _point_of_view(play, rules, quoted, values)
     in_source_order = [
         v.evidence.evidence_id for v in sources.values() if v.evidence.evidence_id in used
     ]

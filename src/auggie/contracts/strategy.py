@@ -30,9 +30,7 @@ BUILTIN_FIELDS: frozenset[str] = frozenset({"first_name", "account_name"})
 """Template fields filled from the account and recipient records, not from evidence."""
 
 PAIN_FIELDS: frozenset[str] = frozenset({"pain", "offer"})
-ProofField = Literal["proof_claim", "proof_customer"]
-PROOF_FIELD_NAMES: tuple[ProofField, ...] = ("proof_claim", "proof_customer")
-PROOF_FIELDS: frozenset[str] = frozenset(PROOF_FIELD_NAMES)
+PROOF_FIELDS: frozenset[str] = frozenset({"proof_claim", "proof_customer"})
 """Fields a play that names a pain may use, from its approved copy and first usable proof."""
 
 HIRING_FIELDS: frozenset[str] = frozenset({"hiring_count", "hiring_family", "hiring_date"})

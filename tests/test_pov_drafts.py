@@ -318,3 +318,27 @@ def test_the_composer_takes_only_this_runs_read_and_the_strategys_own_proofs() -
         compose(ListingReadings(current), proofs).point_of_view.proof.proof_id
         == "harborview-triage"
     )
+
+
+def test_a_proof_is_bound_to_the_exact_lines_that_render_it(backend: Backend) -> None:
+    from auggie.operate import revise_draft
+
+    undelivered = INPUTS.model_copy(update={"reviews": (), "delivery": None, "outcome": None})
+    run = run_scenario(KESTREL, backend=backend, inputs=undelivered)
+    draft = run.result.draft
+    assert draft is not None and draft.point_of_view is not None
+    proof = draft.point_of_view.proof
+    assert proof is not None
+    assert proof.passages == (f'From our case study with Harborview Freight: "{CLAIM}"',)
+    # The customer's name is in the claim too; changing only the attribution still unbinds it.
+    printed: list[str] = []
+    revised = revise_draft(
+        run.store,
+        draft_id=draft.ref.artifact_id,
+        author="demo-seller",
+        edit=lambda text: text.replace("with Harborview Freight:", "with Unmentioned Customer:"),
+        out=printed.append,
+    )
+    assert revised is not None and revised.point_of_view is not None
+    assert revised.point_of_view.proof is None
+    assert any("no longer quotes proof harborview-triage" in line for line in printed)
