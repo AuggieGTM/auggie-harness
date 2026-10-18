@@ -198,3 +198,22 @@ def test_a_stack_term_is_judged_from_the_stored_page_as_inference(scenario: Scen
     assert '"Our SIEM is Beaconlog."' in met.rationale and 'near "SIEM"' in met.rationale
     passing = assess(criterion, strategy, page("Customers like Beaconlog trust us."), at)
     assert passing.assessment == "unknown"
+
+
+def test_a_stack_finding_fits_its_contract_for_the_longest_excerpt(scenario: Scenario) -> None:
+    from datetime import UTC, datetime
+
+    from auggie.acquisition.validation import Verdict
+    from auggie.contracts import SourceEvidence, sha256_digest
+
+    strategy = security_strategy()
+    text = "SIEM" + "-" * 3987 + "Beaconlog"
+    changed = variant(scenario.evidence[1], excerpt=text, content_hash=sha256_digest(text))
+    verdict = Verdict(evidence=SourceEvidence.model_validate(changed))
+    finding = assess(
+        strategy.criterion("names-beaconlog"),
+        strategy,
+        {"security": verdict},
+        datetime(2026, 10, 18, tzinfo=UTC),
+    )
+    assert finding.assessment == "meets" and len(finding.rationale) < 1000

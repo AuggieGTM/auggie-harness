@@ -433,3 +433,20 @@ def test_answers_follow_the_vocabulary_not_the_words() -> None:
         }
     )
     assert family_of(DE, swapped) == "b"  # the strategy's order decides, not the words
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["SIEM" + "-" * 3987 + "Beaconlog", "SIEM " + "x" * 3000 + " Beaconlog"],
+    ids=["long-punctuation-gap", "long-word-between"],
+)
+def test_a_far_apart_match_still_gives_a_bounded_quote_of_both(text: str) -> None:
+    (match,) = stack_matches(text, BEACON)
+    assert "SIEM" in match.quote and "Beaconlog" in match.quote and " … " in match.quote
+    assert len(match.quote) <= 400
+
+
+def test_plain_matches_come_in_text_order() -> None:
+    term = Technology(label="t", phrases=("FirstTerm", "Second Term"))
+    text = "FirstTerm " + "." * 600 + "\nSecond\tTerm " + "." * 600
+    assert [m.phrase for m in stack_matches(text, term)] == ["FirstTerm", "Second Term"]

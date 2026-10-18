@@ -18,7 +18,8 @@ WORD = re.compile(r"[^\W_]+")
 underscores separate words."""
 
 QUOTE_CHARS = 300
-"""The longest passage a match quotes. It always holds the matched words."""
+"""How much text a quote aims for around its matches. Matched words are never cut, so two long
+matched phrases far apart can make a quote somewhat longer."""
 
 
 @cache
@@ -58,42 +59,45 @@ JUNIOR_OR_MID: frozenset[Level] = frozenset({"mid", "junior"})
 
 @dataclass(frozen=True)
 class StackMatch:
-    """Where a page names a technology: a quote that holds the matched phrase and near word."""
+    """Where a page names a technology: a bounded quote that holds the matched phrase and near
+    word, and the phrase's position in the text, for ordering."""
 
     quote: str
     phrase: str
     near: str | None
+    at: int
 
 
 def stack_matches(text: str, term: Technology) -> list[StackMatch]:
-    """Every place ``text`` names ``term``, as its ``near`` words require.
+    """Every place ``text`` names ``term``, as its ``near`` words require, in text order.
 
     Without ``near``, a phrase may span lines, as any whitespace may sit between its words.
     With ``near``, the phrase and a near word must be on one line with at most
     ``near_words`` words between them, on either side.
     """
+    found: list[StackMatch] = []
     if not term.near:
-        found = []
         for phrase in term.phrases:
             for match in phrase_pattern(phrase).finditer(text):
-                found.append(StackMatch(_quote(text, match.span()), phrase, None))
-        return sorted(found, key=lambda m: text.find(m.quote))
-    found = []
-    for line in text.splitlines():
-        hit = _line_match(line, term)
+                found.append(StackMatch(_quote(text, [match.span()]), phrase, None, match.start()))
+        return sorted(found, key=lambda m: m.at)
+    offset = 0
+    for line in text.splitlines(keepends=True):
+        hit = _line_match(line, term, offset)
         if hit is not None:
             found.append(hit)
+        offset += len(line)
     return found
 
 
-def _line_match(line: str, term: Technology) -> StackMatch | None:
+def _line_match(line: str, term: Technology, offset: int) -> StackMatch | None:
     for phrase in term.phrases:
         for match in phrase_pattern(phrase).finditer(line):
             near = _near_word(line, match.span(), term.near, term.near_words)
             if near is not None:
                 word, span = near
-                both = (min(match.start(), span[0]), max(match.end(), span[1]))
-                return StackMatch(_quote(line, both), phrase, word)
+                quote = _quote(line, [match.span(), span])
+                return StackMatch(quote, phrase, word, offset + match.start())
     return None
 
 
@@ -113,9 +117,19 @@ def _near_word(
     return None
 
 
-def _quote(text: str, span: tuple[int, int]) -> str:
-    """A passage of ``text`` around ``span``, at most ``QUOTE_CHARS`` long beyond the span itself,
-    with its whitespace collapsed. It always contains the whole span."""
-    spare = max(0, QUOTE_CHARS - (span[1] - span[0])) // 2
-    start, end = max(0, span[0] - spare), min(len(text), span[1] + spare)
-    return " ".join(text[start:end].split())
+def _quote(text: str, spans: list[tuple[int, int]]) -> str:
+    """A quote that holds every span, with its whitespace collapsed and its length bounded.
+
+    Spans that fit within ``QUOTE_CHARS`` together are quoted as one passage. Spans farther
+    apart are each quoted with a little context, joined by an ellipsis, so the quote never
+    drops a matched word and never grows with the gap between them.
+    """
+    start, end = min(a for a, _ in spans), max(b for _, b in spans)
+    if end - start <= QUOTE_CHARS:
+        return _passage(text, start, end, QUOTE_CHARS)
+    return " … ".join(_passage(text, a, b, QUOTE_CHARS // 2) for a, b in sorted(spans))
+
+
+def _passage(text: str, start: int, end: int, width: int) -> str:
+    spare = max(0, width - (end - start)) // 2
+    return " ".join(text[max(0, start - spare) : min(len(text), end + spare)].split())
