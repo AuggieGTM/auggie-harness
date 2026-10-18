@@ -34,3 +34,4 @@ behavior or the public boundary. The process is described in
 | [0019](0019-projection-writers-and-agent-connectors.md) | Projection writers, and what an agent's connectors may do | Accepted |
 | [0020](0020-one-delivery-adapter-per-sending-platform.md) | One delivery adapter per sending platform, the seller's mailbox first | Accepted |
 | [0021](0021-the-sellers-gmail-credential.md) | The seller's Gmail credential | Accepted |
+| [0022](0022-live-delivery-records.md) | Live delivery records | Accepted |
