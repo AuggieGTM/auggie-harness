@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import secrets
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 
@@ -44,6 +45,7 @@ from auggie.pipeline import (
     research_run,
     resolve_send,
 )
+from auggie.spend import RunBudget
 from auggie.store import Appended, Store, StoreError
 from auggie.strategy import LoadedStrategy
 
@@ -114,6 +116,98 @@ def research_prospect(
         clock=now,
         listings=listings,
     )
+
+
+ListStatus = Literal["researched", "skipped", "waiting", "stopped"]
+
+
+@dataclass(frozen=True)
+class ListLine:
+    """What happened to one prospect of a list."""
+
+    account_id: str
+    status: ListStatus
+    detail: str
+    result: RunResult | None = None
+    spent_micro_usd: int = 0
+
+
+def researched_as(store: Store, account_id: str) -> str | None:
+    """The newest qualification of the account, if it was ever researched."""
+    account = RecordRef(kind="account", id=account_id)
+    decided = [
+        ref.id
+        for event in store.list_events(type="qualification.decided")
+        if account in event.refs
+        for ref in event.refs
+        if ref.kind == "qualification"
+    ]
+    return decided[-1] if decided else None
+
+
+def research_list(
+    store: Store,
+    *,
+    strategy: LoadedStrategy,
+    prospects: Sequence[Account],
+    acquisition: Acquisition,
+    operator: str,
+    budget: RunBudget | None,
+    page_ceiling_micro_usd: int,
+    again: bool = False,
+    now: Clock = utc_now,
+    listings: ListingReader | None = None,
+) -> list[ListLine]:
+    """Research each prospect in order, in this one foreground run (ADR 0027).
+
+    ``budget`` is the list's one cap, shared by every account; None when nothing is paid, as
+    in a rehearsal. An account starts only when its worst case, one page ceiling for each
+    source it names, fits what is left; the first that does not fit waits, with the rest.
+    Accounts already researched are skipped unless ``again``. An error stops the list.
+    """
+    lines: list[ListLine] = []
+    for n, prospect in enumerate(prospects):
+        account_id = prospect.account_id
+        decided = researched_as(store, account_id)
+        if decided is not None and not again:
+            lines.append(ListLine(account_id, "skipped", f"already researched ({decided})"))
+            continue
+        pages = sum(kind in prospect.sources for kind in strategy.strategy.sources)
+        worst = pages * page_ceiling_micro_usd
+        if budget is not None and budget.committed_micro_usd + worst > budget.limit_micro_usd:
+            left = budget.limit_micro_usd - budget.committed_micro_usd
+            why = f"needs up to {worst} micro-USD, and {left} of {budget.limit_micro_usd} is left"
+            lines.append(ListLine(account_id, "waiting", why))
+            lines.extend(
+                ListLine(p.account_id, "waiting", "after the one above") for p in prospects[n + 1 :]
+            )
+            break
+        before = budget.spent_micro_usd if budget is not None else 0
+        try:
+            result = research_prospect(
+                store,
+                strategy=strategy,
+                prospect=prospect,
+                acquisition=acquisition,
+                operator=operator,
+                now=now,
+                listings=listings,
+            )
+        except Exception as error:
+            lines.append(ListLine(account_id, "stopped", f"{type(error).__name__}: {error}"))
+            lines.extend(
+                ListLine(p.account_id, "waiting", "after the stop above")
+                for p in prospects[n + 1 :]
+            )
+            break
+        spent = (budget.spent_micro_usd if budget is not None else 0) - before
+        decision = result.decision
+        if result.draft is not None:
+            detail = f"{decision.outcome}, draft {result.draft.ref.artifact_id}"
+        else:
+            detail = f"{decision.outcome}, no draft: {result.stopped}"
+        lines.append(ListLine(account_id, "researched", detail, result, spent))
+    return lines
 
 
 def replay_clock(

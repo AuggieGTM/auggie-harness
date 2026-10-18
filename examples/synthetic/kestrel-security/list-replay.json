@@ -1,0 +1,192 @@
+{
+  "note": "SYNTHETIC recorded responses for researching the security seller's three-account list (prospects.csv) with research-list --replay. Every company, page, role and identifier is invented, and domains use the reserved .example TLD. The listing replies are the ones in examples/synthetic/listings.",
+  "responses": [
+    {
+      "url": "https://fernhollow.example/security",
+      "status": "retrieved",
+      "observed_at": "2026-10-15T09:00:00Z",
+      "excerpt": "Security at Fernhollow Logistics\n\nOur SIEM is Beaconlog, which collects logs from every depot and truck gateway."
+    },
+    {
+      "url": "https://brightquarry.example/trust",
+      "status": "retrieved",
+      "observed_at": "2026-10-15T09:20:00Z",
+      "excerpt": "Trust at Brightquarry Clinics\n\nPatient records are encrypted at rest, and our security team reviews access every quarter."
+    },
+    {
+      "url": "https://saltmarsh.example/security",
+      "status": "failed",
+      "observed_at": "2026-10-15T09:40:00Z",
+      "failure_reason": "Timed out after 10 seconds."
+    }
+  ],
+  "listings": [
+    {
+      "listing": {
+        "service": "lever",
+        "board": "fernhollow",
+        "url": "https://jobs.lever.example/fernhollow"
+      },
+      "read_at": "2026-10-15T09:00:03Z",
+      "status": 200,
+      "body": [
+        {
+          "id": "6a1f0c2e-0000-4000-8000-000000000001",
+          "text": "Senior Detection Engineer",
+          "categories": {
+            "commitment": "Full-time",
+            "department": "Engineering",
+            "location": "Remote (US)",
+            "team": "Security"
+          },
+          "createdAt": 1752537600000,
+          "descriptionPlain": "Fernhollow Logistics is building its detection engineering team.",
+          "hostedUrl": "https://jobs.lever.example/fernhollow/6a1f0c2e-0000-4000-8000-000000000001",
+          "applyUrl": "https://jobs.lever.example/fernhollow/6a1f0c2e-0000-4000-8000-000000000001/apply"
+        },
+        {
+          "id": "6a1f0c2e-0000-4000-8000-000000000002",
+          "text": "Detection Engineer",
+          "categories": {
+            "commitment": "Full-time",
+            "department": "Engineering",
+            "location": "Remote (US)",
+            "team": "Security"
+          },
+          "createdAt": 1758844800000,
+          "descriptionPlain": "Write and tune detections across our fleet of depots.",
+          "hostedUrl": "https://jobs.lever.example/fernhollow/6a1f0c2e-0000-4000-8000-000000000002",
+          "applyUrl": "https://jobs.lever.example/fernhollow/6a1f0c2e-0000-4000-8000-000000000002/apply"
+        },
+        {
+          "id": "6a1f0c2e-0000-4000-8000-000000000003",
+          "text": "SOC Analyst II",
+          "categories": {
+            "commitment": "Full-time",
+            "department": "Engineering",
+            "location": "Columbus, OH",
+            "team": "Security"
+          },
+          "createdAt": 1759449600000,
+          "descriptionPlain": "Triage alerts and run incident response.",
+          "hostedUrl": "https://jobs.lever.example/fernhollow/6a1f0c2e-0000-4000-8000-000000000003",
+          "applyUrl": "https://jobs.lever.example/fernhollow/6a1f0c2e-0000-4000-8000-000000000003/apply"
+        },
+        {
+          "id": "6a1f0c2e-0000-4000-8000-000000000004",
+          "text": "Account Executive, Mid-Market",
+          "categories": {
+            "commitment": "Full-time",
+            "department": "Sales",
+            "location": "Chicago, IL"
+          },
+          "createdAt": 1756252800000,
+          "descriptionPlain": "Sell freight capacity to mid-market shippers.",
+          "hostedUrl": "https://jobs.lever.example/fernhollow/6a1f0c2e-0000-4000-8000-000000000004",
+          "applyUrl": "https://jobs.lever.example/fernhollow/6a1f0c2e-0000-4000-8000-000000000004/apply"
+        }
+      ]
+    },
+    {
+      "listing": {
+        "service": "greenhouse",
+        "board": "brightquarry",
+        "url": "https://boards.greenhouse.example/brightquarry"
+      },
+      "read_at": "2026-10-15T09:20:03Z",
+      "status": 200,
+      "body": {
+        "jobs": [
+          {
+            "id": 4100001,
+            "internal_job_id": 3100001,
+            "title": "Threat Detection Engineer",
+            "updated_at": "2026-10-02T14:05:11-04:00",
+            "requisition_id": "SEC-101",
+            "location": {
+              "name": "Denver, CO"
+            },
+            "absolute_url": "https://boards.greenhouse.example/brightquarry/jobs/4100001",
+            "metadata": null
+          },
+          {
+            "id": 4100002,
+            "internal_job_id": 3100002,
+            "title": "Security Operations Lead",
+            "updated_at": "2026-09-21T09:30:00-04:00",
+            "requisition_id": "SEC-102",
+            "location": {
+              "name": "Remote"
+            },
+            "absolute_url": "https://boards.greenhouse.example/brightquarry/jobs/4100002",
+            "metadata": null
+          },
+          {
+            "id": 4100003,
+            "internal_job_id": 3100003,
+            "title": "Staff Software Engineer, Scheduling",
+            "updated_at": "2026-10-10T16:45:00-04:00",
+            "requisition_id": "ENG-207",
+            "location": {
+              "name": "Denver, CO"
+            },
+            "absolute_url": "https://boards.greenhouse.example/brightquarry/jobs/4100003",
+            "metadata": null
+          }
+        ],
+        "meta": {
+          "total": 3
+        }
+      }
+    },
+    {
+      "listing": {
+        "service": "ashby",
+        "board": "saltmarsh",
+        "url": "https://jobs.ashby.example/saltmarsh"
+      },
+      "read_at": "2026-10-15T09:40:03Z",
+      "status": 200,
+      "body": {
+        "apiVersion": "1",
+        "jobs": [
+          {
+            "title": "Detection and Response Manager",
+            "location": "London, UK",
+            "department": "Security",
+            "team": "Detection and Response",
+            "isListed": true,
+            "isRemote": false,
+            "employmentType": "FullTime",
+            "publishedAt": "2026-10-06T08:00:00.000+00:00",
+            "jobUrl": "https://jobs.ashby.example/saltmarsh/00000000-0000-4000-8000-0000000000a1",
+            "applyUrl": "https://jobs.ashby.example/saltmarsh/00000000-0000-4000-8000-0000000000a1/application"
+          },
+          {
+            "title": "IAM Engineer",
+            "location": "Remote (EMEA)",
+            "department": "Security",
+            "isListed": true,
+            "isRemote": true,
+            "employmentType": "FullTime",
+            "publishedAt": "2026-09-15T08:00:00.000+00:00",
+            "jobUrl": "https://jobs.ashby.example/saltmarsh/00000000-0000-4000-8000-0000000000a2",
+            "applyUrl": "https://jobs.ashby.example/saltmarsh/00000000-0000-4000-8000-0000000000a2/application"
+          },
+          {
+            "title": "Detection Engineer (referral only)",
+            "location": "London, UK",
+            "department": "Security",
+            "team": "Detection and Response",
+            "isListed": false,
+            "isRemote": false,
+            "employmentType": "FullTime",
+            "publishedAt": "2026-10-01T08:00:00.000+00:00",
+            "jobUrl": "https://jobs.ashby.example/saltmarsh/00000000-0000-4000-8000-0000000000a3",
+            "applyUrl": "https://jobs.ashby.example/saltmarsh/00000000-0000-4000-8000-0000000000a3/application"
+          }
+        ]
+      }
+    }
+  ]
+}

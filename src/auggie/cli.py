@@ -450,7 +450,7 @@ def run_scenario_command(args: argparse.Namespace, out: Print) -> int:
     return 0
 
 
-PROSPECT_COMMANDS = ("research", "review", "revise", "deliver", "outcome")
+PROSPECT_COMMANDS = ("research", "research-list", "review", "revise", "deliver", "outcome")
 PERSON_COMMANDS = {
     "review": "review records a person's approval",
     "revise": "revise records a person's edit",
@@ -483,6 +483,32 @@ def _add_prospect_commands(commands: Any) -> None:
         "--credentials", type=Path, help="credentials root (default: $AUGGIE_CREDENTIALS_DIR)"
     )
     research.add_argument("--show-draft", action="store_true", help="print the composed draft")
+
+    batch = common(
+        "research-list", "research every prospect in a folder in one run, within one cap"
+    )
+    batch.add_argument(
+        "--prospects", type=Path, required=True, metavar="DIR", help="the prospect files' folder"
+    )
+    batch.add_argument("--strategy-repo", type=Path, required=True, help="your strategy repository")
+    batch.add_argument("--strategy-path", required=True, help="the strategy file in it")
+    batch.add_argument("--revision", default="HEAD", help="the approved commit (default HEAD)")
+    batch.add_argument("--operator", required=True, help="your name, recorded on each run")
+    batch.add_argument(
+        "--limit",
+        type=int,
+        metavar="MICRO_USD",
+        help="the list's spending cap, at most the scope's run limit (default: that limit)",
+    )
+    batch.add_argument(
+        "--again", action="store_true", help="research accounts already researched too"
+    )
+    batch.add_argument(
+        "--replay", type=Path, metavar="FILE", help="recorded responses instead of live Treg calls"
+    )
+    batch.add_argument(
+        "--credentials", type=Path, help="credentials root (default: $AUGGIE_CREDENTIALS_DIR)"
+    )
 
     review = common("review", "show a draft and record your content and delivery decisions")
     review.add_argument("--draft", required=True, help="the draft's ID, as research printed it")
@@ -909,6 +935,87 @@ def edit_in_editor(text: str) -> str:
     return edited
 
 
+def _cannot_research_list(args: argparse.Namespace, scope: CustomerScope) -> str | None:
+    """Why ``research-list`` cannot run as given, before the Store is opened."""
+    if not args.prospects.is_dir():
+        return f"{args.prospects} is not a folder of prospect files"
+    if args.replay is not None:
+        return None
+    if not scope.execution.external_providers:
+        return f"scope {scope.customer_id!r} does not allow calls to external services"
+    allowed = scope.execution.max_run_spend_micro_usd
+    if args.limit is not None and not 0 <= args.limit <= allowed:
+        return f"--limit must be between 0 and the scope's run limit of {allowed} micro-USD"
+    return None
+
+
+def _research_list(args: argparse.Namespace, store: Store, out: Print) -> int:
+    """Research every prospect in the folder in one run, within one cap (ADR 0027)."""
+    from auggie import operate, queries
+    from auggie.acquisition.treg import CEILING_MICRO_USD
+
+    strategy = load_strategy_at(
+        args.strategy_repo, args.strategy_path, revision=args.revision, scope=store.scope
+    )
+    found, skipped = queries.load_prospects(args.prospects, store.scope)
+    for ignored in skipped:
+        out(f"ignored   {ignored}")
+    prospects = list(found.values())
+    customer = store.scope.customer_id
+    acquisition: Acquisition
+    listings: ListingReader
+    budget: RunBudget | None
+    if args.replay is not None:
+        recordings, listed = _recorded(args.replay)
+        acquisition, listings = FixtureAcquisition(recordings), RecordedListings(listed)
+        budget, clock = None, operate.replay_clock(recordings, listed)
+        out(f"{customer}: research of {len(prospects)} prospects from recorded responses")
+    else:
+        limit = store.scope.execution.max_run_spend_micro_usd if args.limit is None else args.limit
+        budget = RunBudget(limit)
+        acquisition = TregPageText(
+            scope=store.scope,
+            credentials=CredentialFiles(args.credentials),
+            budget=budget,
+            transport=treg_transport(),
+        )
+        listings = CareersReader(scope=store.scope, transport=listing_transport())
+        clock = operate.utc_now
+        out(
+            f"{customer}: research of {len(prospects)} prospects through Treg, one limit of "
+            f"{limit} micro-USD for the whole list"
+        )
+    out("")
+    lines = operate.research_list(
+        store,
+        strategy=strategy,
+        prospects=prospects,
+        acquisition=acquisition,
+        operator=args.operator,
+        budget=budget,
+        page_ceiling_micro_usd=CEILING_MICRO_USD,
+        again=args.again,
+        now=clock,
+        listings=listings,
+    )
+    for line in lines:
+        cost = f" (spent {line.spent_micro_usd} micro-USD)" if budget and line.result else ""
+        out(f"{line.status:<10} {line.account_id:<28} {line.detail}{cost}")
+    counts = {
+        s: sum(line.status == s for line in lines) for s in ("researched", "skipped", "waiting")
+    }
+    drafts = sum(line.result is not None and line.result.draft is not None for line in lines)
+    out("")
+    summary = ", ".join(f"{n} {status}" for status, n in counts.items())
+    spent = (
+        f"; spent {budget.spent_micro_usd} of {budget.limit_micro_usd} micro-USD" if budget else ""
+    )
+    out(f"{summary}; {drafts} draft{'' if drafts == 1 else 's'} to review{spent}")
+    if drafts:
+        out("next      auggie review ... --next --reviewer <you>")
+    return 1 if any(line.status == "stopped" for line in lines) else 0
+
+
 def prospect_command(args: argparse.Namespace, out: Print, ask: Callable[[str], str]) -> int:
     """Run one step of the operator's flow against the scope's MongoDB Store."""
     person_step = PERSON_COMMANDS.get(args.command)
@@ -952,10 +1059,15 @@ def prospect_command(args: argparse.Namespace, out: Print, ask: Callable[[str], 
     except (OSError, ValidationError) as error:
         out(f"stopped   cannot read the scope: {type(error).__name__}")
         return 1
+    if args.command == "research-list":
+        refused = _cannot_research_list(args, scope)
+        if refused is not None:
+            out(f"stopped   {refused}")
+            return 1
     client: MongoClient[dict[str, Any]] = MongoClient(args.mongodb, serverSelectionTimeoutMS=5000)
     try:
         backend = MongoBackend(client, database_prefix=args.database_prefix)
-        if args.command != "research":
+        if args.command not in ("research", "research-list"):
             backend.open_existing(scope)  # a mistyped name stops here instead of starting afresh
         store = backend.open(scope)
         return _prospect_step(args, store, out, ask)
@@ -978,6 +1090,8 @@ def _prospect_step(
 ) -> int:
     from auggie import operate
 
+    if args.command == "research-list":
+        return _research_list(args, store, out)
     if args.command == "research":
         strategy = load_strategy_at(
             args.strategy_repo, args.strategy_path, revision=args.revision, scope=store.scope
