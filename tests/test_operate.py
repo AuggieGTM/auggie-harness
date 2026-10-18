@@ -8,8 +8,15 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from auggie.acquisition.fixture import FixtureAcquisition
+from auggie.contracts import ScopeViolation
 from auggie.delivery import DeliveryBlocked
-from auggie.operate import deliver_draft, report_outcome, research_prospect, review_draft
+from auggie.operate import (
+    deliver_draft,
+    replay_clock,
+    report_outcome,
+    research_prospect,
+    review_draft,
+)
 from auggie.pipeline import RunResult
 from auggie.store import Store
 from auggie.store.memory import InMemoryBackend
@@ -127,3 +134,50 @@ def test_an_outcome_needs_a_delivery(store: Store) -> None:
     assert draft is not None
     with pytest.raises(ValueError, match="never delivered"):
         report_outcome(store, draft_id=draft.ref.artifact_id, outcome="no_reply", reporter="x")
+
+
+def test_another_customers_prospect_is_refused_before_anything_is_written(store: Store) -> None:
+    inputs = load_inputs(NORTHSTAR)
+    strategy = load_strategy(
+        NORTHSTAR / "inputs", inputs.strategy.path, commit=inputs.strategy.commit, scope=store.scope
+    )
+    foreign = inputs.account.model_copy(update={"customer_id": "other-customer"})
+    with pytest.raises(ScopeViolation, match="other-customer"):
+        research_prospect(
+            store,
+            strategy=strategy,
+            prospect=foreign,
+            acquisition=FixtureAcquisition(inputs.responses),
+            operator="demo-operator",
+        )
+    assert store.list_events() == () and store.list_evidence() == ()
+
+
+def test_a_rehearsal_is_judged_as_of_its_recordings_whatever_the_date(store: Store) -> None:
+    inputs = load_inputs(NORTHSTAR)
+    strategy = load_strategy(
+        NORTHSTAR / "inputs", inputs.strategy.path, commit=inputs.strategy.commit, scope=store.scope
+    )
+    as_of = replay_clock(inputs.responses)
+    assert as_of() == max(r.observed_at for r in inputs.responses)
+    result = research_prospect(
+        store,
+        strategy=strategy,
+        prospect=inputs.account,
+        acquisition=FixtureAcquisition(inputs.responses),
+        operator="demo-operator",
+        now=as_of,
+    )
+    assert result.decision.decided_at == as_of() and result.draft is not None
+
+
+def test_each_stage_is_stamped_when_it_happens(store: Store) -> None:
+    research(store)
+    events = store.list_events()
+    times = {e.type: e.occurred_at for e in events}
+    assert (
+        times["strategy.activated"]
+        < times["evidence.validated"]
+        < times["qualification.decided"]
+        < times["draft.composed"]
+    )

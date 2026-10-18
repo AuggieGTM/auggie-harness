@@ -64,7 +64,9 @@ def load_strategy_at(
     def git(*args: str) -> bytes:
         try:
             return subprocess.run(
-                ["git", "-C", str(repository), *args], check=True, capture_output=True
+                ["git", "--no-replace-objects", "-C", str(repository), *args],
+                check=True,
+                capture_output=True,
             ).stdout
         except (OSError, subprocess.CalledProcessError) as error:
             raise StrategyError(f"cannot read {path!r} at {revision!r} in {repository}") from error

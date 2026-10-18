@@ -389,8 +389,19 @@ def _add_prospect_commands(commands: Any) -> None:
     outcome.add_argument("--reporter", required=True, help="your name, recorded on the outcome")
 
 
+def interactive() -> bool:
+    """Whether a person at a terminal is answering: neither stdin nor stdout is redirected."""
+    return sys.stdin.isatty() and sys.stdout.isatty()
+
+
 def prospect_command(args: argparse.Namespace, out: Print, ask: Callable[[str], str]) -> int:
     """Run one step of the operator's flow against the scope's MongoDB Store."""
+    if args.command == "review" and not interactive():
+        out(
+            "stopped   review records a person's approval, so it must be answered at a "
+            "terminal: input and output cannot be redirected or scripted"
+        )
+        return 1
     from pydantic import ValidationError
 
     from auggie.credentials import CredentialError
@@ -451,9 +462,11 @@ def _prospect_step(
         if args.replay is not None:
             recorded = json.loads(args.replay.read_text(encoding="utf-8"))
             responses = recorded.get("responses") if isinstance(recorded, dict) else recorded
-            if not isinstance(responses, list):
+            if not isinstance(responses, list) or not responses:
                 raise ValueError(f"{args.replay} holds no list of recorded responses")
-            acquisition = FixtureAcquisition(RecordedResponse.model_validate(r) for r in responses)
+            recordings = [RecordedResponse.model_validate(r) for r in responses]
+            acquisition = FixtureAcquisition(recordings)
+            clock = operate.replay_clock(recordings)
             out(f"{store.scope.customer_id}: research from recorded responses, no provider calls")
         else:
             budget = RunBudget.for_scope(store.scope)
@@ -467,6 +480,7 @@ def _prospect_step(
                 f"{store.scope.customer_id}: live research through Treg, run limit "
                 f"{budget.limit_micro_usd} micro-USD"
             )
+            clock = operate.utc_now
         out("")
         result = operate.research_prospect(
             store,
@@ -474,6 +488,7 @@ def _prospect_step(
             prospect=prospect,
             acquisition=acquisition,
             operator=args.operator,
+            now=clock,
         )
         report_research(strategy, args.operator, result, out, show_draft=args.show_draft)
         if result.draft is not None:

@@ -35,15 +35,19 @@ uv run auggie research $E/scope.json $E/prospect.json \
 ```
 
 `research` prints each stage: the strategy and the exact commit it was read at, every source it
-fetched (the news source fails on purpose), which evidence it admitted, the qualification with
-the evidence behind each finding, and the draft. It stops there and prints the draft's ID.
+fetched (the news source fails on purpose), which evidence it admitted, and the qualification
+with the evidence behind each finding. It stops at the draft and prints its ID; add
+`--show-draft` to see the text now, or wait for `review`, which always shows it. A rehearsal is
+judged as of the moment its responses were recorded, so it gives the same result on any date.
 
 ```sh
 uv run auggie review $E/scope.json --draft <draft id> --reviewer "your name" $M
 ```
 
 `review` shows the exact draft, how the prospect was judged, and the pages it rests on. Approve
-the content, then delivery to the named recipient. Then:
+the content, then delivery to the named recipient. It records your decision as a person's
+approval, so run it yourself, at your own terminal: it refuses input that is piped in or typed by
+a script, and it is not a step to hand to an agent. Then:
 
 ```sh
 uv run auggie deliver $E/scope.json --draft <draft id> $M
@@ -101,12 +105,15 @@ treg org use <customer>
 treg org agent-new auggie-harness --cap 50 --pin customer=<customer_id>
 ```
 
-Save the agent token where the harness looks for it, readable only by you:
+Save the agent token where the harness looks for it, readable only by you. Paste it at the
+hidden prompt; it is written to a new private file that then replaces any old one, so an
+existing file's permissions or a symlink cannot leak it:
 
 ```sh
-mkdir -p -m 700 ~/.config/auggie/credentials/<credential_namespace>
-read -rs TOKEN && (umask 077; printf '%s\n' "$TOKEN" \
-  > ~/.config/auggie/credentials/<credential_namespace>/treg-token); unset TOKEN
+( D=~/.config/auggie/credentials/<credential_namespace>; umask 077
+  mkdir -p "$D" && chmod 700 "$D" && read -rs TOKEN &&
+  T=$(mktemp "$D/.treg-token.XXXXXX") && printf '%s\n' "$TOKEN" > "$T" &&
+  mv -f "$T" "$D/treg-token" )
 ```
 
 Then add funds to the team (`treg topup 10`; $10 is the minimum) and switch back with

@@ -227,6 +227,7 @@ def test_one_prospect_runs_from_research_to_outcome(
     files = NORTHSTAR
     answers = iter(["y", "Claims match the cited pages.", "y"])
     monkeypatch.setattr("builtins.input", lambda prompt="": next(answers))
+    monkeypatch.setattr(cli, "interactive", lambda: True)  # stands in for a person at a terminal
     with mongo_backend() as backend:
         store = ["--mongodb", os.environ[MONGODB_URI], "--database-prefix", backend.database_prefix]
         scope = str(files / "scope.json")
@@ -267,3 +268,13 @@ def test_the_walkthrough_files_match_the_scenario_inputs() -> None:
         json.loads((NORTHSTAR / "prospect.json").read_text(encoding="utf-8")) == inputs["account"]
     )
     assert json.loads((NORTHSTAR / "scope.json").read_text(encoding="utf-8")) == inputs["scope"]
+
+
+def test_review_refuses_answers_that_do_not_come_from_a_terminal(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    scope = str(NORTHSTAR / "scope.json")
+    unreachable = ["--mongodb", "mongodb://127.0.0.1:1"]
+    argv = ["review", scope, "--draft", "draft-x", "--reviewer", "someone", *unreachable]
+    assert main(argv) == 1
+    assert "must be answered at a terminal" in capsys.readouterr().out

@@ -8,13 +8,21 @@ background (ADR 0007).
 from __future__ import annotations
 
 import secrets
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
 
 from auggie.accounts import Account
 from auggie.acquisition import Acquisition
+from auggie.acquisition.fixture import RecordedResponse
 from auggie.approval import ReviewDecision
-from auggie.contracts import Actor, Artifact, HumanApproval, QualificationDecision, RecordRef
+from auggie.contracts import (
+    Actor,
+    Artifact,
+    HumanApproval,
+    QualificationDecision,
+    RecordRef,
+    ensure_in_scope,
+)
 from auggie.contracts.approval import ApprovalDecision
 from auggie.contracts.events import OutcomeKind
 from auggie.judgment.rules import RulesQualifier
@@ -53,9 +61,14 @@ def research_prospect(
     operator: str,
     now: Clock = utc_now,
 ) -> RunResult:
-    """Research one prospect from its sources up to a draft, then stop for review."""
-    operator_actor = Actor(kind="human", id=operator)
-    activate_strategy(store, strategy, by=operator_actor, at=now())
+    """Research one prospect from its sources up to a draft, then stop for review.
+
+    The prospect and the strategy must belong to the store's customer; nothing
+    is written otherwise. Each stage is stamped by ``now`` as it happens.
+    """
+    ensure_in_scope(store.scope, prospect)
+    ensure_in_scope(store.scope, strategy.strategy)
+    activate_strategy(store, strategy, by=Actor(kind="human", id=operator), at=now())
     started = now()
     times = RunTimes(
         run_id=new_run_id(started),
@@ -71,7 +84,18 @@ def research_prospect(
         qualifier=RulesQualifier(),
         times=times,
         per_run_ids=True,
+        clock=now,
     )
+
+
+def replay_clock(responses: Sequence[RecordedResponse]) -> Clock:
+    """The clock for a rehearsal: the moment the recorded responses were last observed.
+
+    Judging recorded evidence against today's date would let it go stale, and
+    a rehearsal must give the same result whenever it is run.
+    """
+    as_of = max(response.observed_at for response in responses)
+    return lambda: as_of
 
 
 def describe_draft(store: Store, draft: Artifact, out: Print) -> None:

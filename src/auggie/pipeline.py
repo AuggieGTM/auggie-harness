@@ -11,6 +11,7 @@ writes nothing new.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -119,8 +120,12 @@ def research_run(
     qualifier: Qualifier,
     times: RunTimes,
     per_run_ids: bool = False,
+    clock: Callable[[], datetime] | None = None,
 ) -> RunResult:
     """Observe, validate, judge and compose for one account, then stop for review.
+
+    Each stage is stamped from ``clock`` when one is given, at the moment it
+    happens; otherwise from the planned ``times``, as synthetic scenarios do.
 
     Record IDs are readable and derived from the account (``ev-northstar-careers``),
     so re-running the same inputs writes nothing new. With ``per_run_ids`` they
@@ -136,6 +141,10 @@ def research_run(
     subject = SubjectRef(kind="account", id=account.account_id)
     run_id = times.run_id
     suffix = f"-{run_id}" if per_run_ids else ""
+
+    def at(planned: datetime) -> datetime:
+        """When a stage happens: from the clock if given, else as planned in ``times``."""
+        return clock() if clock is not None else planned
 
     sources: dict[str, Verdict] = {}
     for kind in strategy.strategy.sources:
@@ -161,13 +170,14 @@ def research_run(
         )
         sources[kind] = check_evidence(evidence, scope=store.scope, subject=subject)
 
+    validated_at = at(times.validated_at)
     for verdict in sources.values():
         evidence_id = verdict.evidence.evidence_id
         type: EventType = "evidence.validated" if verdict.admitted else "evidence.rejected"
         _append(
             store,
             type,
-            at=times.validated_at,
+            at=validated_at,
             actor=VALIDATOR,
             refs=[RecordRef(kind="evidence", id=evidence_id)],
             key=f"{type}:{evidence_id}",
@@ -175,19 +185,20 @@ def research_run(
             attributes={} if verdict.admitted else {"reason": verdict.rejected_for},
         )
 
+    qualified_at = at(times.qualified_at)
     decision = qualifier.qualify(
         decision_id=f"qual-{account.key}{suffix or '-001'}",
         customer_id=customer_id,
         account_id=account.account_id,
         strategy=strategy,
         sources=sources,
-        at=times.qualified_at,
+        at=qualified_at,
     )
     store.put_qualification(decision)
     _append(
         store,
         "qualification.decided",
-        at=times.qualified_at,
+        at=qualified_at,
         actor=qualifier.actor,
         refs=[
             RecordRef(kind="qualification", id=decision.decision_id),
@@ -204,6 +215,7 @@ def research_run(
     play = select_play(strategy, decision)
     if play is None:
         return RunResult(verdicts, decision, None, "no play's criteria are all met")
+    composed_at = at(times.composed_at)
     draft = compose_draft(
         artifact_id=f"draft-{account.key}{suffix or '-001'}",
         play=play,
@@ -211,13 +223,13 @@ def research_run(
         decision=decision,
         account=account,
         sources=sources,
-        at=times.composed_at,
+        at=composed_at,
     )
     store.put_artifact(draft)
     _append(
         store,
         "draft.composed",
-        at=times.composed_at,
+        at=composed_at,
         actor=COMPOSER,
         refs=[
             RecordRef(kind="artifact", id=draft.ref.artifact_id),

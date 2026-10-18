@@ -186,3 +186,19 @@ def test_a_path_missing_at_that_commit_is_refused(tmp_path: Path, scenario: Scen
         load_strategy_at(repo, "strategy/other.toml", revision="HEAD", scope=scenario.scope)
     with pytest.raises(StrategyError, match="inside the knowledge root"):
         load_strategy_at(repo, "../msp.toml", revision="HEAD", scope=scenario.scope)
+
+
+def test_a_git_replacement_object_cannot_swap_the_strategy(
+    tmp_path: Path, scenario: Scenario
+) -> None:
+    repo = strategy_repo(tmp_path)
+    original = git(repo, "rev-parse", "HEAD:strategy/msp.toml")
+    altered = (
+        (INPUTS / "strategy/msp.toml").read_text(encoding="utf-8").replace("max = 500", "max = 999")
+    )
+    (tmp_path / "altered.toml").write_text(altered, encoding="utf-8")
+    replacement = git(repo, "hash-object", "-w", str(tmp_path / "altered.toml"))
+    git(repo, "replace", original, replacement)
+    loaded = load_strategy_at(repo, "strategy/msp.toml", revision="HEAD", scope=scenario.scope)
+    assert loaded.ref.digest == sha256_digest((INPUTS / "strategy/msp.toml").read_bytes())
+    assert loaded.strategy.criterion("headcount-50-to-500").max == 500  # type: ignore[union-attr]
