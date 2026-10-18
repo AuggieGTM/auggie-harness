@@ -46,7 +46,7 @@ from auggie.strategy import LoadedStrategy, load_strategy_at
 from auggie.synthetic import ScenarioRun, load_inputs, run_scenario
 
 if TYPE_CHECKING:
-    from auggie.acquisition.treg import Transport
+    from auggie.https import Transport
     from auggie.projections.sheets import SheetsApi
     from auggie.store.mongodb import MongoBackend
 

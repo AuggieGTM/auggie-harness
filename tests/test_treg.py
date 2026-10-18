@@ -15,17 +15,11 @@ from typing import Any
 
 import pytest
 
-from auggie.acquisition.treg import (
-    CEILING_MICRO_USD,
-    HttpRequest,
-    HttpResponse,
-    HttpsTransport,
-    TregPageText,
-    _NoRedirects,
-)
+from auggie.acquisition.treg import CEILING_MICRO_USD, HttpsTransport, TregPageText
 from auggie.contracts import CustomerScope, ScopeViolation, SubjectRef, sha256_digest
 from auggie.credentials import CredentialError, CredentialFiles
 from auggie.external import ExternalCallRefused
+from auggie.https import HttpRequest, HttpResponse, NoRedirects
 from auggie.judgment.rules import RulesQualifier
 from auggie.pipeline import research_run
 from auggie.spend import RunBudget, SpendRefused
@@ -271,7 +265,7 @@ def test_the_https_transport_talks_only_to_treg_and_never_follows_redirects() ->
     elsewhere = HttpRequest("POST", "https://northstar.example/call", {}, b"", 1.0)
     with pytest.raises(ValueError, match=r"only go to https://treg\.to"):
         HttpsTransport().send(elsewhere)
-    assert _NoRedirects().redirect_request() is None
+    assert NoRedirects().redirect_request() is None
 
 
 def test_a_research_run_records_what_each_treg_call_cost(
@@ -483,7 +477,7 @@ def test_a_redirect_is_never_followed() -> None:
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        opener = urllib.request.build_opener(_NoRedirects)
+        opener = urllib.request.build_opener(NoRedirects)
         with pytest.raises(urllib.error.HTTPError) as caught:
             opener.open(f"http://127.0.0.1:{server.server_port}/start", timeout=5)
         assert caught.value.code == 302

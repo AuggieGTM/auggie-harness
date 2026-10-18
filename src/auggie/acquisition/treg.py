@@ -8,16 +8,12 @@ hash of the returned text become evidence.
 
 from __future__ import annotations
 
-import http.client
 import json
 import re
-import urllib.error
-import urllib.request
 import uuid
-from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Any, Protocol
+from typing import Any
 
 from pydantic import HttpUrl, TypeAdapter
 
@@ -35,6 +31,7 @@ from auggie.contracts.events import AttributeValue
 from auggie.contracts.evidence import RetrievalStatus
 from auggie.credentials import CredentialError, CredentialFiles
 from auggie.external import require_external_calls
+from auggie.https import MAX_BODY_BYTES, HttpRequest, HttpResponse, LimitedTransport, Transport
 from auggie.spend import RunBudget, SpendRefused
 
 TREG_ORIGIN = "https://treg.to"
@@ -49,7 +46,6 @@ CEILING_MICRO_USD = 2000
 """Per-call ceiling. The catalog price for one page of text is 1,000 micro-USD."""
 
 TIMEOUT_SECONDS = 30.0
-MAX_BODY_BYTES = 2_000_000
 
 CHALLENGE_PHRASES = ("just a moment", "attention required", "enable javascript and cookies")
 """Openings of bot-challenge pages, which are not the page's content."""
@@ -62,69 +58,11 @@ _RECORD_ID: TypeAdapter[str] = TypeAdapter(RecordId)
 ECHOED = "The reply contained the request's credential; none of it was kept."
 
 
-@dataclass(frozen=True)
-class HttpRequest:
-    method: str
-    url: str
-    headers: Mapping[str, str] = field(repr=False)
-    body: bytes = field(repr=False)
-    timeout: float
-
-    def __repr__(self) -> str:
-        names = ", ".join(sorted(self.headers))
-        return f"HttpRequest({self.method} {self.url}, headers: {names})"
-
-
-@dataclass(frozen=True)
-class HttpResponse:
-    status: int
-    headers: Mapping[str, str]
-    """Header names in lower case."""
-    body: bytes
-
-
-class Transport(Protocol):
-    def send(self, request: HttpRequest) -> HttpResponse:
-        """Send ``request``. Raises ``OSError`` (including timeouts) if no response arrives."""
-        ...
-
-
-class _NoRedirects(urllib.request.HTTPRedirectHandler):
-    """Never follow a redirect: it would carry the token to another address."""
-
-    def redirect_request(self, *args: Any, **kwargs: Any) -> urllib.request.Request | None:
-        return None
-
-
-class HttpsTransport:
-    """Sends requests with the standard library, only to Treg, never following redirects."""
+class HttpsTransport(LimitedTransport):
+    """Sends requests only to Treg, never following redirects."""
 
     def __init__(self) -> None:
-        self._opener = urllib.request.build_opener(_NoRedirects)
-
-    def send(self, request: HttpRequest) -> HttpResponse:
-        if not request.url.startswith(TREG_ORIGIN + "/"):
-            raise ValueError(f"requests may only go to {TREG_ORIGIN}")
-        outgoing = urllib.request.Request(
-            request.url, data=request.body, headers=dict(request.headers), method=request.method
-        )
-        try:
-            try:
-                with self._opener.open(outgoing, timeout=request.timeout) as reply:
-                    return HttpResponse(
-                        reply.status,
-                        {k.lower(): v for k, v in reply.headers.items()},
-                        reply.read(MAX_BODY_BYTES + 1),
-                    )
-            except urllib.error.HTTPError as error:
-                return HttpResponse(
-                    error.code,
-                    {k.lower(): v for k, v in error.headers.items()},
-                    error.read(MAX_BODY_BYTES + 1),
-                )
-        except (http.client.HTTPException, ValueError):
-            # Not chained: these errors can quote the request's headers, token included.
-            raise OSError("the Treg call failed before a complete reply arrived") from None
+        super().__init__((TREG_ORIGIN,), "Treg")
 
 
 def _utc_now() -> datetime:
