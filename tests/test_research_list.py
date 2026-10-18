@@ -497,3 +497,25 @@ def test_a_list_with_bad_inputs_is_refused_before_the_store_opens(
         finally:
             client.close()
         assert not [n for n in names if n.startswith(backend.database_prefix)]
+
+
+def test_a_recovery_that_fails_stops_the_list_with_its_report(backend: Any) -> None:
+    store = backend.open(SCOPE)
+    real = store.append_event
+
+    def no_drafts(event: Any) -> Any:
+        if event.type == "draft.composed":
+            raise OSError("the connection dropped")
+        return real(event)
+
+    store.append_event = no_drafts
+    rehearse(store)
+    lines = rehearse(store)  # the recovery's own write fails too
+    assert [(line.account_id, line.status) for line in lines] == [
+        ("acc-fernhollow", "stopped"),
+        ("acc-brightquarry", "waiting"),
+        ("acc-saltmarsh", "waiting"),
+    ]
+    assert lines[0].detail == "OSError: the connection dropped"
+    store.append_event = real
+    assert rehearse(store)[0].detail.endswith("which that run left unfinished")

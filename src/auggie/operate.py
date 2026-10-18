@@ -182,51 +182,77 @@ def research_list(
     lines: list[ListLine] = []
     for n, prospect in enumerate(prospects):
         account_id = prospect.account_id
-        decided = researched_as(store, account_id)
-        if decided is not None and not again:
-            detail = f"already researched ({decided})"
-            if complete_research(store, decided):
-                detail += "; recorded its draft, which that run left unfinished"
-            lines.append(ListLine(account_id, "skipped", detail))
-            continue
-        pages = sum(kind in prospect.sources for kind in strategy.strategy.sources)
-        worst = pages * page_ceiling_micro_usd
-        if budget is not None and budget.committed_micro_usd + worst > budget.limit_micro_usd:
-            left = budget.limit_micro_usd - budget.committed_micro_usd
-            why = f"needs up to {worst} micro-USD, and {left} of {budget.limit_micro_usd} is left"
-            lines.append(ListLine(account_id, "waiting", why))
-            lines.extend(
-                ListLine(p.account_id, "waiting", "after the one above") for p in prospects[n + 1 :]
-            )
-            break
         before = budget.spent_micro_usd if budget is not None else 0
         try:
-            result = research_prospect(
+            line = _research_one(
                 store,
                 strategy=strategy,
                 prospect=prospect,
                 acquisition=acquisition,
                 operator=operator,
+                budget=budget,
+                page_ceiling_micro_usd=page_ceiling_micro_usd,
+                again=again,
                 now=now,
                 listings=listings,
             )
         except Exception as error:
+            # Anything that fails, recovery included, stops the list here, and says so.
             spent = (budget.spent_micro_usd if budget is not None else 0) - before
             stopped = f"{type(error).__name__}: {error}"
-            lines.append(ListLine(account_id, "stopped", stopped, spent_micro_usd=spent))
-            lines.extend(
-                ListLine(p.account_id, "waiting", "after the stop above")
-                for p in prospects[n + 1 :]
-            )
+            line = ListLine(account_id, "stopped", stopped, spent_micro_usd=spent)
+        lines.append(line)
+        if line.status in ("waiting", "stopped"):
+            why = "after the one above" if line.status == "waiting" else "after the stop above"
+            lines.extend(ListLine(p.account_id, "waiting", why) for p in prospects[n + 1 :])
             break
-        spent = (budget.spent_micro_usd if budget is not None else 0) - before
-        decision = result.decision
-        if result.draft is not None:
-            detail = f"{decision.outcome}, draft {result.draft.ref.artifact_id}"
-        else:
-            detail = f"{decision.outcome}, no draft: {result.stopped}"
-        lines.append(ListLine(account_id, "researched", detail, result, spent))
     return lines
+
+
+def _research_one(
+    store: Store,
+    *,
+    strategy: LoadedStrategy,
+    prospect: Account,
+    acquisition: Acquisition,
+    operator: str,
+    budget: RunBudget | None,
+    page_ceiling_micro_usd: int,
+    again: bool,
+    now: Clock,
+    listings: ListingReader | None,
+) -> ListLine:
+    """One prospect of a list: skipped, waiting for room under the cap, or researched."""
+    account_id = prospect.account_id
+    decided = researched_as(store, account_id)
+    if decided is not None and not again:
+        detail = f"already researched ({decided})"
+        if complete_research(store, decided):
+            detail += "; recorded its draft, which that run left unfinished"
+        return ListLine(account_id, "skipped", detail)
+    pages = sum(kind in prospect.sources for kind in strategy.strategy.sources)
+    worst = pages * page_ceiling_micro_usd
+    if budget is not None and budget.committed_micro_usd + worst > budget.limit_micro_usd:
+        left = budget.limit_micro_usd - budget.committed_micro_usd
+        why = f"needs up to {worst} micro-USD, and {left} of {budget.limit_micro_usd} is left"
+        return ListLine(account_id, "waiting", why)
+    before = budget.spent_micro_usd if budget is not None else 0
+    result = research_prospect(
+        store,
+        strategy=strategy,
+        prospect=prospect,
+        acquisition=acquisition,
+        operator=operator,
+        now=now,
+        listings=listings,
+    )
+    spent = (budget.spent_micro_usd if budget is not None else 0) - before
+    decision = result.decision
+    if result.draft is not None:
+        detail = f"{decision.outcome}, draft {result.draft.ref.artifact_id}"
+    else:
+        detail = f"{decision.outcome}, no draft: {result.stopped}"
+    return ListLine(account_id, "researched", detail, result, spent)
 
 
 def replay_clock(
