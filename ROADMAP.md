@@ -74,12 +74,13 @@ contract ([ADR 0014](docs/adr/0014-artifact-contract.md)), both Accepted.
   refused early delivery and, after a person's review in their own terminal, delivery, outcome
   and projection. That run predates `revise`. The real-prospect prompt is reviewed but not yet
   run.*
-- Delivery stays simulated.
+- Delivery to prospects stays simulated.
 
-**Next:** a first live run on the maintainer's own prospect: a paid Treg page fetch, and a
-Gmail send to themself.
+**Next:** a controlled live run on the maintainer's own prospect, once the terms and policy
+checks are done: one paid Treg page fetch, and one Gmail send from the maintainer to themself.
 
-**Gate:** per-scope credentials; provider spend bounded per run; no live delivery. *Credential
+**Gate:** per-scope credentials; provider spend bounded per run; no delivery to a prospect.
+*Credential
 files and the per-run spend limit are built
 ([ADR 0016](docs/adr/0016-credentials-and-spend-limits.md)).*
 **Decision needed first:** the task scheduler ([ADR 0007](docs/adr/0007-single-task-scheduler.md)),
