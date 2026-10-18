@@ -139,7 +139,7 @@ ASSESSMENTS: dict[str, Assessment] = {
 }
 
 
-def _hiring(
+def hiring_finding(
     criterion: FamilyOpenings | ListingPattern,
     strategy: Strategy,
     listing: ListingReadings | None,
@@ -189,7 +189,7 @@ def assess(
     listing: ListingReadings | None = None,
 ) -> Finding:
     if isinstance(criterion, FamilyOpenings | ListingPattern):
-        return _hiring(criterion, strategy, listing)
+        return hiring_finding(criterion, strategy, listing)
     label = strategy.sources[criterion.source].label
     verdict = sources.get(criterion.source)
     if verdict is None or not verdict.admitted:

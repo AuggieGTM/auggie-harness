@@ -45,7 +45,7 @@ from auggie.contracts import (
 from auggie.contracts.approval import DeliveryPlatform
 from auggie.contracts.common import RecordId, UtcDatetime
 from auggie.contracts.events import AttributeValue, EventType, OutcomeKind
-from auggie.contracts.strategy import LISTING_CRITERIA, ListingPattern
+from auggie.contracts.strategy import LISTING_CRITERIA
 from auggie.delivery import (
     SIMULATED_DELIVERY,
     DeliveryBlocked,
@@ -57,6 +57,7 @@ from auggie.delivery import (
 )
 from auggie.external import require_external_calls
 from auggie.judgment import ListingReadings, Qualifier
+from auggie.judgment.rules import hiring_finding
 from auggie.store import Appended, RecordConflict, RecordNotFound, Store
 from auggie.strategy import LoadedStrategy
 
@@ -300,7 +301,12 @@ def record_snapshot(
         account_id=account.account_id,
         snapshot_id=snapshot_id,
     )
-    if snapshot.snapshot_id != snapshot_id or snapshot.account_id != account.account_id:
+    if (
+        snapshot.snapshot_id != snapshot_id
+        or snapshot.account_id != account.account_id
+        or snapshot.listing != account.careers_listing
+    ):
+        # The listing is named, never guessed: a reply about another one is not recorded.
         raise ValueError("the reader returned a snapshot of something else")
     event = _event(
         store,
@@ -350,48 +356,31 @@ def _read_listing(
     return ListingReadings(current, earlier)
 
 
-COMPARED: frozenset[str] = frozenset({"new_openings", "more_openings"})
-"""The patterns that compare this run's read with a baseline."""
-
-
-def _check_listing_citations(
+def _check_hiring_findings(
     decision: QualificationDecision, strategy: LoadedStrategy, listing: ListingReadings | None
 ) -> None:
-    """Whatever the qualifier, each hiring finding rests on this run's own read of the listing,
-    and a pattern that compares on its baseline too; no other snapshot, and no other finding,
-    is cited. A read that settles nothing settles no finding (ADR 0024)."""
+    """Whatever the qualifier, each hiring finding is the rules' tally of this run's read of
+    the listing and its baseline: a tally is never written by a model (ADR 0024). So none
+    settles from an older read, omits its baseline, or claims more than a partial read shows.
+    No other finding cites a snapshot."""
     rules = strategy.strategy
-    hiring = rules.signals.hiring
-    current = listing.current if listing is not None else None
-    baseline = listing.baseline(hiring) if listing is not None and hiring is not None else None
     problems: list[str] = []
     for finding in decision.findings:
-        cited = set(finding.snapshot_ids)
         try:
             criterion = rules.criterion(finding.criterion)
         except KeyError:
             problems.append(f"{finding.criterion}: not a criterion of {rules.strategy_id}")
             continue
         if not isinstance(criterion, LISTING_CRITERIA):
-            if cited:
+            if finding.snapshot_ids:
                 problems.append(f"{finding.criterion}: only a hiring criterion cites snapshots")
             continue
-        allowed = {current.snapshot_id} if current is not None else set()
-        compares = isinstance(criterion, ListingPattern) and criterion.pattern in COMPARED
-        if baseline is not None and compares:
-            allowed.add(baseline)
-        stray = sorted(cited - allowed)
-        if stray:
+        tally = hiring_finding(criterion, rules, listing)
+        if finding != tally:
             problems.append(
-                f"{finding.criterion}: {', '.join(stray)} is neither this run's read of the "
-                "listing nor its baseline"
-            )
-        if finding.assessment != "unknown" and (
-            current is None or not current.usable or current.snapshot_id not in cited
-        ):
-            problems.append(
-                f"{finding.criterion}: settled without citing a usable read of the listing "
-                "made in this run"
+                f"{finding.criterion}: the rules' tally of this run's read is {tally.assessment}"
+                f" citing {', '.join(tally.snapshot_ids) or 'no snapshot'}, not"
+                f" {finding.assessment} citing {', '.join(finding.snapshot_ids) or 'no snapshot'}"
             )
     if problems:
         raise CitationError("; ".join(problems))
@@ -463,7 +452,7 @@ def research_run(
         at=qualified_at,
         listing=listing,
     )
-    _check_listing_citations(decision, strategy, listing)
+    _check_hiring_findings(decision, strategy, listing)
     store.put_qualification(decision)
     _append(
         store,

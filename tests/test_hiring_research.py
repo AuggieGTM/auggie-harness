@@ -13,6 +13,7 @@ from typing import Any
 import pytest
 
 from auggie import cli, shell
+from auggie.acquisition.careers import ROLE_CAP
 from auggie.acquisition.fixture import FixtureAcquisition, RecordedListing, RecordedListings
 from auggie.cli import main
 from auggie.contracts import CareersSnapshot, CitationError, OpenRole, roles_digest
@@ -227,7 +228,7 @@ def test_research_refuses_a_citation_of_a_snapshot_that_is_not_the_baseline() ->
         snapshot_id="snap-before-1",
         run_id=None,
     )
-    with pytest.raises(CitationError, match="snap-before-1 is neither this run's read"):
+    with pytest.raises(CitationError, match="not meets citing snap-fernhollow-001, snap-before-1"):
         research_run(
             store,
             strategy=strategy(),
@@ -525,7 +526,7 @@ def test_no_qualifier_can_settle_hiring_from_an_older_read_when_this_runs_failed
             kwargs["listing"] = ListingReadings(older, ())
             return super().qualify(**kwargs)
 
-    with pytest.raises(CitationError, match="settled without citing a usable read"):
+    with pytest.raises(CitationError, match="is unknown citing no snapshot, not meets citing"):
         research_with(store, failed_now, UsesTheOlderRead())
     assert store.list_events(type="qualification.decided") == ()
     assert store.list_events(type="draft.composed") == ()
@@ -535,8 +536,12 @@ def test_no_qualifier_can_settle_hiring_from_an_older_read_when_this_runs_failed
     ("criterion", "snapshot_ids", "problem"),
     [
         ("names-beaconlog", ("snap-fernhollow-001",), "only a hiring criterion cites snapshots"),
-        ("detection-hiring", ("snap-fernhollow-001", "snap-before-1"), "snap-before-1 is neither"),
-        ("detection-hiring", ("snap-other-board",), "snap-other-board is neither"),
+        (
+            "detection-hiring",
+            ("snap-fernhollow-001", "snap-before-1"),
+            "not meets citing snap-fernhollow-001, snap-before-1",
+        ),
+        ("detection-hiring", ("snap-other-board",), "not meets citing snap-other-board"),
     ],
     ids=["page-finding", "baseline-for-a-count", "another-board"],
 )
@@ -594,7 +599,7 @@ def test_a_hiring_finding_cannot_be_settled_from_page_evidence() -> None:
             )
             return decision.model_copy(update={"findings": (moved, *rest)})
 
-    with pytest.raises(CitationError, match="detection-hiring: settled without citing"):
+    with pytest.raises(CitationError, match=r"detection-hiring: .* not meets citing no snapshot"):
         research_with(store, INPUTS, FromThePage())
 
 
@@ -702,3 +707,78 @@ def test_hiring_read_is_refused_whole_before_the_store_is_opened(
             client.close()
         assert not [n for n in names if n.startswith(backend.database_prefix)]
     assert listing.requests == []
+
+
+class Rewrites(RulesQualifier):
+    """A qualifier that changes one finding: each way a wrong qualifier could misstate a tally."""
+
+    def __init__(self, criterion: str, **changes: Any) -> None:
+        self.criterion = criterion
+        self.changes = changes
+
+    def qualify(self, **kwargs: Any) -> Any:
+        decision = super().qualify(**kwargs)
+        findings = tuple(
+            f.model_copy(update=self.changes) if f.criterion == self.criterion else f
+            for f in decision.findings
+        )
+        return decision.model_copy(update={"findings": findings})
+
+
+def test_a_comparison_settles_only_on_its_baseline() -> None:
+    # No earlier read at all: new openings cannot be settled from this run's read alone.
+    store = InMemoryBackend().open(INPUTS.scope)
+    alone = INPUTS.model_copy(update={"listings": INPUTS.listings[1:]})
+    claims = Rewrites(
+        "detection-openings-new",
+        assessment="meets",
+        basis="inference",
+        snapshot_ids=("snap-fernhollow-001",),
+    )
+    with pytest.raises(CitationError, match="is unknown citing snap-fernhollow-001, not meets"):
+        research_with(store, alone, claims)
+
+    # A baseline exists, and the finding leaves it out.
+    store = InMemoryBackend().open(INPUTS.scope)
+    record_snapshot(
+        store,
+        reader=RecordedListings([INPUTS.listings[0]]),
+        account=INPUTS.account,
+        snapshot_id="snap-before-1",
+        run_id=None,
+    )
+    omits = Rewrites("detection-openings-new", snapshot_ids=("snap-fernhollow-001",))
+    with pytest.raises(CitationError, match="citing snap-fernhollow-001, snap-before-1, not"):
+        research_with(store, INPUTS, omits)
+
+
+def test_a_partial_read_never_settles_that_a_family_has_too_few_roles() -> None:
+    # Two copies of one detection role in a capped reply: partial, one role in the family.
+    postings = [INPUTS.listings[1].body[1]] * (ROLE_CAP + 1)  # type: ignore[index]
+    store = InMemoryBackend().open(INPUTS.scope)
+    capped = with_current(200, postings)
+    denies = Rewrites("detection-hiring", assessment="does_not_meet", basis="inference")
+    with pytest.raises(CitationError, match="is unknown citing snap-fernhollow-001, not does_not"):
+        research_with(store, capped, denies)
+
+
+def test_a_reply_about_another_listing_is_not_recorded() -> None:
+    store = InMemoryBackend().open(INPUTS.scope)
+    listing = INPUTS.account.careers_listing
+    assert listing is not None
+
+    class Elsewhere(RecordedListings):
+        def read(self, **kwargs: Any) -> CareersSnapshot:
+            snapshot = super().read(**kwargs)
+            moved = snapshot.listing.model_copy(update={"board": "other-board"})
+            return snapshot.model_copy(update={"listing": moved})
+
+    with pytest.raises(ValueError, match="a snapshot of something else"):
+        record_snapshot(
+            store,
+            reader=Elsewhere([INPUTS.listings[1]]),
+            account=INPUTS.account,
+            snapshot_id="snap-1",
+            run_id=None,
+        )
+    assert store.list_careers_snapshots("acc-fernhollow") == ()

@@ -42,6 +42,8 @@ def check_qualification(
     cited: Iterable[SourceEvidence],
     snapshots: Iterable[CareersSnapshot] = (),
 ) -> None:
+    """Cited evidence and snapshots exist, are usable and are about this account. Which read a
+    run made is known only to the run; research checks that before writing."""
     ensure_in_scope(scope, decision)
     verify_citations(decision, cited, snapshots)
 

@@ -82,7 +82,12 @@ class Store(Protocol):
     def list_evidence(self, *, subject: SubjectRef | None = None) -> tuple[SourceEvidence, ...]: ...
 
     def put_qualification(self, decision: QualificationDecision) -> None:
-        """Store a decision. Every citation must resolve to usable evidence in this store."""
+        """Store a decision. Every citation must resolve to usable evidence in this store, and
+        every snapshot citation to a usable snapshot of the same account.
+
+        Whether a snapshot was the run's own read or its baseline is known only to the run, so
+        research checks that before it writes (ADR 0024); this method does not.
+        """
         ...
 
     def get_qualification(self, decision_id: str) -> QualificationDecision: ...
