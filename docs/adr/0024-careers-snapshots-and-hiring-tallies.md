@@ -24,11 +24,18 @@ the exception.
 
 **Acquisition (restating ADR 0008, with one exception)**
 
-- Treg handles data acquisition, through an adapter. What it returns is recorded as
-  `SourceEvidence`, and its credentials resolve per scope. Each route is enabled on its own,
-  with tests, and Treg's details stay inside its adapter.
-- **The exception: listing services' public job-board feeds** are read directly. Each reader is
-  enabled on its own, with tests, and its details stay inside it.
+- Treg handles data acquisition, through an adapter, with credentials resolved per scope.
+  Everything it returns is recorded as `SourceEvidence`, with the provider, request ID, dates
+  and a content hash.
+- **The exception: listing services' public job-board feeds** are read directly, and recorded
+  as `CareersSnapshot` evidence.
+- For both paths:
+  - provider responses are untrusted data, which never authorize an action or change a
+    strategy;
+  - business logic depends on `SourceEvidence` and `CareersSnapshot`, never on provider
+    responses;
+  - each route or reader is enabled on its own, with its own tests, and its details stay inside
+    its adapter.
 
 **Snapshots**
 
@@ -36,8 +43,8 @@ the exception.
   attempt was made. A `CareersSnapshot` record holds:
   - the account;
   - the listing: the service, the company's name on it, and the public page a person opens;
-  - when it was read, and whether the read was retrieved or failed, with the reason;
-  - whether it is complete;
+  - when it was read, and how the read ended: complete, partial, inconsistent or failed, with
+    the reason;
   - every open role as the listing states it: the service's own role ID, title, team or
     department, location, link, and a date when the listing gives one;
   - a content hash.
@@ -58,11 +65,15 @@ the exception.
     for a scope that allows external providers ([ADR 0016](0016-credentials-and-spend-limits.md)).
   - Workday's careers sites have no documented public job-board feed; their pages load roles
     from an undocumented endpoint. That reader waits until its terms are checked.
-- **Complete, incomplete or failed.**
+- **Complete, partial, inconsistent or failed.**
   - A read is *complete* only when the reader has read every page, and the service's own paging
     or totals confirm it.
-  - A read that stops at the role cap, or whose pages disagree with each other or with the
-    stated total, is *incomplete*. It is reported as "at least N".
+  - A read that stops at the role cap after consistent pages is *partial*: a valid lower bound,
+    reported as "at least N".
+  - A read whose pages disagree with each other or with the stated total, or that holds one role
+    ID with two different titles, is *inconsistent*. The replies do not show one consistent
+    listing; it may have changed while it was read. Its roles are kept as evidence but settle
+    nothing: every criterion that depends on it is unknown.
   - A reply that is malformed, has no roles array or cannot be read is *failed*, never an empty
     listing.
   - Roles are counted once each, by the service's role ID.
@@ -83,17 +94,21 @@ the exception.
 - **The baseline**, used by *new openings* and *more openings*, is the newest *complete*,
   retrieved snapshot of the same account and listing that was read at least `baseline_days`
   before the current one (default 28) and no more than `max_lookback_days` before it
-  (default 180). Ties go to the later record. With no such snapshot, both patterns are unknown.
-- **What each reading can settle.** "Met" may rest on an incomplete current reading where a
-  lower bound is enough. "Unmet" needs complete readings.
+  (default 180). Of two read at the same time, the one the Store recorded later is used. With no
+  such snapshot, both patterns are unknown. A strategy is refused if its windows are not
+  positive, or if `baseline_days` is not less than `max_lookback_days`.
+- **What each reading can settle.** A failed or inconsistent current reading settles nothing.
+  "Met" may rest on a partial reading where a lower bound is enough. "Unmet" needs complete
+  readings of whatever it rests on: for *new openings*, a baseline that has openings is enough.
+  An unlevelled role is never treated as junior or as senior, so it can keep a result unknown.
 
   | Criterion or pattern (per family) | Met when | Unmet when | Otherwise |
   |---|---|---|---|
   | `hiring_family` | current has at least `min_roles` roles, complete or not | current is complete and has fewer | unknown |
   | *new openings* | baseline has none and current has at least `min_roles` (default 2) | baseline has none and current is complete with fewer, or baseline has some | unknown |
   | *more openings* | current, complete or not, has at least `min_increase` (default 3) more than baseline | current is complete and the increase is smaller | unknown |
-  | *senior openings* | current is complete, at least `min_roles` (default 3) roles are senior or above, and none are junior, mid or unlevelled | current is complete and that does not hold | unknown |
-  | *leader opening* | current is complete, a role is manager or above, and the family has at most `max_others` (default 1) other roles | current is complete and that does not hold | unknown |
+  | *senior openings* | current is complete, at least `min_roles` (default 3) roles are senior or above, and none are junior, mid or unlevelled | current is complete and either has a junior or mid role, or has fewer than `min_roles` roles that are senior, above or unlevelled | unknown |
+  | *leader opening* | current is complete, a role is manager or above, and the family has at most `max_others` (default 1) other roles | current is complete and either the family has more than `max_others` + 1 roles, or none of its roles is manager or above or unlevelled | unknown |
   | *long listed* | a role's posting date is at least `min_days` (default 120) before the current read | current is complete, every role in the family is dated, and all are younger | unknown |
 
   "Before" is always measured against the snapshot's read time, never today's date.

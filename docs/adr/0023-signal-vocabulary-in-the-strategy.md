@@ -33,9 +33,11 @@ for a technology's name to appear near certain words.
   code ships generic words for each level. A strategy may replace a level's words but not the
   order.
 - **Stack terms.** `[signals.stack.terms.<id>]` gives a label, the phrases that name the
-  technology, and optional `near` words. With `near`, a phrase counts only when one of those
-  words is on the same line of the page's text, within `near_words` words either side
-  (default 8).
+  technology, and optional `near` words.
+  - With `near`, a phrase counts only when the phrase and one of those words sit on one line of
+    the page's text, with at most `near_words` words between them, on either side (default 8).
+  - A word here is a run of letters and digits, so punctuation separates words.
+  - A phrase checked for `near` words must lie within a single line.
 
 **Matching**
 

@@ -80,8 +80,7 @@ contract ([ADR 0014](docs/adr/0014-artifact-contract.md)), both Accepted.
 checks are done: one paid Treg page fetch, and one Gmail send from the maintainer to themself.
 
 **Gate:** per-scope credentials; provider spend bounded per run; no delivery to a prospect.
-*Credential
-files and the per-run spend limit are built
+*Credential files and the per-run spend limit are built
 ([ADR 0016](docs/adr/0016-credentials-and-spend-limits.md)).*
 **Decision needed first:** the task scheduler ([ADR 0007](docs/adr/0007-single-task-scheduler.md)),
 if any work must run in the background. *M3 runs stay operator-triggered from the CLI, so ADR 0007
