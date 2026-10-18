@@ -55,6 +55,14 @@ product.
 - `src/auggie/projections/` turns the Store into read-only tabs (accounts, findings, evidence,
   drafts) without page text, written as CSV, by your agent's Google connector, or by a service
   account ([ADR 0019](docs/adr/0019-projection-writers-and-agent-connectors.md)).
+- `src/auggie/shell.py` is the research shell: questions across a scope's accounts, one more page
+  read, and the flow, at a terminal. `src/auggie/queries.py` gives the same answers as read-only
+  commands that print JSON for a coding agent
+  ([ADR 0025](docs/adr/0025-the-research-shell.md)).
+- `src/auggie/signals/` matches the seller's own vocabulary and counts hiring tallies by rule
+  ([ADR 0023](docs/adr/0023-signal-vocabulary-in-the-strategy.md),
+  [ADR 0024](docs/adr/0024-careers-snapshots-and-hiring-tallies.md)). Careers snapshots and the
+  listing readers that feed them are not built yet.
 - `src/auggie/pipeline.py` runs the first vertical slice as plain sequential calls: research,
   validate evidence, qualify, draft, human approval, simulated delivery, record outcome.
 - `examples/synthetic/northstar-msp/` holds one fully synthetic scenario: its inputs, and the

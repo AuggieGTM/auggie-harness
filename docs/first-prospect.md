@@ -198,6 +198,32 @@ limit.
 - Research the same prospect again later and you get a new run with new records. Earlier runs
   are kept.
 
+## Asking for things: the research shell
+
+Instead of one command per step, you can work in a shell for one scope
+([ADR 0025](adr/0025-the-research-shell.md)):
+
+```bash
+uv run auggie shell <scope.json> --mongodb <uri> --me "your name" --prospects <folder> \
+  --strategy-repo <your strategy repo> --strategy-path <path in it>
+```
+
+`--prospects` is a folder of prospect files, one per account. Add `--replay <file>` to rehearse
+with recorded responses. At the `auggie>` prompt:
+
+- `accounts`, `brief <account>`, `find [<account>] <words>` and `stack [<account>]` answer from
+  the records. Each answer names its records and when their sources were read, and reads or
+  spends nothing.
+- `fetch <account> <url>` reads one page you name and records it as evidence. `research
+  <account>` researches from the account's prospect file. Each says what it will call and the
+  most it can spend, and waits for your yes.
+- `review`, `revise`, `deliver`, `outcome` and `resolve` run the flow, as the single commands do.
+  The shell runs only at your own terminal, because approvals and edits happen in it.
+
+The questions also work as single commands that print JSON, for your coding agent: `auggie
+accounts`, `auggie brief`, `auggie find` and `auggie stack`, each with `--json`. They only read,
+so an agent can run them and answer you by quoting the records.
+
 ## Part 3: sending from your Gmail
 
 The harness can send an approved draft from your own Gmail, one message per approval, with a
