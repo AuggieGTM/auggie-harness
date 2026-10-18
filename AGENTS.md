@@ -10,7 +10,8 @@ Instructions for coding agents and human contributors working in this repository
 Early and synthetic only. Contracts, the Store (in-memory and MongoDB) and the first vertical
 slice run end to end on the synthetic Northstar fixture. One Treg acquisition route is built and
 tested against synthetic replies; it calls Treg only for a scope that allows external providers
-and sets a run budget, and no test does. Nothing is sent.
+and sets a run budget, and no test does. A Gmail delivery adapter is built and tested against
+a fake Google; it sends only for a live scope, and no test sends email.
 Never describe planned or proposed work as built, supported or tested.
 
 ## Commands

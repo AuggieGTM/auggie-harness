@@ -100,7 +100,10 @@ reproduce what was learned, land here.
   First, how the seller obtains, stores and renews the mailbox credential, since the harness
   never writes secrets ([ADR 0016](docs/adr/0016-credentials-and-spend-limits.md)).
   [ADR 0021](docs/adr/0021-the-sellers-gmail-credential.md) answers it for Gmail: a one-time
-  sign-in the seller runs, and a send-only token the harness only reads.
+  sign-in the seller runs, and a send-only token the harness only reads. *Built for Gmail: the
+  adapter, its sign-in script, person records and the attempt, sent, failed and unknown records
+  of [ADR 0022](docs/adr/0022-live-delivery-records.md), tested against a fake Google. Nothing
+  has been sent through it yet.*
 - Outcome intake and strategy-revision proposals that people review in Git.
 
 ## Public release readiness (Later)

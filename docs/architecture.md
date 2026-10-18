@@ -101,7 +101,7 @@ flowchart LR
 | Acquisition (Treg) | Data acquisition, recorded as `SourceEvidence` | First route built, tested on synthetic replies ([0008](adr/0008-treg-for-acquisition.md), [0017](adr/0017-first-treg-route.md)) |
 | Judgment and synthesis | Deterministic rules and play templates; model engines only after evaluation | **Exists** ([0009](adr/0009-judgment-and-synthesis-engines.md)) |
 | Task scheduler | Exactly one; Herdr or Foreman | **Open** ([0007](adr/0007-single-task-scheduler.md)) |
-| Delivery adapter | One thin adapter per sending platform, the seller's mailbox first; simulated first | Simulated gate exists; adapters not built ([0020](adr/0020-one-delivery-adapter-per-sending-platform.md)) |
+| Delivery adapter | One thin adapter per sending platform, the seller's mailbox first; simulated first | Gmail adapter exists, tested against a fake Google only ([0020](adr/0020-one-delivery-adapter-per-sending-platform.md), [0022](adr/0022-live-delivery-records.md)) |
 | Projections | Sheets/Docs views generated from the Store | CSV, agent connector (live-checked) and service account (fake-tested) ([0003](adr/0003-systems-of-record.md), [0019](adr/0019-projection-writers-and-agent-connectors.md)) |
 
 ## Contracts
@@ -163,7 +163,7 @@ src/auggie/
   judgment/      Exists    deterministic rules behind the Qualifier interface (ADR 0009)
   compose/       Exists    draft composition from strategy play templates; briefs proposed
   approval/      Exists    recording a reviewer's decision; review and revise at a terminal
-  delivery/      Exists    authorization gate, simulated only; the seller's mailbox later
+  delivery/      Exists    authorization gate, simulated hand-off, Gmail adapter (ADR 0022)
   pipeline.py    Exists    the slice as plain sequential calls
   synthetic.py   Exists    run a synthetic scenario from its inputs
   operate.py     Exists    one prospect: research, review, revise, deliver, outcome

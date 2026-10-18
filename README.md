@@ -1,10 +1,12 @@
 # Auggie Harness
 
-> **Status: early, synthetic only.** The harness runs one synthetic scenario end to end:
-> recorded sources, deterministic rules, a template draft, scripted human approvals and
-> simulated delivery, with records kept in memory or in a local MongoDB. One Treg acquisition
-> route exists for operators to try; the scenario and the tests never call a provider, and nothing
-> is sent. There is no installer. Anything described below as planned or proposed is not built.
+> **Status: early.** The harness runs one synthetic scenario end to end: recorded sources,
+> deterministic rules, a template draft, scripted human approvals and simulated delivery, with
+> records kept in memory or in a local MongoDB. A seller can run the same steps for one real
+> prospect. One Treg acquisition route and a Gmail delivery adapter exist, tested against
+> synthetic replies; the Treg route has been live-checked only up to an unfunded refusal, and
+> nothing has been sent through Gmail yet. The scenario and the tests never call a provider.
+> There is no installer. Anything described below as planned or proposed is not built.
 
 Auggie is a **GTM-as-code harness**. It turns versioned go-to-market strategy into an
 evidence-to-action-to-learning loop:
@@ -46,6 +48,10 @@ product.
   (`src/auggie/credentials.py`) and a per-run spend limit (`src/auggie/spend.py`,
   [ADR 0016](docs/adr/0016-credentials-and-spend-limits.md)). Tests replay synthetic replies from
   `examples/synthetic/treg/`.
+- `src/auggie/delivery/gmail.py` sends an approved draft from the seller's own Gmail with a
+  send-only permission ([ADR 0021](docs/adr/0021-the-sellers-gmail-credential.md)), recording
+  each attempt and what came of it ([ADR 0022](docs/adr/0022-live-delivery-records.md)).
+  `scripts/gmail_sign_in.py` saves its token. Tests use a fake Google.
 - `src/auggie/projections/` turns the Store into read-only tabs (accounts, findings, evidence,
   drafts) without page text, written as CSV, by your agent's Google connector, or by a service
   account ([ADR 0019](docs/adr/0019-projection-writers-and-agent-connectors.md)).

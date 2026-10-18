@@ -5,10 +5,11 @@ clone to one of your prospects researched, drafted, reviewed and (simulated) del
 rehearses the whole loop offline on the synthetic Northstar prospect, at no cost and with no
 accounts. Part 2 does it for real.
 
-Each step is a separate command that you run when you are ready. Nothing runs in the background,
-and nothing is sent: delivery stays simulated until the delivery adapters exist. Run the commands
-for a scope one at a time, each finishing before the next starts: its records have a single
-writer ([ADR 0015](adr/0015-mongodb-store-layout.md)).
+Each step is a separate command that you run when you are ready. Nothing runs in the background.
+Delivery is simulated, so nothing is sent, until you set up sending from your Gmail
+([Part 3](#part-3-sending-from-your-gmail)). Run the commands for a scope one at a time, each
+finishing before the next starts: its records have a single writer
+([ADR 0015](adr/0015-mongodb-store-layout.md)).
 
 ## Before you start
 
@@ -159,7 +160,9 @@ Write a `prospect.json` like the synthetic one:
 - `account_id`, `customer_id` (the scope's), and a short `key` used in record IDs.
 - The prospect company's `name`.
 - `sources`: one URL for each source kind the strategy names (`careers`, `technology`, ...).
-- `recipient`: the person's ID in your CRM and their first name.
+- `recipient`: the person's ID in your CRM, their first name and, to send from Gmail, their
+  `email`. Research records each person once, exactly as given, so a new address needs a new
+  person ID.
 
 Keep it to what your company is allowed to hold about the prospect.
 
@@ -190,6 +193,57 @@ limit.
   counts against the prospect.
 - Every finding cites the evidence it rests on. A draft uses only admitted evidence, and the
   rest of its text is your strategy's play.
-- Nothing is sent. `deliver` records a simulated hand-off, and only after both approvals.
+- With a simulated scope nothing is sent: `deliver` records a simulated hand-off, and only
+  after both approvals.
 - Research the same prospect again later and you get a new run with new records. Earlier runs
   are kept.
+
+## Part 3: sending from your Gmail
+
+The harness can send an approved draft from your own Gmail, one message per approval, with a
+permission that can send mail but not read it
+([ADR 0020](adr/0020-one-delivery-adapter-per-sending-platform.md),
+[ADR 0021](adr/0021-the-sellers-gmail-credential.md),
+[ADR 0022](adr/0022-live-delivery-records.md)). The adapter is tested against a fake Google
+only, so send your first message to yourself.
+
+1. **An OAuth client.** Your company's Google Workspace administrators create, or let you
+   create, a Google Cloud project in the company's organization, with the Gmail API enabled, an
+   OAuth consent screen whose audience is **Internal**, and an OAuth client of type
+   **Desktop app**. Download the client's JSON file and keep it outside the clone. Google's
+   [Gmail API Python quickstart](https://developers.google.com/workspace/gmail/api/quickstart/python)
+   walks through these steps. Where your company allows it, an External app in Testing status
+   works too, but its tokens expire after at most 7 days.
+2. **Sign in, in your own terminal**, not inside an agent session:
+
+   ```bash
+   uv run --with google-auth-oauthlib python scripts/gmail_sign_in.py \
+     <scope.json> <client_secret.json>
+   ```
+
+   Google's consent page opens in your browser. Check the account it names: the harness sends
+   as that account. The script saves the token as `gmail-token` in the scope's credential
+   folder only if Google granted exactly `gmail.send`, and it prints no token. Sign in again
+   whenever Google stops renewing the token, for example after a password change.
+3. **The scope.** Set `"execution"` to `"delivery": "live"`, `"platform": "gmail"` and
+   `"external_providers": true`. Give the prospect's recipient an `email`.
+4. **Send.** Research and review as before. `review` now asks you to approve sending to the
+   recorded address from your Gmail mailbox. Then:
+
+   ```bash
+   uv run auggie deliver <scope.json> --draft <draft id> --mongodb <uri>
+   ```
+
+   It prints Gmail's message ID. Delivering again sends nothing.
+
+If `deliver` stops and says the message may have been sent, the harness cannot tell whether it
+went out, and it never tries that draft again. Look in your Sent folder, then record what you
+found, at your own terminal:
+
+```bash
+uv run auggie deliver <scope.json> --draft <draft id> --resolve sent \
+  --reporter "your name" --mongodb <uri>
+```
+
+Use `--resolve not-sent` if it is not there. Either way the draft is closed. If it never went
+out, research again for a new draft.
