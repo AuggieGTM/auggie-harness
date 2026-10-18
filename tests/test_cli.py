@@ -420,6 +420,7 @@ def test_a_coding_agent_can_ask_questions_as_json(
     prospects = tmp_path / "prospects"
     prospects.mkdir()
     (prospects / "northstar.json").write_text((NORTHSTAR / "prospect.json").read_text())
+    (prospects / "broken.json").write_text("{not a prospect")
     with mongo_backend() as backend:
         store = ["--mongodb", os.environ[MONGODB_URI], "--database-prefix", backend.database_prefix]
         scope = str(NORTHSTAR / "scope.json")
@@ -440,7 +441,9 @@ def test_a_coding_agent_can_ask_questions_as_json(
         capsys.readouterr()
         monkeypatch.setattr(cli, "interactive", lambda: False)  # questions need no terminal
         assert main(["accounts", scope, "--prospects", str(prospects), "--json", *store]) == 0
-        (row,) = json.loads(capsys.readouterr().out)
+        printed = capsys.readouterr()
+        (row,) = json.loads(printed.out)  # the warning about broken.json is not on stdout
+        assert "skipped   broken.json: not a prospect file" in printed.err
         assert row["name"] == "Northstar Works" and row["qualification"]["outcome"] == "qualified"
         assert main(["brief", scope, "acc-northstar", *store]) == 0
         assert "judged qualified" in capsys.readouterr().out

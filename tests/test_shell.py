@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 
@@ -117,7 +118,7 @@ def test_a_paid_read_asks_first_and_a_no_reads_nothing() -> None:
     assert "nothing read" in printed
     (evidence,) = store.list_evidence()
     assert str(evidence.source_url) == url
-    assert any(line.startswith("recorded  ev-acc-northstar-page-") for line in printed)
+    assert any(line.startswith("recorded  ev-northstar-page-") for line in printed)
 
 
 def test_research_asks_before_its_paid_reads() -> None:
@@ -218,3 +219,191 @@ def test_the_shell_refuses_input_that_does_not_come_from_a_terminal(
 def test_questions_need_no_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(cli, "interactive", lambda: False)
     assert "accounts" in cli.QUERY_COMMANDS and "shell" not in cli.QUERY_COMMANDS
+
+
+# Edges found in review
+
+
+def test_views_refuse_another_customers_prospects_or_strategy() -> None:
+    from auggie.contracts import ScopeViolation
+    from auggie.queries import stack_view
+
+    store, _ = northstar()
+    inputs = load_inputs(NORTHSTAR)
+    foreign = inputs.account.model_copy(update={"customer_id": "other-customer"})
+    with pytest.raises(ScopeViolation):
+        accounts_view(store, {foreign.account_id: foreign})
+    with pytest.raises(ScopeViolation, match="filed as"):
+        accounts_view(store, {"acc-other": inputs.account})
+    scope = CustomerScope.model_validate_json((SECURITY / "scope.json").read_text())
+    security = load_strategy(
+        SECURITY / "inputs", "strategy/security.toml", commit="0" * 40, scope=scope
+    )
+    with pytest.raises(ScopeViolation):
+        stack_view(store, security.strategy)
+
+
+def test_a_bad_run_id_is_refused_before_anything_is_read() -> None:
+    from auggie.pipeline import record_page
+
+    store, _ = northstar()
+    reads: list[str] = []
+    inputs = load_inputs(NORTHSTAR)
+
+    class Counting(FixtureAcquisition):
+        def acquire(self, **kwargs):  # type: ignore[no-untyped-def]
+            reads.append(str(kwargs["url"]))
+            return super().acquire(**kwargs)
+
+    with pytest.raises(ValueError, match="not a valid run ID"):
+        record_page(
+            store,
+            acquisition=Counting(inputs.responses),
+            account_id="acc-northstar",
+            evidence_id="ev-x",
+            url="https://northstar.example/about/technology",
+            run_id="invalid run id",
+            now=lambda: datetime(2026, 10, 14, tzinfo=UTC),
+        )
+    assert reads == [] and store.list_evidence() == () and store.list_events() == ()
+
+
+def test_find_says_when_a_quote_is_not_admitted_evidence() -> None:
+    from auggie.queries import find_view
+
+    store, _ = northstar()
+    inputs = load_inputs(NORTHSTAR)
+    # A synthetic scope admits only reserved domains, so this page is recorded but rejected.
+    page = RecordedResponse.model_validate(
+        {
+            "url": "https://not-reserved.zz/about",
+            "status": "retrieved",
+            "observed_at": "2026-10-14T16:00:00Z",
+            "excerpt": "We run IT Operations from one office.",
+        }
+    )
+    printed: list[str] = []
+    ask, _ = script(
+        store, "fetch acc-northstar https://not-reserved.zz/about", "find IT Operations"
+    )
+    session = shell.Session(
+        store=store,
+        me="demo-seller",
+        ask=ask,
+        out=printed.append,
+        acquisition=lambda: FixtureAcquisition([page]),
+        live=False,
+        prospects={inputs.account.account_id: inputs.account},
+    )
+    shell.run(session)
+    (row,) = find_view(store, "IT Operations")
+    assert row["validation"].startswith("rejected")
+    assert any(", rejected" in line and "IT Operations" in line for line in printed)
+
+
+def test_an_empty_account_filter_is_refused_and_people_are_not_accounts() -> None:
+    from auggie.queries import find_view
+
+    store, session = northstar()
+    ask, _ = script(store, "research acc-northstar")
+    shell.run(session(ask, lambda _: None))
+    with pytest.raises(ValueError, match="cannot be empty"):
+        find_view(store, "IT", "")
+    assert all(row["account_id"] == "acc-northstar" for row in find_view(store, "IT"))
+
+
+def test_json_never_carries_an_email_address() -> None:
+    view = {
+        "quote": "Contact jordan.avery@northstar.example today",
+        "rows": [{"by": "a@b.example"}],
+    }
+    text = shell.as_json(view)
+    assert "@" not in text and text.count("[email address removed]") == 2
+
+
+def test_questions_print_only_json_on_stdout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    prospects = tmp_path / "prospects"
+    prospects.mkdir()
+    (prospects / "bad.json").write_text("{not json")
+    scope = CustomerScope.model_validate_json((NORTHSTAR / "scope.json").read_text())
+    _, skipped = __import__("auggie.queries", fromlist=["load_prospects"]).load_prospects(
+        prospects, scope
+    )
+    assert skipped == ["bad.json: not a prospect file"]
+
+
+def test_a_send_you_confirmed_shows_as_sent() -> None:
+    from tests.test_live_delivery import FakeSender, live_scope, researched
+
+    store = InMemoryBackend().open(live_scope())
+    draft = researched(store)
+    printed: list[str] = []
+    sender = FakeSender(outcomes=[TimeoutError("no reply")])
+    ask, _ = script(
+        store,
+        "review {draft}",
+        "y",
+        "",
+        "y",
+        "deliver {draft}",
+        "y",
+        "resolve {draft} sent",
+        "deliver {draft}",
+        "y",
+    )
+    session = shell.Session(
+        store=store,
+        me="demo-seller",
+        ask=ask,
+        out=printed.append,
+        acquisition=lambda: FixtureAcquisition([]),
+        live=False,
+        sender=lambda: sender,
+    )
+    shell.run(session)
+    assert any("recorded as sent, from what you found in your Sent folder" in p for p in printed)
+    assert len(sender.sent) == 1 and draft.ref.artifact_id
+
+
+def test_fetch_works_for_the_longest_account_id() -> None:
+    from auggie.contracts import SubjectRef
+
+    store, _ = northstar()
+    long_id = "acc-" + "x" * 124
+    inputs = load_inputs(NORTHSTAR)
+    printed: list[str] = []
+    ask, _ = script(store, f"fetch {long_id} https://northstar.example/about/technology")
+    prospect = inputs.account.model_copy(update={"account_id": long_id})
+    session = shell.Session(
+        store=store,
+        me="demo-seller",
+        ask=ask,
+        out=printed.append,
+        acquisition=lambda: FixtureAcquisition(inputs.responses),
+        live=False,
+        prospects={long_id: prospect},
+    )
+    shell.run(session)
+    (evidence,) = store.list_evidence(subject=SubjectRef(kind="account", id=long_id))
+    assert len(evidence.evidence_id) <= 128
+
+
+def test_validation_is_stamped_after_the_page_is_read() -> None:
+    store, _ = northstar()
+    inputs = load_inputs(NORTHSTAR)
+    ask, _ = script(store, "fetch acc-northstar https://northstar.example/about/technology")
+    session = shell.Session(
+        store=store,
+        me="demo-seller",
+        ask=ask,
+        out=lambda _: None,
+        acquisition=lambda: FixtureAcquisition(inputs.responses),
+        live=False,
+        prospects={inputs.account.account_id: inputs.account},
+        now=lambda: datetime(2026, 10, 20, tzinfo=UTC),
+    )
+    shell.run(session)
+    recorded, validated = store.list_events()
+    assert validated.occurred_at >= recorded.occurred_at

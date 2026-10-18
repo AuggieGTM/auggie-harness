@@ -215,8 +215,12 @@ with recorded responses. At the `auggie>` prompt:
   the records. Each answer names its records and when their sources were read, and reads or
   spends nothing.
 - `fetch <account> <url>` reads one page you name and records it as evidence. `research
-  <account>` researches from the account's prospect file. Each says what it will call and the
-  most it can spend, and waits for your yes.
+  <account>` researches from the account's prospect file. When they read live, each says what it
+  will call and the most it can spend, and waits for your yes. With `--replay` nothing is
+  called, so nothing is asked.
+- `find` searches every stored page and labels any that were not admitted, so you can tell
+  rejected or unchecked text from evidence. In `--json` output, every email address is replaced
+  with a marker.
 - `review`, `revise`, `deliver`, `outcome` and `resolve` run the flow, as the single commands do.
   The shell runs only at your own terminal, because approvals and edits happen in it.
 

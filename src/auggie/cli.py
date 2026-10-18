@@ -499,7 +499,11 @@ def shell_command(args: argparse.Namespace, out: Print, ask: Callable[[str], str
         if args.prospects is not None:
             prospects, skipped = queries.load_prospects(args.prospects, scope)
             for line in skipped:
-                out(f"skipped   {line}")
+                # On stderr for the single commands, so their JSON stays one value on stdout.
+                if args.command == "shell":
+                    out(f"skipped   {line}")
+                else:
+                    print(f"skipped   {line}", file=sys.stderr)
         loaded = None
         if getattr(args, "strategy_repo", None) and getattr(args, "strategy_path", None):
             loaded = load_strategy_at(

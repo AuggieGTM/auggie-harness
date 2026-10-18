@@ -9,6 +9,7 @@ edits are the person's own, made here at their terminal.
 from __future__ import annotations
 
 import json
+import re
 import shlex
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -19,6 +20,7 @@ from auggie import operate
 from auggie.accounts import Account
 from auggie.acquisition import Acquisition
 from auggie.acquisition.treg import CEILING_MICRO_USD
+from auggie.contracts import sha256_digest
 from auggie.contracts.events import OutcomeKind
 from auggie.delivery import Sender
 from auggie.pipeline import record_page
@@ -173,14 +175,17 @@ def _fetch(session: Session, args: list[str]) -> None:
         session.out("nothing read")
         return
     run_id = operate.new_run_id(operate.utc_now())
+    prospect = session.prospects.get(account_id)
+    # The prospect's short key keeps the ID readable; otherwise a digest keeps it bounded.
+    key = prospect.key if prospect else sha256_digest(account_id).removeprefix("sha256:")[:12]
     verdict = record_page(
         session.store,
         acquisition=acquisition,
         account_id=account_id,
-        evidence_id=f"ev-{account_id}-page-{run_id}",
+        evidence_id=f"ev-{key}-page-{run_id}",
         url=url,
         run_id=run_id,
-        at=session.now(),
+        now=session.now,
     )
     evidence = verdict.evidence
     reason = "" if verdict.admitted else f" ({verdict.rejected_for})"
@@ -248,8 +253,13 @@ def _deliver(session: Session, args: list[str]) -> None:
         return
     delivered = operate.deliver_draft(session.store, draft_id=args[0], sender=session.sender())
     again = "" if delivered.created else " (already delivered; nothing sent again)"
-    receipt = delivered.event.attributes.get("receipt")
-    done = f"sent, receipt {receipt}" if receipt else "simulated hand-off"
+    event = delivered.event
+    if event.type == "delivery.simulated":
+        done = "simulated hand-off"
+    elif event.attributes.get("resolved") is True:
+        done = "recorded as sent, from what you found in your Sent folder"
+    else:
+        done = f"sent, receipt {event.attributes.get('receipt')}"
     session.out(f"deliver   {args[0]} {done}{again}")
 
 
@@ -344,8 +354,9 @@ def render_brief(view: Mapping[str, Any]) -> list[str]:
 
 
 def render_find(row: Mapping[str, Any]) -> str:
+    state = "" if row["validation"] == "admitted" else f", {row['validation']}"
     return (
-        f"{row['evidence_id']} ({row['account_id']}, read {_date(row['observed_at'])}) "
+        f"{row['evidence_id']} ({row['account_id']}, read {_date(row['observed_at'])}{state}) "
         f'"{row["quote"]}"'
     )
 
@@ -358,8 +369,26 @@ def render_stack(row: Mapping[str, Any]) -> str:
     )
 
 
+EMAIL = re.compile(r"[^\s@<>()\[\]\"',;:]+@[^\s@<>()\[\]\"',;:]+\.[A-Za-z]{2,}")
+EMAIL_REMOVED = "[email address removed]"
+
+
+def _without_email(value: Any) -> Any:
+    if isinstance(value, str):
+        return EMAIL.sub(EMAIL_REMOVED, value)
+    if isinstance(value, dict):
+        return {key: _without_email(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_without_email(item) for item in value]
+    return value
+
+
 def as_json(view: Any) -> str:
-    """A view as JSON for a coding agent. Dates become ISO 8601 text."""
+    """A view as JSON for a coding agent. Dates become ISO 8601 text, and every email address,
+    in quotes and rationales too, is replaced with a marker, so a quote that held one is no
+    longer verbatim."""
     return json.dumps(
-        view, indent=2, default=lambda v: v.isoformat() if isinstance(v, datetime) else str(v)
+        _without_email(view),
+        indent=2,
+        default=lambda v: v.isoformat() if isinstance(v, datetime) else str(v),
     )

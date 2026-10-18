@@ -14,7 +14,14 @@ from typing import Any
 from pydantic import ValidationError
 
 from auggie.accounts import Account
-from auggie.contracts import CustomerScope, RecordRef, SourceEvidence, SubjectRef
+from auggie.contracts import (
+    CustomerScope,
+    RecordRef,
+    ScopeViolation,
+    SourceEvidence,
+    SubjectRef,
+    ensure_in_scope,
+)
 from auggie.contracts.strategy import Strategy
 from auggie.pipeline import delivery_state
 from auggie.signals import phrase_pattern, quote, stack_matches
@@ -41,9 +48,23 @@ def load_prospects(folder: Path, scope: CustomerScope) -> tuple[dict[str, Accoun
     return prospects, skipped
 
 
+def _check_prospects(store: Store, prospects: Mapping[str, Account]) -> None:
+    """Refuse prospects from another customer, or filed under another account's ID."""
+    for account_id, account in prospects.items():
+        ensure_in_scope(store.scope, account)
+        if account.account_id != account_id:
+            raise ScopeViolation(f"prospect {account.account_id!r} is filed as {account_id!r}")
+
+
+def _check_account(account_id: str | None) -> None:
+    if account_id is not None and not account_id.strip():
+        raise ValueError("an account filter cannot be empty")
+
+
 def account_ids(store: Store, prospects: Mapping[str, Account] = {}) -> list[str]:
     """Every account the scope knows: from its records, in the order first seen, then any
     prospect file not researched yet."""
+    _check_prospects(store, prospects)
     seen: dict[str, None] = {}
     for event in store.list_events():
         for ref in event.refs:
@@ -122,8 +143,11 @@ def _validation(store: Store) -> dict[str, str]:
 
 
 def _evidence(store: Store, account_id: str | None) -> list[SourceEvidence]:
-    subject = SubjectRef(kind="account", id=account_id) if account_id else None
-    return list(store.list_evidence(subject=subject))
+    """Evidence about accounts: one account's, or every account's. Never a person's."""
+    _check_account(account_id)
+    if account_id is not None:
+        return list(store.list_evidence(subject=SubjectRef(kind="account", id=account_id)))
+    return [e for e in store.list_evidence() if e.subject.kind == "account"]
 
 
 def _evidence_row(evidence: SourceEvidence, validation: Mapping[str, str]) -> View:
@@ -167,6 +191,7 @@ def accounts_view(store: Store, prospects: Mapping[str, Account] = {}) -> list[V
 def brief_view(store: Store, account_id: str, prospects: Mapping[str, Account] = {}) -> View:
     """What the scope holds about one account: the latest judgment with its findings and their
     citations, every piece of evidence, and the drafts."""
+    _check_account(account_id)
     if account_id not in account_ids(store, prospects):
         raise RecordNotFound(f"account {account_id!r}")
     decisions = _decisions(store, account_id)
@@ -205,6 +230,7 @@ def find_view(store: Store, words: str, account_id: str | None = None) -> list[V
     """Every stored excerpt that holds ``words`` as written, with a quote around the first
     place it does. Searches what was stored; reads nothing new."""
     pattern = phrase_pattern(words)
+    validation = _validation(store)
     rows = []
     for evidence in _evidence(store, account_id):
         match = pattern.search(evidence.excerpt or "")
@@ -214,7 +240,9 @@ def find_view(store: Store, words: str, account_id: str | None = None) -> list[V
                     "evidence_id": evidence.evidence_id,
                     "account_id": evidence.subject.id,
                     "source_url": str(evidence.source_url),
+                    "status": evidence.status,
                     "observed_at": evidence.observed_at,
+                    "validation": validation.get(evidence.evidence_id, "not checked"),
                     "quote": quote(evidence.excerpt or "", [match.span()]),
                 }
             )
@@ -224,6 +252,7 @@ def find_view(store: Store, words: str, account_id: str | None = None) -> list[V
 def stack_view(store: Store, strategy: Strategy, account_id: str | None = None) -> list[View]:
     """Where admitted evidence names the strategy's technologies. Each row is inference: a name
     on a page, not proof the account runs it (ADR 0023)."""
+    ensure_in_scope(store.scope, strategy)
     stack = strategy.signals.stack
     if stack is None:
         return []
@@ -238,6 +267,7 @@ def stack_view(store: Store, strategy: Strategy, account_id: str | None = None) 
                     {
                         "term": term_id,
                         "label": term.label,
+                        "basis": "inference",
                         "account_id": evidence.subject.id,
                         "evidence_id": evidence.evidence_id,
                         "source_url": str(evidence.source_url),

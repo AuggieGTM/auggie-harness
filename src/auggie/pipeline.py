@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal
 
-from pydantic import HttpUrl
+from pydantic import HttpUrl, TypeAdapter, ValidationError
 
 from auggie.accounts import Account
 from auggie.acquisition import Acquisition
@@ -239,14 +239,30 @@ def record_page(
     evidence_id: str,
     url: str,
     run_id: str,
-    at: datetime,
+    now: Callable[[], datetime],
 ) -> Verdict:
     """Read one page a person named for an account, and record it as checked evidence
-    (ADR 0025). A failed read is recorded too, with its reason."""
+    (ADR 0025). A failed read is recorded too, with its reason.
+
+    Every ID is checked before anything is read or written, and the check is stamped by
+    ``now`` after the read, when it happens.
+    """
+    for value, what in (
+        (account_id, "account ID"),
+        (evidence_id, "evidence ID"),
+        (run_id, "run ID"),
+    ):
+        try:
+            _RECORD_ID.validate_python(value)
+        except ValidationError:
+            raise ValueError(f"not a valid {what}: {value!r}") from None
     subject = SubjectRef(kind="account", id=account_id)
     verdict = _observe(store, acquisition, evidence_id, subject, url, run_id)
-    _record_verdict(store, verdict, at, run_id)
+    _record_verdict(store, verdict, now(), run_id)
     return verdict
+
+
+_RECORD_ID: TypeAdapter[str] = TypeAdapter(RecordId)
 
 
 def research_run(
