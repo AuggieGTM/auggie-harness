@@ -45,7 +45,7 @@ later runs use it ([ADR 0005](adr/0005-evidence-and-approval-gates.md)).
 |---|---|---|---|
 | GitHub | Approved strategy and executable configuration | Authoritative for what is approved | [0003](adr/0003-systems-of-record.md) |
 | MongoDB Community, one database per customer, behind a typed Store API | Evidence, decisions, approvals, events, outcomes | Operational system of record | [0003](adr/0003-systems-of-record.md), [0015](adr/0015-mongodb-store-layout.md) |
-| Google Sheets / Docs | Customer-facing reports and review views | None: projections of the Store | [0003](adr/0003-systems-of-record.md) |
+| Google Sheets / Docs | Read-only working and review views | None: projections of the Store | [0003](adr/0003-systems-of-record.md) |
 | EmailBison / Instantly | Sending | Delivery receipts only | [0006](adr/0006-delivery-through-existing-platforms.md) |
 | SageOx | Shared engineering context and rationale | None over execution; never customer intelligence | [0011](adr/0011-sageox-engineering-context.md) |
 
