@@ -39,3 +39,4 @@ behavior or the public boundary. The process is described in
 | [0024](0024-careers-snapshots-and-hiring-tallies.md) | Careers snapshots and hiring tallies | Accepted |
 | [0025](0025-the-research-shell.md) | The research shell | Accepted |
 | [0026](0026-the-sellers-point-of-view.md) | The seller's point of view: pains, proofs and offers | Accepted |
+| [0027](0027-many-accounts.md) | Many accounts: importing a list, researching it, reviewing its drafts | Accepted |

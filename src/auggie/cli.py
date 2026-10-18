@@ -330,6 +330,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--credentials", type=Path, help="credentials root (default: $AUGGIE_CREDENTIALS_DIR)"
     )
     fetch.add_argument("--show-excerpt", action="store_true", help="print the stored excerpt")
+    import_ = commands.add_parser(
+        "import", help="turn a CSV list of accounts into prospect files, after a preview"
+    )
+    import_.add_argument("scope", type=Path, help="JSON file holding the CustomerScope")
+    import_.add_argument("list", type=Path, help="the CSV list, with a header row")
+    import_.add_argument(
+        "--prospects", type=Path, required=True, metavar="DIR", help="the prospect files' folder"
+    )
+    import_.add_argument(
+        "--strategy-repo", type=Path, required=True, help="your strategy repository"
+    )
+    import_.add_argument("--strategy-path", required=True, help="the strategy file in it")
+    import_.add_argument("--revision", default="HEAD", help="the approved commit (default HEAD)")
+    import_.add_argument(
+        "--write", action="store_true", help="after the preview, write the new prospect files"
+    )
     _add_prospect_commands(commands)
     _add_shell_commands(commands)
     args = parser.parse_args(argv)
@@ -343,7 +359,50 @@ def main(argv: Sequence[str] | None = None) -> int:
         return project_command(args, print)
     if args.command == "verify-sheet":
         return verify_sheet(args, print)
+    if args.command == "import":
+        return import_command(args, print)
     return run_scenario_command(args, print)
+
+
+def import_command(args: argparse.Namespace, out: Print) -> int:
+    """Preview a CSV list as prospect files and, with --write, write the new ones (ADR 0027)."""
+    from pydantic import ValidationError
+
+    from auggie import prospect_list
+
+    try:
+        scope = CustomerScope.model_validate_json(args.scope.read_text(encoding="utf-8"))
+    except (OSError, ValidationError) as error:
+        out(f"stopped   cannot read the scope: {type(error).__name__}")
+        return 1
+    try:
+        strategy = load_strategy_at(
+            args.strategy_repo, args.strategy_path, revision=args.revision, scope=scope
+        ).strategy
+        text = args.list.read_text(encoding="utf-8")
+        rows = prospect_list.compare(
+            prospect_list.read_list(text, scope=scope, strategy=strategy), args.prospects
+        )
+    except (OSError, UnicodeDecodeError, StrategyError, ValueError) as error:
+        out(f"stopped   {type(error).__name__}: {error}")
+        return 1
+    for row in rows:
+        out(prospect_list.describe(row))
+    counts = {
+        s: sum(r.status == s for r in rows) for s in ("new", "unchanged", "conflict", "refused")
+    }
+    out("")
+    out(", ".join(f"{n} {status}" for status, n in counts.items()))
+    if not args.write:
+        out("Nothing written. Run again with --write to write the new prospect files.")
+        return 0
+    try:
+        written = prospect_list.write_new(rows, args.prospects)
+    except OSError as error:
+        out(f"stopped   {type(error).__name__}: {error}")
+        return 1
+    out(f"Wrote {len(written)} prospect files to {args.prospects}.")
+    return 0
 
 
 def run_scenario_command(args: argparse.Namespace, out: Print) -> int:

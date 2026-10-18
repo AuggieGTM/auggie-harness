@@ -131,7 +131,9 @@ each part. No listing has been read live yet.*
 **Gate:** every proof in a draft is a vendor claim with exactly one source, quoted exactly; a
 person still approves each draft.
 
-## M6: Many accounts (Planned)
+## M6: Many accounts (In progress)
+
+*Decided: [ADR 0027](docs/adr/0027-many-accounts.md).*
 
 - A prospect list imported from CSV, previewed before anything is written.
 - Research over the whole list in one foreground run, within a spending cap for the batch.
