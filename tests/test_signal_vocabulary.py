@@ -13,7 +13,7 @@ from auggie.contracts import CustomerScope, FamilyOpenings, ListingPattern, Stac
 from auggie.contracts.strategy import DEFAULT_LEVEL_WORDS, LADDER
 from auggie.judgment.rules import assess
 from auggie.strategy import load_strategy
-from tests.conftest import EXAMPLES
+from tests.conftest import EXAMPLES, Scenario, variant
 
 ROOT = Path(__file__).resolve().parent.parent
 SECURITY = EXAMPLES / "kestrel-security"
@@ -176,3 +176,25 @@ def test_listing_and_stack_rules_stay_unknown_until_they_can_be_judged() -> None
         assess(c, strategy, {}, datetime(2026, 10, 18, tzinfo=UTC)) for c in strategy.criteria
     ]
     assert {f.assessment for f in findings} == {"unknown"}
+
+
+def test_a_stack_term_is_judged_from_the_stored_page_as_inference(scenario: Scenario) -> None:
+    from datetime import UTC, datetime
+
+    from auggie.acquisition.validation import Verdict
+    from auggie.contracts import SourceEvidence, sha256_digest
+
+    strategy = security_strategy()
+    criterion = strategy.criterion("names-beaconlog")
+    at = datetime(2026, 10, 18, tzinfo=UTC)
+
+    def page(text: str) -> dict[str, Verdict]:
+        changed = variant(scenario.evidence[1], excerpt=text, content_hash=sha256_digest(text))
+        return {"security": Verdict(evidence=SourceEvidence.model_validate(changed))}
+
+    met = assess(criterion, strategy, page("How we work\nOur SIEM is Beaconlog.\n"), at)
+    assert (met.assessment, met.basis) == ("meets", "inference")
+    assert met.evidence_ids == (scenario.evidence[1].evidence_id,)
+    assert '"Our SIEM is Beaconlog."' in met.rationale and 'near "SIEM"' in met.rationale
+    passing = assess(criterion, strategy, page("Customers like Beaconlog trust us."), at)
+    assert passing.assessment == "unknown"

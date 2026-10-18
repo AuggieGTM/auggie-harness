@@ -22,6 +22,7 @@ from auggie.contracts import (
 )
 from auggie.contracts.qualification import QualificationOutcome
 from auggie.contracts.strategy import AnyCriterion
+from auggie.signals import stack_matches
 from auggie.strategy import LoadedStrategy
 
 HEADCOUNT = re.compile(r"\b(\d{1,3}(?:,\d{3})+|\d+) (?:staff|employees|people)\b")
@@ -109,6 +110,25 @@ def _mentions(criterion: Mentions, label: str, verdict: Verdict, at: datetime) -
     )
 
 
+def _stack(criterion: StackMention, strategy: Strategy, label: str, verdict: Verdict) -> Finding:
+    """A page naming the seller's technology, quoted. Inference: a name on a page is not proof
+    the account runs it (ADR 0023). Not found is unknown: the excerpt may not be the whole page."""
+    assert strategy.signals.stack is not None  # the strategy contract guarantees it
+    term = strategy.signals.stack.terms[criterion.term]
+    found = stack_matches(verdict.evidence.excerpt or "", term)
+    if not found:
+        return _unknown(criterion.id, f"The {label}'s stored text does not name {term.label}.")
+    match = found[0]
+    near = f' near "{match.near}"' if match.near else ""
+    return Finding(
+        criterion=criterion.id,
+        assessment="meets",
+        basis="inference",
+        evidence_ids=(verdict.evidence.evidence_id,),
+        rationale=f'The {label} names {term.label}{near}: "{match.line[:200]}"',
+    )
+
+
 def assess(
     criterion: AnyCriterion,
     strategy: Strategy,
@@ -117,13 +137,13 @@ def assess(
 ) -> Finding:
     if isinstance(criterion, FamilyOpenings | ListingPattern):
         return _unknown(criterion.id, "No careers listing was read for this account.")
-    if isinstance(criterion, StackMention):
-        return _unknown(criterion.id, "Stack terms are not judged yet.")
     label = strategy.sources[criterion.source].label
     verdict = sources.get(criterion.source)
     if verdict is None or not verdict.admitted:
         return _unknown(criterion.id, _not_admitted(label, verdict))
     match criterion:
+        case StackMention():
+            return _stack(criterion, strategy, label, verdict)
         case HeadcountRange():
             return _headcount(
                 criterion, label, verdict.evidence.evidence_id, verdict.evidence.excerpt or ""
