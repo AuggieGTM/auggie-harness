@@ -7,7 +7,8 @@ backend is given.
 
 Recorded listing replies are oldest first. The last is the run's own read of the
 account's listing; any before it stand for reads by earlier runs, and are
-recorded before the run starts.
+recorded before the run starts. So are reads of the strategy's proof pages, from
+the recorded responses, as a seller's ``proofs --read`` would have made them.
 """
 
 from __future__ import annotations
@@ -36,6 +37,7 @@ from auggie.pipeline import (
     RunTimes,
     activate_strategy,
     deliver,
+    read_proof_pages,
     record_outcome,
     record_person,
     record_review,
@@ -115,6 +117,19 @@ def run_scenario(
         by=inputs.strategy.activated_by,
         at=inputs.strategy.activated_at,
     )
+    proof_pages = {str(proof.url) for proof in strategy.strategy.proofs.by_id.values()}
+    if proof_pages:
+        read = max(
+            (r.observed_at for r in inputs.responses if str(r.url) in proof_pages),
+            default=inputs.strategy.activated_at,  # a page with no response stops the read
+        )
+        read_proof_pages(
+            store,
+            strategy=strategy,
+            acquisition=FixtureAcquisition(inputs.responses),
+            run_id=None,
+            now=lambda: read,
+        )
     *earlier, current = inputs.listings or (None,)
     for n, reply in enumerate(earlier, start=1):
         record_snapshot(

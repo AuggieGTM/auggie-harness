@@ -58,6 +58,7 @@ from auggie.delivery import (
 from auggie.external import require_external_calls
 from auggie.judgment import ListingReadings, Qualifier
 from auggie.judgment.rules import hiring_finding, outcome_of
+from auggie.proofs import seller
 from auggie.store import Appended, RecordConflict, RecordNotFound, Store
 from auggie.strategy import LoadedStrategy
 
@@ -270,6 +271,40 @@ def record_page(
 
 
 _RECORD_ID: TypeAdapter[str] = TypeAdapter(RecordId)
+
+
+def read_proof_pages(
+    store: Store,
+    *,
+    strategy: LoadedStrategy,
+    acquisition: Acquisition,
+    run_id: str | None,
+    now: Callable[[], datetime],
+) -> list[Verdict]:
+    """Read the page of each of the strategy's proofs once, and record each read as checked
+    evidence about the seller, a failed one too (ADR 0026). Proofs that share a page share
+    its read, named after the first of them.
+
+    Every ID is checked before anything is read, and each check is stamped by ``now`` after
+    its read.
+    """
+    ensure_in_scope(store.scope, strategy.strategy)
+    suffix = f"-{run_id}" if run_id is not None else ""
+    pages: dict[str, str] = {}
+    for proof_id, proof in strategy.strategy.proofs.by_id.items():
+        pages.setdefault(str(proof.url), f"ev-proof-{proof_id}{suffix}")
+    for value, what in ((run_id, "run ID"), *((e, "evidence ID") for e in pages.values())):
+        try:
+            if value is not None:
+                _RECORD_ID.validate_python(value)
+        except ValidationError:
+            raise ValueError(f"not a valid {what}: {value!r}") from None
+    verdicts = []
+    for url, evidence_id in pages.items():
+        verdict = _observe(store, acquisition, evidence_id, seller(store.scope), url, run_id)
+        _record_verdict(store, verdict, now(), run_id)
+        verdicts.append(verdict)
+    return verdicts
 
 
 def record_snapshot(

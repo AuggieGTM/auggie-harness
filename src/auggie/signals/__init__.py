@@ -23,13 +23,15 @@ matched phrases far apart can make a quote somewhat longer."""
 
 
 @cache
-def phrase_pattern(phrase: str) -> re.Pattern[str]:
-    """A phrase, case ignored, its spaces matching any whitespace, and no letter or digit, in any
-    script, right before or after it, so ``C++``, ``.NET`` and ``go-to-market`` match as written."""
+def phrase_pattern(phrase: str, *, ignore_case: bool = True) -> re.Pattern[str]:
+    """A phrase, case ignored unless asked, its spaces matching any whitespace, and no letter or
+    digit, in any script, right before or after it, so ``C++``, ``.NET`` and ``go-to-market``
+    match as written."""
     parts = [re.escape(part) for part in phrase.split()]
     if not parts:
         raise ValueError("a blank phrase would match anything")
-    return re.compile(r"(?<![^\W_])" + r"\s+".join(parts) + r"(?![^\W_])", re.IGNORECASE)
+    flags = re.IGNORECASE if ignore_case else 0
+    return re.compile(r"(?<![^\W_])" + r"\s+".join(parts) + r"(?![^\W_])", flags)
 
 
 def mentions(text: str, phrase: str) -> bool:

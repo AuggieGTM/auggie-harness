@@ -1,5 +1,5 @@
 {
-  "note": "SYNTHETIC inputs for the Fernhollow run, researched by a second seller in another domain (ADR 0023). Every company, person, URL, role and identifier is invented, and domains use the reserved .example TLD. The strategy commit is a placeholder because no strategy repository exists. Responses and listing replies replay recorded reads, so they carry the time they were read; the first listing reply was read by an earlier run and is the baseline for new openings. Review and delivery entries stand in for what a person does.",
+  "note": "SYNTHETIC inputs for the Fernhollow run, researched by a second seller in another domain (ADR 0023). Every company, person, URL, role and identifier is invented, and domains use the reserved .example TLD. The strategy commit is a placeholder because no strategy repository exists. Responses and listing replies replay recorded reads, including the seller's own case-study page that its proof quotes, so they carry the time they were read; the first listing reply was read by an earlier run and is the baseline for new openings. Review and delivery entries stand in for what a person does.",
   "scope": {
     "customer_id": "demo-security",
     "synthetic": true,
@@ -45,6 +45,12 @@
       "status": "retrieved",
       "observed_at": "2026-10-15T09:00:00Z",
       "excerpt": "Security at Fernhollow Logistics\n\nOur SIEM is Beaconlog, which collects logs from every depot and truck gateway.\n\nReport a vulnerability to the security team through our disclosure form."
+    },
+    {
+      "url": "https://lanternwatch.example/customers/harborview-freight",
+      "status": "retrieved",
+      "observed_at": "2026-10-12T10:00:00Z",
+      "excerpt": "Customer story: Harborview Freight\n\nHarborview Freight runs 40 depots and a fleet of 600 trucks.\n\nHarborview Freight cut the time to triage a detection alert from four hours\nto twenty minutes.\n\nRead how its three-person detection team set up Lanternwatch in a week."
     }
   ],
   "listings": [

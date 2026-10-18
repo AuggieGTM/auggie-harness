@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Mapping
+from datetime import datetime
 from pathlib import Path
 from typing import Any, get_args
 
@@ -26,6 +27,7 @@ from auggie.contracts import (
 from auggie.contracts.strategy import LADDER, Hiring, PatternName, Strategy
 from auggie.judgment import ListingReadings
 from auggie.pipeline import delivery_state
+from auggie.proofs import check_proofs
 from auggie.signals import level_of, phrase_pattern, quote, stack_matches
 from auggie.signals.tally import ILLUSTRATIONS, Role, in_family, listing_pattern
 from auggie.store import RecordNotFound, Store
@@ -374,4 +376,30 @@ def hiring_view(
             newest = max(range(len(snapshots)), key=lambda n: (snapshots[n].read_at, n))
             earlier = snapshots[:newest] + snapshots[newest + 1 :]
             rows.append(hiring_row(known, ListingReadings(snapshots[newest], earlier), hiring))
+    return rows
+
+
+def proofs_view(store: Store, strategy: Strategy, at: datetime) -> list[View]:
+    """Each of the strategy's proofs as of ``at``: a vendor claim, the pains that use it, and
+    whether the newest read of its page lets a draft quote it (ADR 0026). Reads nothing new."""
+    checks = check_proofs(store, strategy, at)
+    rows = []
+    for proof_id, check in checks.items():
+        proof, read = check.proof, check.read
+        rows.append(
+            {
+                "proof": proof_id,
+                "customer": proof.customer,
+                "kind": proof.kind,
+                "claim": proof.claim,
+                "url": str(proof.url),
+                "caveat": proof.caveat,
+                "basis": "vendor_claim",
+                "pains": [p for p, pain in strategy.pains.items() if proof_id in pain.proofs],
+                "usable": check.usable,
+                "problem": check.problem,
+                "evidence_id": read.evidence_id if read else None,
+                "read_at": read.observed_at if read else None,
+            }
+        )
     return rows

@@ -43,7 +43,13 @@ from auggie.contracts.events import OutcomeKind
 from auggie.contracts.qualification import CitationError
 from auggie.credentials import CredentialFiles
 from auggie.delivery import DeliveryBlocked, Sender, SendUnknown
-from auggie.pipeline import RunResult, deliver, reads_listing, record_snapshot
+from auggie.pipeline import (
+    RunResult,
+    deliver,
+    read_proof_pages,
+    reads_listing,
+    record_snapshot,
+)
 from auggie.projections import project
 from auggie.projections.csv import write_csv
 from auggie.projections.exchange import compare, dump_workbook, load_readback, load_workbook
@@ -448,7 +454,7 @@ def _add_prospect_commands(commands: Any) -> None:
     outcome.add_argument("--reporter", required=True, help="your name, recorded on the outcome")
 
 
-QUERY_COMMANDS = ("accounts", "brief", "find", "stack", "hiring")
+QUERY_COMMANDS = ("accounts", "brief", "find", "stack", "hiring", "proofs")
 
 
 def _add_shell_commands(commands: Any) -> None:
@@ -486,10 +492,10 @@ def _add_shell_commands(commands: Any) -> None:
         ("find", "stored excerpts that hold some words"),
         ("stack", "where admitted pages name the strategy's technologies"),
         ("hiring", "each account's newest careers listing read, counted by your families"),
+        ("proofs", "each proof in the strategy, and whether a draft may quote it"),
     ):
-        command = common(
-            name, help + (" (read-only unless --read)" if name == "hiring" else " (read-only)")
-        )
+        reads = name in ("hiring", "proofs")
+        command = common(name, help + (" (read-only unless --read)" if reads else " (read-only)"))
         command.add_argument("--json", action="store_true", help="print JSON, for a coding agent")
         if name == "brief":
             command.add_argument("account", help="the account's ID")
@@ -505,6 +511,18 @@ def _add_shell_commands(commands: Any) -> None:
                 action="store_true",
                 help="first read the account's careers listing (free) and record it",
             )
+        if name == "proofs":
+            strategy(command)
+            command.add_argument(
+                "--read",
+                action="store_true",
+                help="first read each proof's page through Treg (paid) and record it",
+            )
+            command.add_argument(
+                "--credentials",
+                type=Path,
+                help="credentials root (default: $AUGGIE_CREDENTIALS_DIR)",
+            )
 
 
 def shell_command(args: argparse.Namespace, out: Print, ask: Callable[[str], str]) -> int:
@@ -513,7 +531,9 @@ def shell_command(args: argparse.Namespace, out: Print, ask: Callable[[str], str
 
     from auggie import queries
     from auggie import shell as research_shell
+    from auggie.credentials import CredentialError
     from auggie.external import ExternalCallRefused
+    from auggie.spend import SpendRefused
 
     if args.command == "shell" and not interactive():
         out(
@@ -557,6 +577,13 @@ def shell_command(args: argparse.Namespace, out: Print, ask: Callable[[str], str
                 out(f"stopped   {refused}")
                 return 1
             return _read_and_answer(args, backend.open(scope), prospects, loaded, out)
+        if args.command == "proofs" and args.read:
+            refused = _cannot_read_proofs(args, loaded)
+            if refused is not None:
+                out(f"stopped   {refused}")
+                return 1
+            assert loaded is not None  # checked by _cannot_read_proofs
+            return _read_proofs_and_answer(args, backend.open(scope), loaded, out)
         if args.command != "shell":
             store = backend.open_existing(scope)  # questions only read
             return _answer(args, store, prospects, loaded, out)
@@ -564,8 +591,10 @@ def shell_command(args: argparse.Namespace, out: Print, ask: Callable[[str], str
         return research_shell.run(_session(args, store, prospects, loaded, out, ask))
     except (
         *BLOCKING,
+        CredentialError,
         ExternalCallRefused,
         PyMongoError,
+        SpendRefused,
         StoreError,
         StrategyError,
         ValueError,
@@ -603,6 +632,11 @@ def _answer(
     elif args.command == "hiring":
         view = queries.hiring_view(store, loaded.strategy, args.account, prospects)
         lines = [line for row in view for line in research_shell.render_hiring(row)]
+    elif args.command == "proofs":
+        from auggie import operate
+
+        view = queries.proofs_view(store, loaded.strategy, operate.utc_now())
+        lines = [line for row in view for line in research_shell.render_proof(row)]
     else:
         view = queries.stack_view(store, loaded.strategy, args.account)
         lines = [research_shell.render_stack(row) for row in view]
@@ -628,6 +662,51 @@ def _cannot_read(
     if prospect is None or prospect.careers_listing is None:
         return f"no prospect file names a careers listing for {args.account!r}"
     return None
+
+
+def _cannot_read_proofs(args: argparse.Namespace, loaded: LoadedStrategy | None) -> str | None:
+    """Why ``proofs --read`` cannot run as given, before anything is opened or read."""
+    if args.json:
+        return "--read records evidence, and JSON commands only read; drop --json"
+    if loaded is None:
+        return "proofs needs --strategy-repo and --strategy-path"
+    if not loaded.strategy.proofs.by_id:
+        return "the strategy holds no proofs"
+    return None
+
+
+def _read_proofs_and_answer(
+    args: argparse.Namespace, store: Store, loaded: LoadedStrategy, out: Print
+) -> int:
+    """``proofs --read``: read each proof's page through Treg, a paid call under the scope's
+    run limit (ADR 0026), record what it showed, then list the proofs."""
+    from auggie import operate
+
+    budget = RunBudget.for_scope(store.scope)
+    acquisition = TregPageText(
+        scope=store.scope,
+        credentials=CredentialFiles(args.credentials),
+        budget=budget,
+        transport=treg_transport(),
+    )
+    pages = len({str(proof.url) for proof in loaded.strategy.proofs.by_id.values()})
+    out(
+        f"{store.scope.customer_id}: reading {pages} proof pages through Treg, run limit "
+        f"{budget.limit_micro_usd} micro-USD"
+    )
+    verdicts = read_proof_pages(
+        store,
+        strategy=loaded,
+        acquisition=acquisition,
+        run_id=operate.new_run_id(operate.utc_now()),
+        now=operate.utc_now,
+    )
+    for verdict in verdicts:
+        evidence = verdict.evidence
+        reason = "" if verdict.admitted else f" ({verdict.rejected_for})"
+        out(f"recorded  {evidence.evidence_id} {evidence.status}{reason} {evidence.source_url}")
+    out(f"spent     {budget.spent_micro_usd} of {budget.limit_micro_usd} micro-USD")
+    return _answer(args, store, {}, loaded, out)
 
 
 def _read_and_answer(

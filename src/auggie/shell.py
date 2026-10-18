@@ -25,13 +25,14 @@ from auggie.contracts.events import OutcomeKind
 from auggie.delivery import Sender
 from auggie.external import require_external_calls
 from auggie.judgment.rules import SERVICES
-from auggie.pipeline import reads_listing, record_page, record_snapshot
+from auggie.pipeline import read_proof_pages, reads_listing, record_page, record_snapshot
 from auggie.queries import (
     account_ids,
     accounts_view,
     brief_view,
     find_view,
     hiring_view,
+    proofs_view,
     stack_view,
 )
 from auggie.store import Store
@@ -50,9 +51,11 @@ questions (answers from the records; nothing is read or spent)
   find [<account>] <words>      stored excerpts that hold these words
   stack [<account>]             where admitted pages name the strategy's technologies
   hiring [<account>]            each account's newest listing read, counted by your families
+  proofs                        each proof in your strategy, and whether a draft may quote it
 reading (asks before any paid or external call)
   fetch <account> <url>         read one page and record it as evidence
   hiring <account> --read       read the account's careers listing now, free
+  proofs --read                 read each proof's page through Treg and record it
   research <account>            research from the account's prospect file
 the flow (yours alone)
   review <draft>   revise <draft>   deliver <draft>
@@ -213,6 +216,44 @@ def _read_listing(session: Session, account_id: str) -> bool:
     return True
 
 
+def _proofs(session: Session, args: list[str]) -> None:
+    if session.strategy is None:
+        raise ValueError("start the shell with --strategy-repo and --strategy-path to use proofs")
+    if [arg for arg in args if arg != "--read"]:
+        raise ValueError("usage: proofs [--read]")
+    if "--read" in args and not _read_proofs(session, session.strategy):
+        return
+    # A rehearsal judges as of when its responses were recorded, as research does.
+    at = (session.research_clock or session.now)()
+    rows = proofs_view(session.store, session.strategy.strategy, at)
+    for line in [line for row in rows for line in render_proof(row)] or ["no proofs"]:
+        session.out(line)
+
+
+def _read_proofs(session: Session, strategy: LoadedStrategy) -> bool:
+    """Read each proof's page and record it, after asking if live."""
+    pages = {str(proof.url) for proof in strategy.strategy.proofs.by_id.values()}
+    if not pages:
+        raise ValueError("the strategy holds no proofs")
+    acquisition = session.acquisition()
+    if session.live:
+        require_external_calls(session.store.scope)  # refused before asking
+        if not _yes(session, f"{len(pages)} pages through Treg, {_cost(len(pages))}; go ahead?"):
+            session.out("nothing read")
+            return False
+    run_id = operate.new_run_id(operate.utc_now())
+    verdicts = read_proof_pages(
+        session.store, strategy=strategy, acquisition=acquisition, run_id=run_id, now=session.now
+    )
+    for verdict in verdicts:
+        evidence = verdict.evidence
+        reason = "" if verdict.admitted else f" ({verdict.rejected_for})"
+        session.out(
+            f"recorded  {evidence.evidence_id} {evidence.status}{reason} {evidence.source_url}"
+        )
+    return True
+
+
 # Reading
 
 
@@ -358,6 +399,7 @@ COMMANDS: dict[str, Callable[[Session, list[str]], None]] = {
     "find": _find,
     "stack": _stack,
     "hiring": _hiring,
+    "proofs": _proofs,
     "fetch": _fetch,
     "research": _research,
     "review": _review,
@@ -455,6 +497,18 @@ def render_hiring(row: Mapping[str, Any]) -> list[str]:
             f"{pattern['reason']} [{', '.join(pattern['snapshots'])}]"
         )
         lines.extend(f"      {e['title']} {e['url']}" for e in pattern["examples"])
+    return lines
+
+
+def render_proof(row: Mapping[str, Any]) -> list[str]:
+    head = f"{row['proof']} ({row['customer']}, {row['kind']}): "
+    if row["usable"]:
+        head += f"usable, a vendor claim read {_date(row['read_at'])} ({row['evidence_id']})"
+    else:
+        head += f"not usable: {row['problem']}"
+    lines = [head, f'    "{row["claim"]}"', f"    {row['url']}"]
+    if row["caveat"]:
+        lines.append(f"    caveat: {row['caveat']}")
     return lines
 
 
