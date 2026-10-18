@@ -49,9 +49,14 @@ class QuotedProof(Contract):
         return self
 
     def held_by(self, content: str) -> bool:
-        """Whether every passage is in ``content`` unchanged, as whole lines."""
-        text = f"\n{content}\n"
-        return all(f"\n{passage}\n" in text for passage in self.passages)
+        """Whether every passage is in ``content`` unchanged, as whole lines. Lines are split
+        as the passages were, so any line ending holds."""
+        lines = content.splitlines()
+
+        def holds(block: list[str]) -> bool:
+            return any(lines[n : n + len(block)] == block for n in range(len(lines)))
+
+        return all(holds(passage.splitlines()) for passage in self.passages)
 
 
 class PointOfView(Contract):

@@ -365,3 +365,18 @@ def test_approved_copy_that_spans_lines_still_binds_its_proof() -> None:
     )
     assert proof.held_by(result.draft.content)
     assert not proof.held_by(result.draft.content.replace("by hand.\n", "by hand. "))
+
+
+def test_a_template_with_windows_line_endings_binds_its_proof_too() -> None:
+    rules = strategy()
+    data = rules.strategy.model_dump(mode="json")
+    (proof_play,) = [p for p in data["plays"] if p["pain"] is not None]
+    proof_play["template"] = proof_play["template"].replace("\n", "\r\n")
+    crlf = LoadedStrategy(type(rules.strategy).model_validate(data), rules.ref)
+    store = InMemoryBackend().open(INPUTS.scope)
+    read_proof(store)
+    result = research(store, rules=crlf)
+    assert "\r\n" in result.draft.content
+    proof = result.draft.point_of_view.proof
+    assert proof is not None and proof.held_by(result.draft.content)
+    assert not proof.held_by(result.draft.content.replace("twenty minutes", "one minute"))
