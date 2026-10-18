@@ -37,6 +37,7 @@ from auggie.pipeline import (
     activate_strategy,
     complete_revision,
     deliver,
+    delivery_state,
     ensure_undelivered,
     record_outcome,
     record_person,
@@ -358,6 +359,30 @@ def review_draft(
             )
         )
     return approvals
+
+
+def waiting_drafts(store: Store) -> list[str]:
+    """Drafts waiting for a person, oldest first (ADR 0027): the latest version has no content
+    decision, and the draft has not been delivered, may not have gone out, and was not ruled
+    out."""
+    composed = dict.fromkeys(
+        ref.id
+        for event in store.list_events(type="draft.composed")
+        for ref in event.refs
+        if ref.kind == "artifact"
+    )
+    waiting = []
+    for draft_id in composed:
+        latest = store.latest_artifact(draft_id)
+        approvals = store.list_approvals(draft_id)
+        if any(a.scope == "content" and a.artifact == latest.ref for a in approvals):
+            continue
+        if latest.recipient_id is not None:
+            state = delivery_state(store, draft_id, latest.recipient_id)
+            if state.sent is not None or state.unknown or state.closed:
+                continue
+        waiting.append(draft_id)
+    return waiting
 
 
 def _finish_last_revision(store: Store, draft_id: str, out: Print) -> None:

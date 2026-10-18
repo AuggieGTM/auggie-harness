@@ -511,7 +511,11 @@ def _add_prospect_commands(commands: Any) -> None:
     )
 
     review = common("review", "show a draft and record your content and delivery decisions")
-    review.add_argument("--draft", required=True, help="the draft's ID, as research printed it")
+    which = review.add_mutually_exclusive_group(required=True)
+    which.add_argument("--draft", help="the draft's ID, as research printed it")
+    which.add_argument(
+        "--next", action="store_true", help="review each draft waiting for a person, oldest first"
+    )
     review.add_argument("--reviewer", required=True, help="your name, recorded on the approvals")
     review.add_argument(
         "--delivery-days", type=int, default=7, help="how long delivery stays approved"
@@ -949,6 +953,39 @@ def _cannot_research_list(args: argparse.Namespace, scope: CustomerScope) -> str
     return None
 
 
+def _review_waiting(
+    args: argparse.Namespace, store: Store, out: Print, ask: Callable[[str], str]
+) -> int:
+    """Review the drafts waiting for a person, oldest first, each on its own (ADR 0027)."""
+    from auggie import operate
+
+    reviewed = 0
+    while waiting := operate.waiting_drafts(store):
+        if reviewed:
+            try:
+                go_on = ask(f"{len(waiting)} more waiting. Review the next? [Y/n]: ")
+            except EOFError:
+                go_on = "n"
+            if go_on.strip().lower() in ("n", "no"):
+                return 0
+            out("")
+        draft_id = waiting[0]
+        out(f"next      {draft_id}, the oldest of {len(waiting)} waiting")
+        approvals = operate.review_draft(
+            store,
+            draft_id=draft_id,
+            reviewer=args.reviewer,
+            ask=ask,
+            out=out,
+            delivery_days=args.delivery_days,
+        )
+        for approval in approvals:
+            out(f"recorded  {approval.scope} {approval.decision} ({approval.approval_id})")
+        reviewed += 1
+    out("no drafts are waiting for a person" if not reviewed else "no more drafts are waiting")
+    return 0
+
+
 def _research_list(args: argparse.Namespace, store: Store, out: Print) -> int:
     """Research every prospect in the folder in one run, within one cap (ADR 0027)."""
     from auggie import operate, queries
@@ -1138,6 +1175,8 @@ def _prospect_step(
             draft_id = result.draft.ref.artifact_id
             out(f"next      auggie review ... --draft {draft_id} --reviewer <you>")
         return 0
+    if args.command == "review" and args.next:
+        return _review_waiting(args, store, out, ask)
     if args.command == "review":
         approvals = operate.review_draft(
             store,

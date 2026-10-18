@@ -250,3 +250,82 @@ def test_a_list_that_cannot_run_is_refused_before_the_store_opens(
             client.close()
         assert not [n for n in names if n.startswith(backend.database_prefix)]
     assert treg.requests == []
+
+
+# Reviewing the drafts a list left waiting
+
+
+def test_waiting_drafts_are_the_undecided_ones_oldest_first() -> None:
+    from auggie.approval import ReviewDecision
+    from auggie.contracts import Actor
+    from auggie.operate import waiting_drafts
+    from auggie.pipeline import record_review, record_revision
+
+    store = InMemoryBackend().open(SCOPE)
+    composed = [
+        line.result.draft.ref.artifact_id
+        for run in (rehearse(store), rehearse(store, again=True))
+        for line in run
+        if line.result is not None and line.result.draft is not None
+    ]
+    first, second = waiting_drafts(store)
+    assert [first, second] == composed  # the oldest first
+    person = Actor(kind="human", id="demo-reviewer")
+    draft = store.latest_artifact(first)
+    record_review(
+        store,
+        shown=draft.ref,
+        review=ReviewDecision(
+            scope="content",
+            decision="changes_requested",
+            reviewer=person,
+            decided_at=draft.composed_at,
+        ),
+        approval_id="apr-first-content",
+    )
+    assert waiting_drafts(store) == [second]
+    # A person's edit is a new version, and it waits for its own review.
+    record_revision(
+        store,
+        previous=draft.ref,
+        content=draft.content.replace("Riley\n", "Riley Moss\n"),
+        by=person,
+        at=draft.composed_at,
+    )
+    assert waiting_drafts(store) == [first, second]
+
+
+def test_review_next_steps_through_the_drafts_each_approved_on_its_own(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    folder = folder_of_prospects(tmp_path)
+    answers = iter(["y", "", "y", "y", "n", "Not this one."])
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(answers))
+    monkeypatch.setattr(cli, "interactive", lambda: True)
+    with mongo_backend() as backend:
+        store = ["--mongodb", os.environ[MONGODB_URI], "--database-prefix", backend.database_prefix]
+        research = [
+            "research-list",
+            str(KESTREL / "scope.json"),
+            "--prospects",
+            str(folder),
+            *STRATEGY,
+            "--operator",
+            "demo-seller",
+            "--replay",
+            str(KESTREL / "list-replay.json"),
+            *store,
+        ]
+        assert main(research) == 0
+        assert main([*research, "--again"]) == 0
+        capsys.readouterr()
+        review = ["review", str(KESTREL / "scope.json"), "--next", "--reviewer", "demo-reviewer"]
+        assert main([*review, *store]) == 0
+        out = capsys.readouterr().out
+        assert out.count("next      draft-fernhollow-run-") == 2
+        assert "the oldest of 2 waiting" in out and "the oldest of 1 waiting" in out
+        assert "recorded  content approved" in out and "recorded  delivery approved" in out
+        assert "recorded  content rejected" in out
+        assert out.rstrip().endswith("no more drafts are waiting")
+        assert main([*review, *store]) == 0
+        assert "no drafts are waiting for a person" in capsys.readouterr().out
