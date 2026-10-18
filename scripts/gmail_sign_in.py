@@ -146,6 +146,7 @@ def main(argv: list[str]) -> int:
     if len(argv) != 2:
         print(__doc__, file=sys.stderr)
         return 2
+    quiet = logging.root.manager.disable
     logging.disable(logging.CRITICAL)  # the OAuth libraries may log token exchanges
     try:
         saved = sign_in(Path(argv[0]), Path(argv[1]))
@@ -158,6 +159,8 @@ def main(argv: list[str]) -> int:
             file=sys.stderr,
         )
         return 1
+    finally:
+        logging.disable(quiet)
     print(f"saved     {saved}: it can send as the account you chose; it was not printed")
     return 0
 

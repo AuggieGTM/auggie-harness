@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import logging
 import stat
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -153,14 +154,19 @@ def test_another_scopes_folder_is_never_reached_through_a_link(tmp_path: Path) -
 def test_a_failed_sign_in_prints_nothing_of_googles_reply(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    calls: list[str] = []
+
     def fails(_client: object, _scope: str) -> Signed:
+        calls.append(_scope)
         raise RuntimeError(f"invalid_grant: {REFRESH_TOKEN} was rejected")
 
-    monkeypatch.setattr(script, "google_sign_in", fails)
-    monkeypatch.setattr(script.sign_in, "__defaults__", (None, fails))
+    monkeypatch.setitem(script.sign_in.__kwdefaults__, "run", fails)
     monkeypatch.setenv("AUGGIE_CREDENTIALS_DIR", str(tmp_path / "credentials"))
+    logging_before = logging.root.manager.disable
     code = script.main([str(NORTHSTAR / "scope.json"), str(client(tmp_path))])
     out = capsys.readouterr()
+    assert calls == [SEND_SCOPE]
+    assert logging.root.manager.disable == logging_before
     assert code == 1 and "did not complete" in out.err
     assert REFRESH_TOKEN not in out.out + out.err
     assert not (tmp_path / "credentials").exists()
