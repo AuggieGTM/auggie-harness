@@ -3,7 +3,7 @@
 ``auggie run <scenario>`` runs a synthetic scenario and reports each stage.
 ``auggie project <scope.json> --mongodb URI`` projects a Store into CSV or its Google Sheet.
 ``auggie verify-sheet <workbook> <readback>`` checks a sheet an agent wrote (ADR 0019).
-``auggie research|review|deliver|outcome`` run the operator's flow for one prospect.
+``auggie research|review|revise|deliver|outcome`` run the operator's flow for one prospect.
 ``auggie treg-fetch <scope.json> <url>`` makes one live, paid Treg call and stores nothing.
 """
 
@@ -11,7 +11,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import shlex
+import subprocess
 import sys
+import tempfile
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, get_args
@@ -344,7 +348,12 @@ def run_scenario_command(args: argparse.Namespace, out: Print) -> int:
     return 0
 
 
-PROSPECT_COMMANDS = ("research", "review", "deliver", "outcome")
+PROSPECT_COMMANDS = ("research", "review", "revise", "deliver", "outcome")
+PERSON_COMMANDS = {
+    "review": "review records a person's approval",
+    "revise": "revise records a person's edit",
+}
+"""Commands a person answers themselves, so they run only at a terminal."""
 
 
 def _add_prospect_commands(commands: Any) -> None:
@@ -360,7 +369,7 @@ def _add_prospect_commands(commands: Any) -> None:
     research = common("research", "research one prospect up to a draft, then stop for review")
     research.add_argument("prospect", type=Path, help="JSON file describing the prospect")
     research.add_argument(
-        "--strategy-repo", type=Path, required=True, help="the customer's strategy repository"
+        "--strategy-repo", type=Path, required=True, help="your strategy repository"
     )
     research.add_argument("--strategy-path", required=True, help="the strategy file in it")
     research.add_argument("--revision", default="HEAD", help="the approved commit (default HEAD)")
@@ -380,6 +389,10 @@ def _add_prospect_commands(commands: Any) -> None:
         "--delivery-days", type=int, default=7, help="how long delivery stays approved"
     )
 
+    revise = common("revise", "edit a draft in your editor and store it as a new version")
+    revise.add_argument("--draft", required=True, help="the draft's ID, as research printed it")
+    revise.add_argument("--author", required=True, help="your name, recorded on the new version")
+
     deliver_ = common("deliver", "hand an approved draft off (simulated)")
     deliver_.add_argument("--draft", required=True)
 
@@ -394,11 +407,27 @@ def interactive() -> bool:
     return sys.stdin.isatty() and sys.stdout.isatty()
 
 
+def edit_in_editor(text: str) -> str:
+    """Open ``text`` in the person's editor ($VISUAL, $EDITOR, else vi); return what they saved."""
+    editor = os.environ.get("VISUAL") or os.environ.get("EDITOR") or "vi"
+    with tempfile.TemporaryDirectory(prefix="auggie-revise-") as folder:
+        path = Path(folder) / "draft.md"
+        path.write_text(text, encoding="utf-8")
+        finished = subprocess.run([*shlex.split(editor), str(path)], check=False)
+        if finished.returncode != 0:
+            raise OSError(f"the editor exited with status {finished.returncode}; nothing recorded")
+        edited = path.read_text(encoding="utf-8")
+    # Editors end a saved file with a newline; it is not part of a draft that had none.
+    if not text.endswith("\n") and edited.endswith("\n"):
+        edited = edited[:-1]
+    return edited
+
+
 def prospect_command(args: argparse.Namespace, out: Print, ask: Callable[[str], str]) -> int:
     """Run one step of the operator's flow against the scope's MongoDB Store."""
-    if args.command == "review" and not interactive():
+    if args.command in PERSON_COMMANDS and not interactive():
         out(
-            "stopped   review records a person's approval, so it must be answered at a "
+            f"stopped   {PERSON_COMMANDS[args.command]}, so it must be answered at a "
             "terminal: redirected input or output is refused"
         )
         return 1
@@ -507,6 +536,17 @@ def _prospect_step(
         )
         for approval in approvals:
             out(f"recorded  {approval.scope} {approval.decision} ({approval.approval_id})")
+        return 0
+    if args.command == "revise":
+        revised = operate.revise_draft(
+            store, draft_id=args.draft, author=args.author, edit=edit_in_editor, out=out
+        )
+        if revised is not None and revised.supersedes is not None:
+            out(
+                f"revise    {args.draft} version sha256 {_short(revised.ref.content_hash)}, "
+                f"replacing {_short(revised.supersedes)}"
+            )
+            out(f"next      auggie review ... --draft {args.draft} --reviewer <you>")
         return 0
     if args.command == "deliver":
         delivered = operate.deliver_draft(store, draft_id=args.draft)

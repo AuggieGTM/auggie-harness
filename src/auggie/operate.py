@@ -34,7 +34,9 @@ from auggie.pipeline import (
     deliver,
     record_outcome,
     record_review,
+    record_revision,
     research_run,
+    was_delivered,
 )
 from auggie.store import Appended, Store, StoreError
 from auggie.strategy import LoadedStrategy
@@ -42,6 +44,7 @@ from auggie.strategy import LoadedStrategy
 Clock = Callable[[], datetime]
 Ask = Callable[[str], str]
 Print = Callable[[str], None]
+Edit = Callable[[str], str]
 
 
 def utc_now() -> datetime:
@@ -200,6 +203,38 @@ def review_draft(
             )
         )
     return approvals
+
+
+def revise_draft(
+    store: Store,
+    *,
+    draft_id: str,
+    author: str,
+    edit: Edit,
+    out: Print,
+    now: Clock = utc_now,
+) -> Artifact | None:
+    """Let a person edit the latest version of a draft, and store the edit as its next version.
+
+    Shows the reviewers' notes on that version first. Records nothing and
+    returns None when the text comes back unchanged. A delivered draft is
+    not revised; research again for a new one.
+    """
+    draft = store.latest_artifact(draft_id)
+    if draft.recipient_id is not None and was_delivered(store, draft_id, draft.recipient_id):
+        raise ValueError(f"{draft_id} was already delivered; research again for a new draft")
+    for approval in store.list_approvals(draft_id):
+        if approval.artifact == draft.ref and approval.note:
+            out(f"review    {approval.decision} by {approval.reviewer.id}: {approval.note}")
+    content = edit(draft.content)
+    if content == draft.content:
+        out(f"unchanged {draft_id}: nothing recorded")
+        return None
+    if not content.strip():
+        raise ValueError("the edited draft is empty; nothing recorded")
+    return record_revision(
+        store, previous=draft, content=content, by=Actor(kind="human", id=author), at=now()
+    )
 
 
 def deliver_draft(store: Store, *, draft_id: str, now: Clock = utc_now) -> Appended:

@@ -69,8 +69,15 @@ tree. To see it in a sheet, follow
 Try the refusals too, each on a fresh `research` run:
 
 - Answer `c` (changes) at review, and `deliver` is refused. Once a reviewer asks for changes,
-  that version can never be delivered, even if it is approved later. There is no command to edit
-  a draft yet, so research again for a new one.
+  that version can never be delivered, even if it is approved later. Revise it instead:
+
+  ```bash
+  uv run auggie revise $E/scope.json --draft <draft id> --author "your name" $M
+  ```
+
+  `revise` shows the reviewer's note, opens the draft in your editor (`$VISUAL` or `$EDITOR`,
+  else `vi`) and stores what you save as the draft's next version. Like `review`, it runs only
+  at a terminal. Review the new version as you did the first: no earlier approval carries over.
 - Approve the content but not delivery, and `deliver` is refused until a delivery approval
   exists.
 - Deliver twice, and nothing is sent the second time.
@@ -161,6 +168,8 @@ uv run auggie research <scope.json> <prospect.json> \
   --strategy-repo <your strategy repo> --strategy-path <path in it> \
   --operator "your name" --mongodb <uri>
 uv run auggie review <scope.json> --draft <draft id> --reviewer "your name" --mongodb <uri>
+# only if review asked for changes, then review again:
+uv run auggie revise <scope.json> --draft <draft id> --author "your name" --mongodb <uri>
 uv run auggie deliver <scope.json> --draft <draft id> --mongodb <uri>
 uv run auggie outcome <scope.json> --draft <draft id> --outcome <what happened> \
   --reporter "your name" --mongodb <uri>

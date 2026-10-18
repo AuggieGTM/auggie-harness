@@ -63,14 +63,17 @@ contract ([ADR 0014](docs/adr/0014-artifact-contract.md)), both Accepted.
   The connector path passed a live check on 2026-10-17 on synthetic Northstar data: the grid
   read-back showed every tab at exactly the projection's size, from A1, every cell literal text
   and equal. The service-account path is tested against a fake Google only.*
-- The operator's flow for one prospect. *Built: `auggie research`, `review`, `deliver` and
-  `outcome`, each a separate command a person runs, with `review` refusing to run outside a
-  terminal. [Your first prospect](docs/first-prospect.md) walks a seller through a rehearsal and
-  a real prospect, and [Set up with your coding agent](docs/agent-setup.md) gives an agent the
-  same steps, leaving review, credentials and spending to the person. On 2026-10-18 a fresh agent
-  followed the setup prompt in a clean clone: setup, checks, a replayed rehearsal, a refused early
-  delivery and, after a person's review in their own terminal, delivery, outcome and projection.
-  The real-prospect prompt is reviewed but not yet run.*
+- The operator's flow for one prospect. *Built: `auggie research`, `review`, `revise`,
+  `deliver` and `outcome`, each a separate command a person runs, with `review` and `revise`
+  refusing to run outside a terminal. `revise` stores a person's edit as the draft's next
+  version, which needs its own review ([ADR 0014](docs/adr/0014-artifact-contract.md)).
+  [Your first prospect](docs/first-prospect.md) walks a seller through a rehearsal and a real
+  prospect, and [Set up with your coding agent](docs/agent-setup.md) gives an agent the same
+  steps, leaving review, revision, credentials and spending to the person. On 2026-10-18 a
+  fresh agent followed the setup prompt in a clean clone: setup, checks, a replayed rehearsal, a
+  refused early delivery and, after a person's review in their own terminal, delivery, outcome
+  and projection. That run predates `revise`. The real-prospect prompt is reviewed but not yet
+  run.*
 - Delivery stays simulated.
 
 **Gate:** per-scope credentials; provider spend bounded per run; no live delivery. *Credential

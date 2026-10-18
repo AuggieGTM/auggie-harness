@@ -16,6 +16,7 @@ from auggie.operate import (
     report_outcome,
     research_prospect,
     review_draft,
+    revise_draft,
 )
 from auggie.pipeline import RunResult
 from auggie.store import Store, StoreError
@@ -201,3 +202,72 @@ def test_research_stops_rather_than_reuse_a_run(
     research(store)
     with pytest.raises(StoreError, match="unused run ID"):
         research(store)
+
+
+def review(store: Store, draft_id: str, *replies: str) -> None:
+    _, ask = answers(*replies)
+    review_draft(store, draft_id=draft_id, reviewer="demo-reviewer", ask=ask, out=lambda _: None)
+
+
+def test_a_revision_is_a_new_version_that_needs_its_own_review(store: Store) -> None:
+    draft = research(store).draft
+    assert draft is not None
+    draft_id = draft.ref.artifact_id
+    review(store, draft_id, "c", "Drop the last paragraph.")
+    shown: list[str] = []
+    seen: list[str] = []
+
+    def edit(text: str) -> str:
+        seen.append(text)
+        return text.replace("Would that be useful?\n\n", "")
+
+    revised = revise_draft(
+        store, draft_id=draft_id, author="demo-seller", edit=edit, out=shown.append
+    )
+
+    assert revised is not None
+    assert seen == [draft.content]
+    assert shown == ["review    changes_requested by demo-reviewer: Drop the last paragraph."]
+    assert revised.supersedes == draft.ref.content_hash
+    assert revised.composed_by.kind == "human" and revised.composed_by.id == "demo-seller"
+    assert revised.evidence_ids == draft.evidence_ids
+    assert store.latest_artifact(draft_id) == revised
+    (event,) = [e for e in store.list_events(type="draft.composed") if e.actor.id == "demo-seller"]
+    assert event.attributes["supersedes"] == draft.ref.content_hash
+    with pytest.raises(DeliveryBlocked, match="no content approval"):
+        deliver_draft(store, draft_id=draft_id)
+    review(store, draft_id, "y", "", "y")
+    assert deliver_draft(store, draft_id=draft_id).created
+
+
+def test_an_unchanged_revision_records_nothing(store: Store) -> None:
+    draft = research(store).draft
+    assert draft is not None
+    shown: list[str] = []
+    unchanged = revise_draft(
+        store,
+        draft_id=draft.ref.artifact_id,
+        author="demo-seller",
+        edit=lambda text: text,
+        out=shown.append,
+    )
+    assert unchanged is None
+    assert shown == [f"unchanged {draft.ref.artifact_id}: nothing recorded"]
+    assert store.latest_artifact(draft.ref.artifact_id) == draft
+
+
+@pytest.mark.parametrize("delivered", [False, True], ids=["emptied", "delivered"])
+def test_a_revision_is_refused_without_recording(delivered: bool, store: Store) -> None:
+    draft = research(store).draft
+    assert draft is not None
+    draft_id = draft.ref.artifact_id
+    if delivered:
+        review(store, draft_id, "y", "", "y")
+        deliver_draft(store, draft_id=draft_id)
+    events = len(store.list_events())
+    with pytest.raises(ValueError, match="already delivered" if delivered else "empty"):
+        revise_draft(
+            store, draft_id=draft_id, author="demo-seller", edit=lambda _: " \n", out=print
+        )
+    assert store.latest_artifact(draft_id) == draft
+    assert len(store.list_events()) == events

@@ -32,6 +32,7 @@ from auggie.contracts import (
     RecordRef,
     SubjectRef,
     ensure_in_scope,
+    sha256_digest,
 )
 from auggie.contracts.approval import DeliveryPlatform
 from auggie.contracts.common import RecordId, UtcDatetime
@@ -242,6 +243,56 @@ def research_run(
     return RunResult(verdicts, decision, draft)
 
 
+def record_revision(
+    store: Store, *, previous: Artifact, content: str, by: Actor, at: datetime
+) -> Artifact:
+    """Store a person's edit of ``previous`` as the artifact's next version (ADR 0014).
+
+    The new version keeps what ``previous`` was composed from. Approvals bind
+    to one hash, so none of the earlier versions' approvals apply to it.
+    """
+    ref = previous.ref
+    revised = Artifact(
+        customer_id=previous.customer_id,
+        ref=ArtifactRef(
+            artifact_id=ref.artifact_id, kind=ref.kind, content_hash=sha256_digest(content)
+        ),
+        content=content,
+        account_id=previous.account_id,
+        recipient_id=previous.recipient_id,
+        qualification_id=previous.qualification_id,
+        evidence_ids=previous.evidence_ids,
+        strategy=previous.strategy,
+        composed_by=by,
+        composed_at=at,
+        supersedes=ref.content_hash,
+    )
+    store.put_artifact(revised)
+    _append(
+        store,
+        "draft.composed",
+        at=at,
+        actor=by,
+        refs=[
+            RecordRef(kind="artifact", id=ref.artifact_id),
+            RecordRef(kind="qualification", id=revised.qualification_id),
+            *(RecordRef(kind="evidence", id=eid) for eid in revised.evidence_ids),
+        ],
+        key=f"draft.composed:{ref.artifact_id}:{revised.ref.content_hash}",
+        attributes={"supersedes": ref.content_hash},
+    )
+    return revised
+
+
+def was_delivered(store: Store, artifact_id: str, recipient_id: str) -> bool:
+    """Whether a hand-off of ``artifact_id`` to ``recipient_id`` is recorded."""
+    return any(
+        RecordRef(kind="artifact", id=artifact_id) in event.refs
+        and RecordRef(kind="person", id=recipient_id) in event.refs
+        for event in store.list_events(type="delivery.simulated")
+    )
+
+
 def record_review(
     store: Store, *, shown: ArtifactRef, review: ReviewDecision, approval_id: str
 ) -> HumanApproval:
@@ -301,13 +352,7 @@ def record_outcome(store: Store, *, artifact_id: str, report: OutcomeReport) -> 
     recipient_id = store.latest_artifact(artifact_id).recipient_id
     if recipient_id is None:
         raise ValueError(f"{artifact_id} has no recipient")
-    delivered = [
-        event
-        for event in store.list_events(type="delivery.simulated")
-        if RecordRef(kind="artifact", id=artifact_id) in event.refs
-        and RecordRef(kind="person", id=recipient_id) in event.refs
-    ]
-    if not delivered:
+    if not was_delivered(store, artifact_id, recipient_id):
         raise ValueError(f"{artifact_id} was never delivered to {recipient_id}")
     return _append(
         store,

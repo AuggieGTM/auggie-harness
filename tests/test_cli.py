@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
+import sys
 from pathlib import Path
 
 import pytest
@@ -222,7 +224,7 @@ def test_an_agent_written_sheet_is_verified_against_its_workbook(
 
 
 def test_one_prospect_runs_from_research_to_outcome(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     files = NORTHSTAR
     answers = iter(["y", "Claims match the cited pages.", "y"])
@@ -248,9 +250,14 @@ def test_one_prospect_runs_from_research_to_outcome(
         out = capsys.readouterr().out
         draft = out.split("--draft ")[1].split()[0]
         assert draft.startswith("draft-northstar-run-")
+        sign = "p = Path(sys.argv[1]); p.write_text(p.read_text().replace('Sam', 'Sam Lee'))"
+        monkeypatch.delenv("VISUAL", raising=False)
+        monkeypatch.setenv("EDITOR", _editor(tmp_path, sign))
+        assert main(["revise", scope, "--draft", draft, "--author", "demo-seller", *store]) == 0
+        assert "replacing 1c05fafeae99" in capsys.readouterr().out
         assert main(["review", scope, "--draft", draft, "--reviewer", "demo-reviewer", *store]) == 0
         out = capsys.readouterr().out
-        assert "| Hi Jordan," in out and "recorded  delivery approved" in out
+        assert "| Sam Lee" in out and "recorded  delivery approved" in out
         assert main(["deliver", scope, "--draft", draft, *store]) == 0
         assert main(["deliver", scope, "--draft", draft, *store]) == 0
         assert "already delivered" in capsys.readouterr().out
@@ -270,11 +277,43 @@ def test_the_walkthrough_files_match_the_scenario_inputs() -> None:
     assert json.loads((NORTHSTAR / "scope.json").read_text(encoding="utf-8")) == inputs["scope"]
 
 
-def test_review_refuses_answers_that_do_not_come_from_a_terminal(
-    capsys: pytest.CaptureFixture[str],
+@pytest.mark.parametrize("command", ["review", "revise"])
+def test_person_commands_refuse_input_that_does_not_come_from_a_terminal(
+    command: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
     scope = str(NORTHSTAR / "scope.json")
     unreachable = ["--mongodb", "mongodb://127.0.0.1:1"]
-    argv = ["review", scope, "--draft", "draft-x", "--reviewer", "someone", *unreachable]
-    assert main(argv) == 1
+    person = "--reviewer" if command == "review" else "--author"
+    assert main([command, scope, "--draft", "draft-x", person, "someone", *unreachable]) == 1
     assert "must be answered at a terminal" in capsys.readouterr().out
+
+
+def _editor(tmp_path: Path, body: str) -> str:
+    script = tmp_path / "editor.py"
+    script.write_text(f"import sys\nfrom pathlib import Path\n{body}\n", encoding="utf-8")
+    return f"{shlex.quote(sys.executable)} {shlex.quote(str(script))}"
+
+
+def test_the_editor_returns_what_the_person_saved(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    replace = "p = Path(sys.argv[1]); p.write_text(p.read_text().replace('Sam', 'Samantha'))"
+    monkeypatch.delenv("VISUAL", raising=False)
+    monkeypatch.setenv("EDITOR", _editor(tmp_path, replace))
+    assert cli.edit_in_editor("Thanks,\nSam\n") == "Thanks,\nSamantha\n"
+
+
+def test_an_editors_final_newline_is_not_added_to_a_draft_without_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    append = "p = Path(sys.argv[1]); p.write_text(p.read_text() + chr(10))"
+    monkeypatch.setenv("VISUAL", _editor(tmp_path, append))
+    assert cli.edit_in_editor("Thanks, Sam") == "Thanks, Sam"
+
+
+def test_an_editor_that_fails_records_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("VISUAL", _editor(tmp_path, "sys.exit(3)"))
+    with pytest.raises(OSError, match="status 3"):
+        cli.edit_in_editor("Thanks, Sam\n")
