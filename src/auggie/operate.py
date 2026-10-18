@@ -160,7 +160,7 @@ def review_draft(
         "changes": "changes_requested",
     }
     decision = choices.get(answer, "rejected")
-    note = ask("Note for the record (optional): ").strip() or None
+    note = ask("Note to keep with your decision (Enter for none): ").strip() or None
     content = ReviewDecision(
         scope="content",
         decision=decision,
