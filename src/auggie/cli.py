@@ -3,17 +3,23 @@
 ``auggie run <scenario>`` runs a synthetic scenario and reports each stage.
 ``auggie project <scope.json> --mongodb URI`` projects a Store into CSV or its Google Sheet.
 ``auggie verify-sheet <workbook> <readback>`` checks a sheet an agent wrote (ADR 0019).
+``auggie research|review|deliver|outcome`` run the operator's flow for one prospect.
 ``auggie treg-fetch <scope.json> <url>`` makes one live, paid Treg call and stores nothing.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, get_args
 
+from auggie.accounts import Account
+from auggie.acquisition import Acquisition
+from auggie.acquisition.fixture import FixtureAcquisition, RecordedResponse
+from auggie.acquisition.treg import TregPageText
 from auggie.contracts import (
     Artifact,
     CustomerScope,
@@ -21,19 +27,22 @@ from auggie.contracts import (
     ScopeViolation,
     sha256_digest,
 )
+from auggie.contracts.events import OutcomeKind
 from auggie.contracts.qualification import CitationError
+from auggie.credentials import CredentialFiles
 from auggie.delivery import DeliveryBlocked
-from auggie.pipeline import deliver
+from auggie.pipeline import RunResult, deliver
 from auggie.projections import project
 from auggie.projections.csv import write_csv
 from auggie.projections.exchange import compare, dump_workbook, load_readback, load_workbook
+from auggie.spend import RunBudget
 from auggie.store import Backend, Store, StoreError
 from auggie.store.memory import InMemoryBackend
+from auggie.strategy import LoadedStrategy, load_strategy_at
 from auggie.synthetic import ScenarioRun, load_inputs, run_scenario
 
 if TYPE_CHECKING:
     from auggie.acquisition.treg import Transport
-    from auggie.credentials import CredentialFiles
     from auggie.projections.sheets import SheetsApi
     from auggie.store.mongodb import MongoBackend
 
@@ -44,24 +53,30 @@ def _short(digest: str) -> str:
     return digest.removeprefix("sha256:")[:12]
 
 
-def report(run: ScenarioRun, out: Print, *, show_draft: bool = False) -> None:
-    store = run.store
-    ref = run.strategy.ref
-    activated = run.activation.event
-    out(f"define    {run.strategy.strategy.strategy_id} activated by {activated.actor.id}")
+def report_research(
+    strategy: LoadedStrategy,
+    activated_by: str,
+    result: RunResult,
+    out: Print,
+    *,
+    show_draft: bool = False,
+) -> None:
+    """Print what a research run did, from the strategy it ran under to its draft."""
+    ref = strategy.ref
+    out(f"define    {strategy.strategy.strategy_id} activated by {activated_by}")
     out(f"          {ref.path} @ {ref.commit[:7]}, sha256 {_short(ref.digest)}")
-    for verdict in run.result.verdicts:
+    for verdict in result.verdicts:
         e = verdict.evidence
         detail = f" ({e.failure_reason})" if e.failure_reason else ""
         out(f"observe   {e.evidence_id:<24} {e.status:<9} {e.source_url}{detail}")
-    for verdict in run.result.verdicts:
+    for verdict in result.verdicts:
         e = verdict.evidence
         status = "admitted" if verdict.admitted else f"rejected: {verdict.rejected_for}"
         out(f"validate  {e.evidence_id:<24} {status}")
-    _report_decision(run.result.decision, out)
-    draft = run.result.draft
+    _report_decision(result.decision, out)
+    draft = result.draft
     if draft is None:
-        out(f"compose   no draft: {run.result.stopped}")
+        out(f"compose   no draft: {result.stopped}")
         return
     out(
         f"compose   {draft.ref.artifact_id} sha256 {_short(draft.ref.content_hash)} "
@@ -72,6 +87,15 @@ def report(run: ScenarioRun, out: Print, *, show_draft: bool = False) -> None:
         for line in draft.content.splitlines():
             out(f"          | {line}")
         out("")
+
+
+def report(run: ScenarioRun, out: Print, *, show_draft: bool = False) -> None:
+    store = run.store
+    report_research(
+        run.strategy, run.activation.event.actor.id, run.result, out, show_draft=show_draft
+    )
+    if run.result.draft is None:
+        return
     for approval in run.approvals:
         target = (
             f" for {approval.target.platform}:{approval.target.recipient_id}"
@@ -262,7 +286,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--credentials", type=Path, help="credentials root (default: $AUGGIE_CREDENTIALS_DIR)"
     )
     fetch.add_argument("--show-excerpt", action="store_true", help="print the stored excerpt")
+    _add_prospect_commands(commands)
     args = parser.parse_args(argv)
+    if args.command in PROSPECT_COMMANDS:
+        return prospect_command(args, print, input)
     if args.command == "treg-fetch":
         return treg_fetch(args, print)
     if args.command == "project":
@@ -314,6 +341,167 @@ def run_scenario_command(args: argparse.Namespace, out: Print) -> int:
         out("")
         if not check_negative_paths(args.scenario, out):
             return 1
+    return 0
+
+
+PROSPECT_COMMANDS = ("research", "review", "deliver", "outcome")
+
+
+def _add_prospect_commands(commands: Any) -> None:
+    """The operator's flow for one prospect. Each keeps its records in the scope's MongoDB."""
+
+    def common(name: str, help: str) -> argparse.ArgumentParser:
+        command: argparse.ArgumentParser = commands.add_parser(name, help=help)
+        command.add_argument("scope", type=Path, help="JSON file holding the CustomerScope")
+        command.add_argument("--mongodb", metavar="URI", required=True, help="the Store's MongoDB")
+        command.add_argument("--database-prefix", default="", metavar="PREFIX")
+        return command
+
+    research = common("research", "research one prospect up to a draft, then stop for review")
+    research.add_argument("prospect", type=Path, help="JSON file describing the prospect")
+    research.add_argument(
+        "--strategy-repo", type=Path, required=True, help="the customer's strategy repository"
+    )
+    research.add_argument("--strategy-path", required=True, help="the strategy file in it")
+    research.add_argument("--revision", default="HEAD", help="the approved commit (default HEAD)")
+    research.add_argument("--operator", required=True, help="your name, recorded on the run")
+    research.add_argument(
+        "--replay", type=Path, metavar="FILE", help="recorded responses instead of live Treg calls"
+    )
+    research.add_argument(
+        "--credentials", type=Path, help="credentials root (default: $AUGGIE_CREDENTIALS_DIR)"
+    )
+    research.add_argument("--show-draft", action="store_true", help="print the composed draft")
+
+    review = common("review", "show a draft and record your content and delivery decisions")
+    review.add_argument("--draft", required=True, help="the draft's ID, as research printed it")
+    review.add_argument("--reviewer", required=True, help="your name, recorded on the approvals")
+    review.add_argument(
+        "--delivery-days", type=int, default=7, help="how long delivery stays approved"
+    )
+
+    deliver_ = common("deliver", "hand an approved draft off (simulated)")
+    deliver_.add_argument("--draft", required=True)
+
+    outcome = common("outcome", "record what happened after a delivery")
+    outcome.add_argument("--draft", required=True)
+    outcome.add_argument("--outcome", required=True, choices=get_args(OutcomeKind))
+    outcome.add_argument("--reporter", required=True, help="your name, recorded on the outcome")
+
+
+def prospect_command(args: argparse.Namespace, out: Print, ask: Callable[[str], str]) -> int:
+    """Run one step of the operator's flow against the scope's MongoDB Store."""
+    from pydantic import ValidationError
+
+    from auggie.credentials import CredentialError
+    from auggie.external import ExternalCallRefused
+    from auggie.spend import SpendRefused
+    from auggie.strategy import StrategyError
+
+    try:
+        from pymongo import MongoClient
+        from pymongo.errors import PyMongoError
+
+        from auggie.store.mongodb import MongoBackend
+    except ImportError:
+        out("stopped   the prospect flow needs the extra: auggie-harness[mongodb]")
+        return 1
+    stops = (
+        *BLOCKING,
+        CredentialError,
+        ExternalCallRefused,
+        SpendRefused,
+        StrategyError,
+        ValidationError,
+        PyMongoError,
+        LookupError,
+        ValueError,
+        OSError,
+    )
+    try:
+        scope = CustomerScope.model_validate_json(args.scope.read_text(encoding="utf-8"))
+    except (OSError, ValidationError) as error:
+        out(f"stopped   cannot read the scope: {type(error).__name__}")
+        return 1
+    client: MongoClient[dict[str, Any]] = MongoClient(args.mongodb, serverSelectionTimeoutMS=5000)
+    try:
+        backend = MongoBackend(client, database_prefix=args.database_prefix)
+        if args.command != "research":
+            backend.open_existing(scope)  # a mistyped name stops here instead of starting afresh
+        store = backend.open(scope)
+        return _prospect_step(args, store, out, ask)
+    except stops as error:
+        out(f"stopped   {type(error).__name__}: {error}")
+        return 1
+    finally:
+        client.close()
+
+
+def _prospect_step(
+    args: argparse.Namespace, store: Store, out: Print, ask: Callable[[str], str]
+) -> int:
+    from auggie import operate
+
+    if args.command == "research":
+        strategy = load_strategy_at(
+            args.strategy_repo, args.strategy_path, revision=args.revision, scope=store.scope
+        )
+        prospect = Account.model_validate_json(args.prospect.read_text(encoding="utf-8"))
+        acquisition: Acquisition
+        if args.replay is not None:
+            recorded = json.loads(args.replay.read_text(encoding="utf-8"))
+            responses = recorded.get("responses") if isinstance(recorded, dict) else recorded
+            if not isinstance(responses, list):
+                raise ValueError(f"{args.replay} holds no list of recorded responses")
+            acquisition = FixtureAcquisition(RecordedResponse.model_validate(r) for r in responses)
+            out(f"{store.scope.customer_id}: research from recorded responses, no provider calls")
+        else:
+            budget = RunBudget.for_scope(store.scope)
+            acquisition = TregPageText(
+                scope=store.scope,
+                credentials=CredentialFiles(args.credentials),
+                budget=budget,
+                transport=treg_transport(),
+            )
+            out(
+                f"{store.scope.customer_id}: live research through Treg, run limit "
+                f"{budget.limit_micro_usd} micro-USD"
+            )
+        out("")
+        result = operate.research_prospect(
+            store,
+            strategy=strategy,
+            prospect=prospect,
+            acquisition=acquisition,
+            operator=args.operator,
+        )
+        report_research(strategy, args.operator, result, out, show_draft=args.show_draft)
+        if result.draft is not None:
+            out("")
+            draft_id = result.draft.ref.artifact_id
+            out(f"next      auggie review ... --draft {draft_id} --reviewer <you>")
+        return 0
+    if args.command == "review":
+        approvals = operate.review_draft(
+            store,
+            draft_id=args.draft,
+            reviewer=args.reviewer,
+            ask=ask,
+            out=out,
+            delivery_days=args.delivery_days,
+        )
+        for approval in approvals:
+            out(f"recorded  {approval.scope} {approval.decision} ({approval.approval_id})")
+        return 0
+    if args.command == "deliver":
+        delivered = operate.deliver_draft(store, draft_id=args.draft)
+        again = "" if delivered.created else " (already delivered; nothing sent again)"
+        out(f"deliver   simulated hand-off of {args.draft}{again}")
+        return 0
+    recorded_outcome = operate.report_outcome(
+        store, draft_id=args.draft, outcome=args.outcome, reporter=args.reporter
+    )
+    out(f"learn     outcome {args.outcome} recorded ({recorded_outcome.event.idempotency_key})")
     return 0
 
 

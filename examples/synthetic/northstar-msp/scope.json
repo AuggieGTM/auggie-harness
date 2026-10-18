@@ -1,0 +1,11 @@
+{
+  "customer_id": "demo-msp",
+  "synthetic": true,
+  "data_namespace": "auggie_demo_msp",
+  "credential_namespace": "demo-msp",
+  "knowledge_namespace": "demo-msp-strategy",
+  "execution": {
+    "delivery": "simulated",
+    "external_providers": false
+  }
+}

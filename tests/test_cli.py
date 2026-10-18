@@ -219,3 +219,51 @@ def test_an_agent_written_sheet_is_verified_against_its_workbook(
     assert main(["verify-sheet", str(workbook), str(workbook)]) == 1
     assert "not a spreadsheets.get grid reply" in capsys.readouterr().out
     assert main(["verify-sheet", str(workbook), str(tmp_path / "missing.json")]) == 1
+
+
+def test_one_prospect_runs_from_research_to_outcome(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    files = NORTHSTAR
+    answers = iter(["y", "Claims match the cited pages.", "y"])
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(answers))
+    with mongo_backend() as backend:
+        store = ["--mongodb", os.environ[MONGODB_URI], "--database-prefix", backend.database_prefix]
+        scope = str(files / "scope.json")
+        research = [
+            "research",
+            scope,
+            str(files / "prospect.json"),
+            "--strategy-repo",
+            str(Path(__file__).resolve().parent.parent),
+            "--strategy-path",
+            "examples/synthetic/northstar-msp/inputs/strategy/msp.toml",
+            "--operator",
+            "demo-operator",
+            "--replay",
+            str(files / "inputs" / "inputs.json"),
+        ]
+        assert main([*research, *store]) == 0
+        out = capsys.readouterr().out
+        draft = out.split("--draft ")[1].split()[0]
+        assert draft.startswith("draft-northstar-run-")
+        assert main(["review", scope, "--draft", draft, "--reviewer", "demo-reviewer", *store]) == 0
+        out = capsys.readouterr().out
+        assert "| Hi Jordan," in out and "recorded  delivery approved" in out
+        assert main(["deliver", scope, "--draft", draft, *store]) == 0
+        assert main(["deliver", scope, "--draft", draft, *store]) == 0
+        assert "already delivered" in capsys.readouterr().out
+        outcome = ["outcome", scope, "--draft", draft, "--outcome", "meeting_booked"]
+        assert main([*outcome, "--reporter", "demo-reviewer", *store]) == 0
+        assert "outcome meeting_booked recorded" in capsys.readouterr().out
+        typo = ["--mongodb", os.environ[MONGODB_URI], "--database-prefix", "typo_"]
+        assert main(["deliver", scope, "--draft", draft, *typo]) == 1
+        assert "no store for 'demo-msp'" in capsys.readouterr().out
+
+
+def test_the_walkthrough_files_match_the_scenario_inputs() -> None:
+    inputs = json.loads((NORTHSTAR / "inputs/inputs.json").read_text(encoding="utf-8"))
+    assert (
+        json.loads((NORTHSTAR / "prospect.json").read_text(encoding="utf-8")) == inputs["account"]
+    )
+    assert json.loads((NORTHSTAR / "scope.json").read_text(encoding="utf-8")) == inputs["scope"]
