@@ -14,7 +14,9 @@ from auggie.cli import main
 from auggie.contracts import CustomerScope
 from auggie.prospect_list import (
     MAX_ROWS,
+    FolderRefused,
     ListRefused,
+    ProspectFolder,
     Row,
     compare,
     key_for,
@@ -125,25 +127,68 @@ def test_a_spreadsheets_byte_order_mark_and_blank_lines_are_ignored() -> None:
     assert [r.account.key for r in read if r.account] == ["acme"]
 
 
+def imported(text: str, path: Path) -> list[str]:
+    with ProspectFolder.for_writing(path) as folder:
+        return write_new(compare(rows(text), folder), folder)
+
+
+def compared(text: str, path: Path) -> list[Row]:
+    with ProspectFolder.open(path) as folder:
+        return compare(rows(text), folder)
+
+
 def test_existing_files_are_never_replaced(tmp_path: Path) -> None:
     folder = tmp_path / "prospects"
-    first = write_new(compare(rows(LIST), folder), folder)
-    assert [p.name for p in first] == ["fernhollow.json", "brightquarry.json", "saltmarsh.json"]
+    assert compared(LIST, folder)[0].status == "new" and not folder.exists()
+    assert imported(LIST, folder) == ["fernhollow.json", "brightquarry.json", "saltmarsh.json"]
     assert stat.S_IMODE(folder.stat().st_mode) == 0o700
-    assert all(stat.S_IMODE(p.stat().st_mode) == 0o600 for p in first)
+    assert all(stat.S_IMODE(p.stat().st_mode) == 0o600 for p in folder.iterdir())
     # The same list again changes nothing.
-    again = compare(rows(LIST), folder)
-    assert [r.status for r in again] == ["unchanged"] * 3
-    assert write_new(again, folder) == []
+    assert [r.status for r in compared(LIST, folder)] == ["unchanged"] * 3
+    assert imported(LIST, folder) == []
     # A changed row, or the same account under another file name, is a conflict.
     changed = LIST.replace("Casey,per-casey", "Kasey,per-casey")
     (folder / "elsewhere.json").write_text((folder / "saltmarsh.json").read_text())
     (folder / "saltmarsh.json").unlink()
-    statuses = [(r.status, r.problems) for r in compare(rows(changed), folder)]
+    statuses = [(r.status, r.problems) for r in compared(changed, folder)]
     assert statuses[0] == ("conflict", ("fernhollow.json differs; it is left as it is",))
     assert statuses[2] == ("conflict", ("elsewhere.json holds it",))
-    assert write_new(compare(rows(changed), folder), folder) == []
+    assert imported(changed, folder) == []
     assert "Casey" in (folder / "fernhollow.json").read_text()
+
+
+def test_a_folder_swapped_after_the_preview_is_not_followed(tmp_path: Path) -> None:
+    approved, outside = tmp_path / "approved", tmp_path / "outside"
+    outside.mkdir()
+    with ProspectFolder.for_writing(approved) as folder:
+        previewed = compare(rows(LIST), folder)
+        approved.rename(tmp_path / "original")
+        approved.symlink_to(outside, target_is_directory=True)
+        write_new(previewed, folder)
+    assert list(outside.iterdir()) == []
+    assert len(list((tmp_path / "original").iterdir())) == 3
+    # The swapped path itself is refused, since it is a symlink now.
+    with pytest.raises(FolderRefused, match="not a folder the harness may use"):
+        ProspectFolder.for_writing(approved)
+
+
+def test_a_folder_others_can_read_is_refused_for_writing(tmp_path: Path) -> None:
+    shared = tmp_path / "shared"
+    shared.mkdir(mode=0o755)
+    shared.chmod(0o755)
+    with pytest.raises(FolderRefused, match="can be read by others"):
+        imported(LIST, shared)
+    assert list(shared.iterdir()) == []
+
+
+@pytest.mark.parametrize(
+    "text",
+    ['name,first_name\nAcme,"Casey\nOther,Robin\n', 'name,first_name\nAcme,"Casey"x\n'],
+    ids=["unterminated-quote", "junk-after-quote"],
+)
+def test_malformed_csv_is_refused_whole_rather_than_merged(text: str) -> None:
+    with pytest.raises(ListRefused, match="not readable CSV"):
+        rows(text)
 
 
 def test_the_import_command_previews_then_writes(

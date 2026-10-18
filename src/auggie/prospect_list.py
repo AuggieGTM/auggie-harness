@@ -75,7 +75,7 @@ def read_list(text: str, *, scope: CustomerScope, strategy: Strategy) -> list[Ro
     ensure_in_scope(scope, strategy)
     if len(text.encode()) > MAX_BYTES:
         raise ListRefused(f"the list is larger than {MAX_BYTES:,} bytes")
-    reader = csv.reader(io.StringIO(text.removeprefix("﻿")))
+    reader = csv.reader(io.StringIO(text.removeprefix("\ufeff")), strict=True)
     try:
         header = [cell.strip() for cell in next(reader)]
     except StopIteration:
@@ -148,61 +148,131 @@ def _row(line: int, values: dict[str, str], scope: CustomerScope, strategy: Stra
         return Row(line, None, _problems(error))
 
 
-def file_for(folder: Path, account: Account) -> Path:
-    return folder / f"{account.key}.json"
+def file_name(account: Account) -> str:
+    return f"{account.key}.json"
 
 
-def compare(rows: Sequence[Row], folder: Path) -> list[Row]:
+class FolderRefused(ValueError):
+    """The prospect folder cannot be used as it is."""
+
+
+class ProspectFolder:
+    """One prospect folder, pinned by its descriptor, so the preview and the files written are
+    in the same directory even if its path changes in between (ADR 0027).
+
+    ``open`` never creates the folder; ``for_writing`` creates it, readable by its owner only,
+    and refuses an existing folder anyone else can read. Neither follows a symlink at the
+    folder or at a file.
+    """
+
+    def __init__(self, path: Path, descriptor: int | None) -> None:
+        self.path = path
+        self._descriptor = descriptor
+
+    @classmethod
+    def open(cls, path: Path) -> ProspectFolder:
+        """The folder for a preview: absent is allowed, and holds nothing."""
+        if not path.exists() and not path.is_symlink():
+            return cls(path, None)
+        return cls(path, cls._pin(path))
+
+    @classmethod
+    def for_writing(cls, path: Path) -> ProspectFolder:
+        if not path.exists() and not path.is_symlink():
+            path.mkdir(mode=0o700, parents=True)
+        descriptor = cls._pin(path)
+        info = os.fstat(descriptor)
+        if info.st_uid != os.getuid() or info.st_mode & 0o077:
+            os.close(descriptor)
+            raise FolderRefused(
+                f"{path} can be read by others; keep prospects in a folder only you can read "
+                "(chmod 700)"
+            )
+        return cls(path, descriptor)
+
+    @staticmethod
+    def _pin(path: Path) -> int:
+        try:
+            return os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        except OSError as error:
+            raise FolderRefused(f"{path} is not a folder the harness may use: {error}") from None
+
+    def close(self) -> None:
+        if self._descriptor is not None:
+            os.close(self._descriptor)
+            self._descriptor = None
+
+    def __enter__(self) -> ProspectFolder:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        self.close()
+
+    def accounts(self) -> dict[str, tuple[str, Account | None]]:
+        """Each file name in the folder, and the prospect it holds if it is one."""
+        if self._descriptor is None:
+            return {}
+        found: dict[str, tuple[str, Account | None]] = {}
+        for name in sorted(os.listdir(self._descriptor)):
+            if name.endswith(".json"):
+                found[name] = (name, self._read(name))
+        return found
+
+    def _read(self, name: str) -> Account | None:
+        try:
+            descriptor = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=self._descriptor)
+            with os.fdopen(descriptor, encoding="utf-8") as handle:
+                return Account.model_validate_json(handle.read())
+        except (OSError, ValidationError, UnicodeDecodeError):
+            return None
+
+    def write(self, name: str, body: str) -> None:
+        """Create ``name`` in the folder, readable by its owner only; never replace a file."""
+        if self._descriptor is None:
+            raise FolderRefused(f"{self.path} is not open for writing")
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+        descriptor = os.open(name, flags, 0o600, dir_fd=self._descriptor)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(body)
+
+
+def compare(rows: Sequence[Row], folder: ProspectFolder) -> list[Row]:
     """Each readable row as new, unchanged (an identical file exists) or a conflict (a
     different file exists for the same account or file name)."""
-    existing: dict[str, Path] = {}
-    if folder.is_dir():
-        for path in sorted(folder.glob("*.json")):
-            try:
-                found = Account.model_validate_json(path.read_text(encoding="utf-8"))
-            except (OSError, ValidationError):
-                continue
-            existing.setdefault(found.account_id, path)
+    files = folder.accounts()
+    by_account: dict[str, str] = {}
+    for name, (_, account) in files.items():
+        if account is not None:
+            by_account.setdefault(account.account_id, name)
     compared = []
     for row in rows:
         if row.account is None:
             compared.append(row)
             continue
-        path = file_for(folder, row.account)
-        held = existing.get(row.account.account_id)
-        if held is not None and held != path:
-            compared.append(replace(row, status="conflict", problems=(f"{held.name} holds it",)))
-        elif path.exists():
-            same = _same(path, row.account)
+        name = file_name(row.account)
+        held = by_account.get(row.account.account_id)
+        if held is not None and held != name:
+            compared.append(replace(row, status="conflict", problems=(f"{held} holds it",)))
+        elif name in files:
+            same = files[name][1] == row.account
             status: Status = "unchanged" if same else "conflict"
-            problems = () if same else (f"{path.name} differs; it is left as it is",)
+            problems = () if same else (f"{name} differs; it is left as it is",)
             compared.append(replace(row, status=status, problems=problems))
         else:
             compared.append(row)
     return compared
 
 
-def _same(path: Path, account: Account) -> bool:
-    try:
-        return Account.model_validate_json(path.read_text(encoding="utf-8")) == account
-    except (OSError, ValidationError):
-        return False
-
-
-def write_new(rows: Sequence[Row], folder: Path) -> list[Path]:
-    """Write each new row's prospect file, never replacing a file. The folder and files are
-    the seller's only: they hold recipients' names and addresses."""
-    folder.mkdir(mode=0o700, parents=True, exist_ok=True)
+def write_new(rows: Sequence[Row], folder: ProspectFolder) -> list[str]:
+    """Write each new row's prospect file into the pinned folder, never replacing a file. The
+    files are the seller's only: they hold recipients' names and addresses."""
     written = []
     for row in rows:
         if row.status != "new" or row.account is None:
             continue
-        path = file_for(folder, row.account)
-        body = row.account.model_dump_json(indent=2, exclude_none=True) + "\n"
-        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-            handle.write(body)
-        written.append(path)
+        name = file_name(row.account)
+        folder.write(name, row.account.model_dump_json(indent=2, exclude_none=True) + "\n")
+        written.append(name)
     return written
 
 

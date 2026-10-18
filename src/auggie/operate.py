@@ -35,6 +35,7 @@ from auggie.pipeline import (
     RunResult,
     RunTimes,
     activate_strategy,
+    complete_research,
     complete_revision,
     deliver,
     delivery_state,
@@ -164,14 +165,29 @@ def research_list(
     ``budget`` is the list's one cap, shared by every account; None when nothing is paid, as
     in a rehearsal. An account starts only when its worst case, one page ceiling for each
     source it names, fits what is left; the first that does not fit waits, with the rest.
-    Accounts already researched are skipped unless ``again``. An error stops the list.
+    Accounts already researched are skipped unless ``again``, after finishing any draft event
+    their run left unrecorded. An error stops the list.
+
+    The strategy and every prospect must belong to the store's customer, and ``budget`` must
+    be the one ``acquisition`` spends from; nothing is read or written otherwise.
     """
+    ensure_in_scope(store.scope, strategy.strategy)
+    for prospect in prospects:
+        ensure_in_scope(store.scope, prospect)
+    ids = [p.account_id for p in prospects]
+    if len(set(ids)) != len(ids):
+        raise ValueError("a list names an account twice")
+    if getattr(acquisition, "budget", None) is not budget:
+        raise ValueError("the list's budget must be the one its acquisition spends from")
     lines: list[ListLine] = []
     for n, prospect in enumerate(prospects):
         account_id = prospect.account_id
         decided = researched_as(store, account_id)
         if decided is not None and not again:
-            lines.append(ListLine(account_id, "skipped", f"already researched ({decided})"))
+            detail = f"already researched ({decided})"
+            if complete_research(store, decided):
+                detail += "; recorded its draft, which that run left unfinished"
+            lines.append(ListLine(account_id, "skipped", detail))
             continue
         pages = sum(kind in prospect.sources for kind in strategy.strategy.sources)
         worst = pages * page_ceiling_micro_usd
@@ -195,7 +211,9 @@ def research_list(
                 listings=listings,
             )
         except Exception as error:
-            lines.append(ListLine(account_id, "stopped", f"{type(error).__name__}: {error}"))
+            spent = (budget.spent_micro_usd if budget is not None else 0) - before
+            stopped = f"{type(error).__name__}: {error}"
+            lines.append(ListLine(account_id, "stopped", stopped, spent_micro_usd=spent))
             lines.extend(
                 ListLine(p.account_id, "waiting", "after the stop above")
                 for p in prospects[n + 1 :]

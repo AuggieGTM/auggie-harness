@@ -40,6 +40,8 @@ def load_prospects(folder: Path, scope: CustomerScope) -> tuple[dict[str, Accoun
     """The prospect files in ``folder`` that belong to ``scope``, by account ID, and the names of
     files skipped, with why."""
     prospects: dict[str, Account] = {}
+    files: dict[str, str] = {}
+    conflicting: set[str] = set()
     skipped: list[str] = []
     for path in sorted(folder.glob("*.json")):
         try:
@@ -50,7 +52,18 @@ def load_prospects(folder: Path, scope: CustomerScope) -> tuple[dict[str, Accoun
         if account.customer_id != scope.customer_id:
             skipped.append(f"{path.name}: belongs to {account.customer_id}")
             continue
-        prospects[account.account_id] = account
+        first = files.setdefault(account.account_id, path.name)
+        if first == path.name:
+            prospects[account.account_id] = account
+        elif prospects.get(account.account_id) == account:
+            skipped.append(f"{path.name}: repeats {first}")
+        else:
+            # Which file is meant cannot be told, so neither is used.
+            conflicting.add(account.account_id)
+            skipped.append(f"{path.name}: holds {account.account_id} as {first} does, differently")
+    for account_id in sorted(conflicting):
+        prospects.pop(account_id, None)
+        skipped.append(f"{files[account_id]}: not used, since another file holds {account_id}")
     return prospects, skipped
 
 

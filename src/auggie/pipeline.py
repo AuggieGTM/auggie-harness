@@ -487,6 +487,19 @@ def research_run(
     subject = SubjectRef(kind="account", id=account.account_id)
     run_id = times.run_id
     suffix = f"-{run_id}" if per_run_ids else ""
+    # Every ID the run will make is checked before anything is read, so a bad one never
+    # leaves a paid read behind it.
+    named = [kind for kind in strategy.strategy.sources if kind in account.sources]
+    for record_id in (
+        *(f"ev-{account.key}-{kind}{suffix}" for kind in named),
+        f"snap-{account.key}{suffix or '-001'}",
+        f"qual-{account.key}{suffix or '-001'}",
+        f"draft-{account.key}{suffix or '-001'}",
+    ):
+        try:
+            _RECORD_ID.validate_python(record_id)
+        except ValidationError:
+            raise ValueError(f"this account's record IDs would be too long: {record_id}") from None
 
     def at(planned: datetime) -> datetime:
         """When a stage happens: from the clock if given, else as planned in ``times``."""
@@ -557,21 +570,49 @@ def research_run(
         proofs=proofs,
     )
     store.put_artifact(draft)
-    _append(
+    _append_composed(store, draft, run_id)
+    return RunResult(verdicts, decision, draft, snapshot=read)
+
+
+def _append_composed(store: Store, draft: Artifact, run_id: str | None) -> Appended:
+    return _append(
         store,
         "draft.composed",
-        at=composed_at,
+        at=draft.composed_at,
         actor=COMPOSER,
         refs=[
             RecordRef(kind="artifact", id=draft.ref.artifact_id),
-            RecordRef(kind="qualification", id=decision.decision_id),
+            RecordRef(kind="qualification", id=draft.qualification_id),
             *(RecordRef(kind="evidence", id=eid) for eid in draft.evidence_ids),
             *(RecordRef(kind="careers", id=sid) for sid in draft.snapshot_ids),
         ],
         key=f"draft.composed:{draft.ref.artifact_id}",
         run_id=run_id,
     )
-    return RunResult(verdicts, decision, draft, snapshot=read)
+
+
+def complete_research(store: Store, decision_id: str) -> bool:
+    """Record the composition of a research run's draft, if the run stored the draft and
+    stopped before recording it (ADR 0015). True when it did; nothing else is redone."""
+    if not decision_id.startswith("qual-"):
+        return False
+    draft_id = "draft-" + decision_id.removeprefix("qual-")
+    key = f"draft.composed:{draft_id}"
+    if any(e.idempotency_key == key for e in store.list_events(type="draft.composed")):
+        return False
+    try:
+        draft = store.latest_artifact(draft_id)
+    except RecordNotFound:
+        return False
+    while draft.supersedes is not None:  # the version research composed, not a later edit
+        draft = store.get_artifact(draft.ref.model_copy(update={"content_hash": draft.supersedes}))
+    decided = [
+        e
+        for e in store.list_events(type="qualification.decided")
+        if RecordRef(kind="qualification", id=decision_id) in e.refs
+    ]
+    _append_composed(store, draft, decided[0].run_id if decided else None)
+    return True
 
 
 def record_revision(

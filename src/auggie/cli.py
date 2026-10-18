@@ -19,6 +19,8 @@ import subprocess
 import sys
 import tempfile
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, get_args
 
@@ -33,6 +35,7 @@ from auggie.acquisition.fixture import (
 )
 from auggie.acquisition.treg import TregPageText
 from auggie.contracts import (
+    Actor,
     Artifact,
     CustomerScope,
     QualificationDecision,
@@ -380,25 +383,27 @@ def import_command(args: argparse.Namespace, out: Print) -> int:
             args.strategy_repo, args.strategy_path, revision=args.revision, scope=scope
         ).strategy
         text = args.list.read_text(encoding="utf-8")
-        rows = prospect_list.compare(
-            prospect_list.read_list(text, scope=scope, strategy=strategy), args.prospects
+        read = prospect_list.read_list(text, scope=scope, strategy=strategy)
+        # One pinned folder for the preview and the writes: a path swapped in between is not
+        # followed. Writing refuses a folder others can read; a preview creates nothing.
+        open_folder = (
+            prospect_list.ProspectFolder.for_writing
+            if args.write
+            else prospect_list.ProspectFolder.open
         )
+        with open_folder(args.prospects) as folder:
+            rows = prospect_list.compare(read, folder)
+            for row in rows:
+                out(prospect_list.describe(row))
+            statuses = ("new", "unchanged", "conflict", "refused")
+            counts = {status: sum(r.status == status for r in rows) for status in statuses}
+            out("")
+            out(", ".join(f"{n} {status}" for status, n in counts.items()))
+            if not args.write:
+                out("Nothing written. Run again with --write to write the new prospect files.")
+                return 0
+            written = prospect_list.write_new(rows, folder)
     except (OSError, UnicodeDecodeError, StrategyError, ValueError) as error:
-        out(f"stopped   {type(error).__name__}: {error}")
-        return 1
-    for row in rows:
-        out(prospect_list.describe(row))
-    counts = {
-        s: sum(r.status == s for r in rows) for s in ("new", "unchanged", "conflict", "refused")
-    }
-    out("")
-    out(", ".join(f"{n} {status}" for status, n in counts.items()))
-    if not args.write:
-        out("Nothing written. Run again with --write to write the new prospect files.")
-        return 0
-    try:
-        written = prospect_list.write_new(rows, args.prospects)
-    except OSError as error:
         out(f"stopped   {type(error).__name__}: {error}")
         return 1
     out(f"Wrote {len(written)} prospect files to {args.prospects}.")
@@ -986,57 +991,91 @@ def _review_waiting(
     return 0
 
 
-def _research_list(args: argparse.Namespace, store: Store, out: Print) -> int:
-    """Research every prospect in the folder in one run, within one cap (ADR 0027)."""
-    from auggie import operate, queries
-    from auggie.acquisition.treg import CEILING_MICRO_USD
+@dataclass(frozen=True)
+class _PreparedList:
+    """Everything a list's run needs, checked before the Store is opened."""
 
-    strategy = load_strategy_at(
-        args.strategy_repo, args.strategy_path, revision=args.revision, scope=store.scope
-    )
-    found, skipped = queries.load_prospects(args.prospects, store.scope)
-    for ignored in skipped:
-        out(f"ignored   {ignored}")
-    prospects = list(found.values())
-    customer = store.scope.customer_id
+    strategy: LoadedStrategy
+    prospects: list[Account]
+    ignored: list[str]
     acquisition: Acquisition
     listings: ListingReader
     budget: RunBudget | None
+    clock: Callable[[], datetime]
+    header: str
+
+
+def _prepare_research_list(args: argparse.Namespace, scope: CustomerScope) -> _PreparedList:
+    """The strategy, prospects, readers and cap for ``research-list``: a refusal here comes
+    before the Store is opened."""
+    from auggie import operate, queries
+
+    Actor(kind="human", id=args.operator)  # an unusable name is refused here
+    strategy = load_strategy_at(
+        args.strategy_repo, args.strategy_path, revision=args.revision, scope=scope
+    )
+    found, ignored = queries.load_prospects(args.prospects, scope)
+    prospects = list(found.values())
     if args.replay is not None:
         recordings, listed = _recorded(args.replay)
-        acquisition, listings = FixtureAcquisition(recordings), RecordedListings(listed)
-        budget, clock = None, operate.replay_clock(recordings, listed)
-        out(f"{customer}: research of {len(prospects)} prospects from recorded responses")
-    else:
-        limit = store.scope.execution.max_run_spend_micro_usd if args.limit is None else args.limit
-        budget = RunBudget(limit)
-        acquisition = TregPageText(
-            scope=store.scope,
-            credentials=CredentialFiles(args.credentials),
-            budget=budget,
-            transport=treg_transport(),
+        return _PreparedList(
+            strategy,
+            prospects,
+            ignored,
+            FixtureAcquisition(recordings),
+            RecordedListings(listed),
+            None,
+            operate.replay_clock(recordings, listed),
+            f"{scope.customer_id}: research of {len(prospects)} prospects from recorded responses",
         )
-        listings = CareersReader(scope=store.scope, transport=listing_transport())
-        clock = operate.utc_now
-        out(
-            f"{customer}: research of {len(prospects)} prospects through Treg, one limit of "
-            f"{limit} micro-USD for the whole list"
-        )
+    limit = scope.execution.max_run_spend_micro_usd if args.limit is None else args.limit
+    budget = RunBudget(limit)
+    acquisition = TregPageText(
+        scope=scope,
+        credentials=CredentialFiles(args.credentials),
+        budget=budget,
+        transport=treg_transport(),
+    )
+    return _PreparedList(
+        strategy,
+        prospects,
+        ignored,
+        acquisition,
+        CareersReader(scope=scope, transport=listing_transport()),
+        budget,
+        operate.utc_now,
+        f"{scope.customer_id}: research of {len(prospects)} prospects through Treg, one limit "
+        f"of {limit} micro-USD for the whole list",
+    )
+
+
+def _research_list(
+    args: argparse.Namespace, store: Store, prepared: _PreparedList, out: Print
+) -> int:
+    """Research every prospect in the folder in one run, within one cap (ADR 0027)."""
+    from auggie import operate
+    from auggie.acquisition.treg import CEILING_MICRO_USD
+
+    for ignored in prepared.ignored:
+        out(f"ignored   {ignored}")
+    out(prepared.header)
+    budget = prepared.budget
     out("")
     lines = operate.research_list(
         store,
-        strategy=strategy,
-        prospects=prospects,
-        acquisition=acquisition,
+        strategy=prepared.strategy,
+        prospects=prepared.prospects,
+        acquisition=prepared.acquisition,
         operator=args.operator,
         budget=budget,
         page_ceiling_micro_usd=CEILING_MICRO_USD,
         again=args.again,
-        now=clock,
-        listings=listings,
+        now=prepared.clock,
+        listings=prepared.listings,
     )
     for line in lines:
-        cost = f" (spent {line.spent_micro_usd} micro-USD)" if budget and line.result else ""
+        paid = line.status in ("researched", "stopped")
+        cost = f" (spent {line.spent_micro_usd} micro-USD)" if budget and paid else ""
         out(f"{line.status:<10} {line.account_id:<28} {line.detail}{cost}")
     counts = {
         s: sum(line.status == s for line in lines) for s in ("researched", "skipped", "waiting")
@@ -1096,10 +1135,16 @@ def prospect_command(args: argparse.Namespace, out: Print, ask: Callable[[str], 
     except (OSError, ValidationError) as error:
         out(f"stopped   cannot read the scope: {type(error).__name__}")
         return 1
+    prepared = None
     if args.command == "research-list":
         refused = _cannot_research_list(args, scope)
         if refused is not None:
             out(f"stopped   {refused}")
+            return 1
+        try:
+            prepared = _prepare_research_list(args, scope)
+        except stops as error:
+            out(f"stopped   {type(error).__name__}: {error}")
             return 1
     client: MongoClient[dict[str, Any]] = MongoClient(args.mongodb, serverSelectionTimeoutMS=5000)
     try:
@@ -1107,6 +1152,8 @@ def prospect_command(args: argparse.Namespace, out: Print, ask: Callable[[str], 
         if args.command not in ("research", "research-list"):
             backend.open_existing(scope)  # a mistyped name stops here instead of starting afresh
         store = backend.open(scope)
+        if prepared is not None:
+            return _research_list(args, store, prepared, out)
         return _prospect_step(args, store, out, ask)
     except SendUnknown as error:
         out(f"stopped   {error}")
@@ -1127,8 +1174,6 @@ def _prospect_step(
 ) -> int:
     from auggie import operate
 
-    if args.command == "research-list":
-        return _research_list(args, store, out)
     if args.command == "research":
         strategy = load_strategy_at(
             args.strategy_repo, args.strategy_path, revision=args.revision, scope=store.scope

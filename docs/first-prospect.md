@@ -313,15 +313,18 @@ uv run auggie review $K/scope.json --next --reviewer "your name" $M
   column per source kind your strategy names, and `listing_service`, `listing_board` and
   `listing_url` together. Any other column refuses the whole list, since it is probably a typo.
   Only `--write` writes, and only new files: a file that already exists is never replaced. The
-  files hold your recipients' names and addresses, so keep the folder outside the clone; the
-  harness makes it readable by you alone.
+  files hold your recipients' names and addresses, so keep the folder outside the clone. The
+  harness creates it readable by you alone, and refuses to write into a folder others can
+  read.
 - `research-list` researches every prospect file in the folder, in file-name order, in one run.
   The whole list shares one spending limit: your scope's per-run limit, or a lower
   `--limit`. An account starts only when its worst case, at most $0.002 for each page it
   names, fits what is left; the rest wait for your next run. Accounts already researched are
-  skipped unless you add `--again`, so an interrupted list resumes without paying twice. An
-  error stops the list, and its report says what was researched, skipped and waiting, and what
-  each account spent.
+  skipped unless you add `--again`, so an interrupted list resumes without paying again for
+  the accounts it finished. An account that stopped partway is researched again from its
+  start, and its pages are paid for again. An error stops the list, and its report says what
+  was researched, skipped and waiting, and what each account spent. Two prospect files that
+  hold one account differently are both left out, and the report names them.
 - `review --next` shows the oldest draft waiting for you, then asks whether to go on. Each draft
   is still reviewed and approved on its own.
 

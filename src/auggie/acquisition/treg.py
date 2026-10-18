@@ -100,6 +100,11 @@ class TregPageText:
         self._now = now
         self._new_key = new_key
 
+    @property
+    def budget(self) -> RunBudget:
+        """The run budget every call is reserved against."""
+        return self._budget
+
     def acquire(
         self, *, evidence_id: str, customer_id: str, subject: SubjectRef, url: HttpUrl
     ) -> Acquired:
