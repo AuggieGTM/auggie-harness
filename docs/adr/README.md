@@ -20,7 +20,7 @@ behavior or the public boundary. The process is described in
 | [0005](0005-evidence-and-approval-gates.md) | Evidence before judgment; human approval before delivery | Accepted |
 | [0006](0006-delivery-through-existing-platforms.md) | Deliver through existing sending platforms; no SMTP | Superseded by [0020](0020-one-delivery-adapter-per-sending-platform.md) |
 | [0007](0007-single-task-scheduler.md) | One task scheduler: Herdr or Foreman | Open |
-| [0008](0008-treg-for-acquisition.md) | Treg for data acquisition, behind an adapter | Accepted |
+| [0008](0008-treg-for-acquisition.md) | Treg for data acquisition, behind an adapter | Superseded by [0024](0024-careers-snapshots-and-hiring-tallies.md) |
 | [0009](0009-judgment-and-synthesis-engines.md) | Judgment and synthesis engines | Accepted |
 | [0010](0010-public-repository-boundary.md) | Public repository boundary | Accepted |
 | [0011](0011-sageox-engineering-context.md) | SageOx holds engineering context, not customer intelligence | Accepted |
@@ -35,5 +35,5 @@ behavior or the public boundary. The process is described in
 | [0020](0020-one-delivery-adapter-per-sending-platform.md) | One delivery adapter per sending platform, the seller's mailbox first | Accepted |
 | [0021](0021-the-sellers-gmail-credential.md) | The seller's Gmail credential | Accepted |
 | [0022](0022-live-delivery-records.md) | Live delivery records | Accepted |
-| [0023](0023-signal-vocabulary-in-the-strategy.md) | The seller's strategy holds the signal vocabulary | Proposed |
-| [0024](0024-careers-snapshots-and-hiring-tallies.md) | Careers snapshots and hiring tallies | Proposed |
+| [0023](0023-signal-vocabulary-in-the-strategy.md) | The seller's strategy holds the signal vocabulary | Accepted |
+| [0024](0024-careers-snapshots-and-hiring-tallies.md) | Careers snapshots and hiring tallies | Accepted |

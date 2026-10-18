@@ -1,8 +1,8 @@
 # ADR 0024: Careers snapshots and hiring tallies
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-18
-- **Would supersede:** [ADR 0008](0008-treg-for-acquisition.md)
+- **Supersedes:** [ADR 0008](0008-treg-for-acquisition.md)
 
 ## Context
 
@@ -17,10 +17,10 @@ pages. Reading one is one request, or a few paged ones, costs nothing, and gives
 title, team, location and link, and often a date.
 
 [ADR 0008](0008-treg-for-acquisition.md) says that Treg handles data acquisition. Reading these
-feeds directly is an exception to that, so this ADR would supersede 0008 by restating it with
-the exception.
+feeds directly is an exception to that, so this ADR supersedes 0008 by restating it with the
+exception.
 
-## Decision (proposed)
+## Decision
 
 **Acquisition (restating ADR 0008, with one exception)**
 
@@ -126,7 +126,7 @@ the exception.
 
 ## Consequences
 
-- On acceptance, ADR 0008 is marked superseded. Treg's routes, spend checks
+- ADR 0008 is superseded. Treg's routes, spend checks
   ([ADR 0016](0016-credentials-and-spend-limits.md)) and retention terms
   ([ADR 0017](0017-first-treg-route.md)) are unchanged.
 - A failed listing read never falls back to a paid Treg page read.

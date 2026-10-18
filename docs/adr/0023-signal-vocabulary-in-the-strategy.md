@@ -1,6 +1,6 @@
 # ADR 0023: The seller's strategy holds the signal vocabulary
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-18
 
 ## Context
@@ -16,7 +16,7 @@ The strategy file ([ADR 0013](0013-strategy-files.md)) has three criterion rules
 page). None of them can count roles by family, compare one reading with an earlier one, or ask
 for a technology's name to appear near certain words.
 
-## Decision (proposed)
+## Decision
 
 **The vocabulary**
 

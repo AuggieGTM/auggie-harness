@@ -1,6 +1,6 @@
 # ADR 0008: Treg for data acquisition, behind an adapter
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR 0024](0024-careers-snapshots-and-hiring-tallies.md)
 - **Date:** 2026-10-17
 
 ## Context

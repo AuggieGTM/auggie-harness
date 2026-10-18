@@ -92,9 +92,9 @@ Who is hiring for what, which technologies an account runs, and what changed, in
 own vocabulary.
 
 - The seller's strategy holds the vocabulary: hiring families, pattern thresholds and stack
-  terms ([ADR 0023](docs/adr/0023-signal-vocabulary-in-the-strategy.md), Proposed).
+  terms ([ADR 0023](docs/adr/0023-signal-vocabulary-in-the-strategy.md)).
 - Careers snapshots, read whole from listing services' public feeds, and hiring tallies counted
-  by rules ([ADR 0024](docs/adr/0024-careers-snapshots-and-hiring-tallies.md), Proposed).
+  by rules ([ADR 0024](docs/adr/0024-careers-snapshots-and-hiring-tallies.md)).
 - A hiring tab in the workbook.
 
 **Gate:** two synthetic sellers in different domains qualify and draft from their own
