@@ -87,7 +87,7 @@ checks are done: one paid Treg page fetch, and one Gmail send from the maintaine
 if any work must run in the background. *M3 runs stay operator-triggered from the CLI, so ADR 0007
 can stay open.*
 
-## M4: Signals (In progress)
+## M4: Signals (Done on synthetic data)
 
 Who is hiring for what, which technologies an account runs, and what changed, in the seller's
 own vocabulary.
@@ -100,8 +100,9 @@ own vocabulary.
   by rules ([ADR 0024](docs/adr/0024-careers-snapshots-and-hiring-tallies.md)). *Built: readers
   for Lever, Greenhouse and Ashby, tested on synthetic replies only; research counts hiring from
   the run's read, and findings and drafts cite their snapshots. The second seller's scenario
-  qualifies and drafts from a replayed listing. Not built: a play field that quotes a hiring
-  rationale, and Lever's EU-hosted boards. None of the three services documents when a role
+  qualifies and drafts from a replayed listing. A play quotes the tally's count, family and date
+  through the fields of [ADR 0026](docs/adr/0026-the-sellers-point-of-view.md). Not built:
+  Lever's EU-hosted boards. None of the three services documents when a role
   was posted, so the long-listed pattern is never met for them: it stays unknown for a family
   with open roles.*
 - A hiring tab in the workbook. *Built.*
@@ -116,7 +117,7 @@ role links; a failed listing read leaves its criteria unknown. *Met on synthetic
 2026-10-18: the IT-services and security sellers both qualify and draft, and the tests cover
 each part. No listing has been read live yet.*
 
-## M5: The seller's point of view (In progress)
+## M5: The seller's point of view (Done on synthetic data)
 
 - Proof points as exact claims from the seller's case studies, each with one source and marked
   as a vendor claim, and pains with where the seller fits, where it stops, and its approved
@@ -129,9 +130,10 @@ each part. No listing has been read live yet.*
   has been read live.*
 
 **Gate:** every proof in a draft is a vendor claim with exactly one source, quoted exactly; a
-person still approves each draft.
+person still approves each draft. *Met on synthetic data on 2026-10-18; no proof page has been
+read live yet.*
 
-## M6: Many accounts (In progress)
+## M6: Many accounts (Done on synthetic data)
 
 *Decided: [ADR 0027](docs/adr/0027-many-accounts.md). Built: `auggie import`, `auggie
 research-list` and `auggie review --next`, tested on the security seller's synthetic list, with
@@ -142,7 +144,8 @@ recorded responses and a fake Treg only. No list has been researched live.*
 - `review --next` through the drafts waiting for a person.
 
 **Gate:** a list of accounts is researched in one run within its cap, and each draft is still
-approved on its own.
+approved on its own. *Met on synthetic data on 2026-10-18; no list has been researched live
+yet.*
 
 ## M7: Proven in real deployments (Planned)
 
@@ -166,6 +169,7 @@ reproduce what was learned, land here.
   of [ADR 0022](docs/adr/0022-live-delivery-records.md), tested against a fake Google. Nothing
   has been sent through it yet.*
 - Outcome intake and strategy-revision proposals that people review in Git.
+  *Decided: [ADR 0028](docs/adr/0028-learning-from-outcomes.md).*
 
 ## Later, each its own decision
 

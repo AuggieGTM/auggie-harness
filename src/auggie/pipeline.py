@@ -656,6 +656,7 @@ def record_revision(
         evidence_ids=edited.evidence_ids,
         snapshot_ids=edited.snapshot_ids,
         strategy=edited.strategy,
+        play=edited.play,
         point_of_view=view,
         composed_by=by,
         composed_at=at,

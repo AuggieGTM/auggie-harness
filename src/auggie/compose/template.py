@@ -223,5 +223,6 @@ def compose_draft(
         strategy=strategy.ref,
         composed_by=COMPOSER,
         composed_at=at,
+        play=play.id,
         point_of_view=point_of_view,
     )

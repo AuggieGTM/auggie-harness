@@ -40,3 +40,4 @@ behavior or the public boundary. The process is described in
 | [0025](0025-the-research-shell.md) | The research shell | Accepted |
 | [0026](0026-the-sellers-point-of-view.md) | The seller's point of view: pains, proofs and offers | Accepted |
 | [0027](0027-many-accounts.md) | Many accounts: importing a list, researching it, reviewing its drafts | Accepted |
+| [0028](0028-learning-from-outcomes.md) | Learning from outcomes: a report, and proposals as a patch | Accepted |

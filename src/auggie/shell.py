@@ -25,6 +25,7 @@ from auggie.contracts.events import OutcomeKind
 from auggie.delivery import Sender
 from auggie.external import require_external_calls
 from auggie.judgment.rules import SERVICES
+from auggie.learning import learn_view
 from auggie.pipeline import read_proof_pages, reads_listing, record_page, record_snapshot
 from auggie.queries import (
     account_ids,
@@ -52,6 +53,7 @@ questions (answers from the records; nothing is read or spent)
   stack [<account>]             where admitted pages name the strategy's technologies
   hiring [<account>]            each account's newest listing read, counted by your families
   proofs                        each proof in your strategy, and whether a draft may quote it
+  learn                         what each delivery led to, by play, pain, proof and criterion
 reading (asks before any paid or external call)
   fetch <account> <url>         read one page and record it as evidence
   hiring <account> --read       read the account's careers listing now, free
@@ -214,6 +216,13 @@ def _read_listing(session: Session, account_id: str) -> bool:
     )
     session.out(f"recorded  {snapshot.snapshot_id} {snapshot.status} {listing.url}")
     return True
+
+
+def _learn(session: Session, args: list[str]) -> None:
+    if args:
+        raise ValueError("usage: learn")
+    for line in render_learn(learn_view(session.store)):
+        session.out(line)
 
 
 def _proofs(session: Session, args: list[str]) -> None:
@@ -400,6 +409,7 @@ COMMANDS: dict[str, Callable[[Session, list[str]], None]] = {
     "stack": _stack,
     "hiring": _hiring,
     "proofs": _proofs,
+    "learn": _learn,
     "fetch": _fetch,
     "research": _research,
     "review": _review,
@@ -497,6 +507,26 @@ def render_hiring(row: Mapping[str, Any]) -> list[str]:
             f"{pattern['reason']} [{', '.join(pattern['snapshots'])}]"
         )
         lines.extend(f"      {e['title']} {e['url']}" for e in pattern["examples"])
+    return lines
+
+
+def render_learn(view: Mapping[str, Any]) -> list[str]:
+    lines = [
+        f"{view['deliveries']} deliveries. A rate is positive deliveries over settled ones "
+        "(positive or negative); deliveries still waiting do not count."
+    ]
+    for group in ("plays", "pains", "proofs", "criteria"):
+        rows = view[group]
+        if not rows:
+            continue
+        lines.append(group)
+        for row in rows:
+            rate = f"{row['rate']:.0%}" if row["rate"] is not None else "none settled"
+            lines.append(
+                f"  {row['key']:<28} {row['delivered']} delivered: {row['positive']} positive, "
+                f"{row['negative']} negative ({row['opted_out']} opted out), {row['bounced']} "
+                f"bounced, {row['waiting']} waiting; rate {rate}"
+            )
     return lines
 
 

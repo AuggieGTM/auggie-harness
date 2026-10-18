@@ -105,6 +105,8 @@ class Artifact(Contract):
     composed_by: Actor
     composed_at: UtcDatetime
     supersedes: Digest | None = None
+    play: Slug | None = None
+    """The play it was composed from (ADR 0028); drafts from before then have none."""
     point_of_view: PointOfView | None = None
 
     @model_validator(mode="after")

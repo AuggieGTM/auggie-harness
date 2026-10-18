@@ -548,7 +548,7 @@ def _add_prospect_commands(commands: Any) -> None:
     outcome.add_argument("--reporter", required=True, help="your name, recorded on the outcome")
 
 
-QUERY_COMMANDS = ("accounts", "brief", "find", "stack", "hiring", "proofs")
+QUERY_COMMANDS = ("accounts", "brief", "find", "stack", "hiring", "proofs", "learn")
 
 
 def _add_shell_commands(commands: Any) -> None:
@@ -587,6 +587,7 @@ def _add_shell_commands(commands: Any) -> None:
         ("stack", "where admitted pages name the strategy's technologies"),
         ("hiring", "each account's newest careers listing read, counted by your families"),
         ("proofs", "each proof in the strategy, and whether a draft may quote it"),
+        ("learn", "what each delivery led to, by play, pain, proof and criterion"),
     ):
         reads = name in ("hiring", "proofs")
         command = common(name, help + (" (read-only unless --read)" if reads else " (read-only)"))
@@ -720,6 +721,11 @@ def _answer(
     elif args.command == "find":
         view = queries.find_view(store, " ".join(args.words), args.account)
         lines = [research_shell.render_find(row) for row in view]
+    elif args.command == "learn":
+        from auggie.learning import learn_view
+
+        view = learn_view(store)
+        lines = research_shell.render_learn(view)
     elif loaded is None:
         out(f"stopped   {args.command} needs --strategy-repo and --strategy-path")
         return 1
