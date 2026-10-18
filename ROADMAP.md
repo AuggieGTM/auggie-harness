@@ -50,9 +50,11 @@ contract ([ADR 0014](docs/adr/0014-artifact-contract.md)), both Accepted.
 
 - One Treg acquisition route ([ADR 0008](docs/adr/0008-treg-for-acquisition.md)). *Built:
   `exa.web.contents.get` over HTTP, one Treg organization per customer
-  ([ADR 0017](docs/adr/0017-first-treg-route.md)), tested against synthetic replies. Not yet
-  run live: that needs a Treg organization, a token and a run budget, and Treg's and Exa's
-  retention terms confirmed.*
+  ([ADR 0017](docs/adr/0017-first-treg-route.md)), tested against synthetic replies. Live-checked
+  on 2026-10-18 through the harness's adapter with a test team's agent token: the request and
+  Treg's 402 refusal (an unfunded team) worked end to end, and nothing was charged. Treg's 402
+  carries no charge header, so the run budget counted the full ceiling, as ADR 0016 requires. A
+  paid page fetch waits for a funded customer team and confirmed Treg and Exa retention terms.*
 - A judgment engine chosen ([ADR 0009](docs/adr/0009-judgment-and-synthesis-engines.md)). *Decided:
   rules for judgment, templates for synthesis.*
 - Read-only Sheets/Docs projection. *Built: four managed tabs regenerated from the Store, with
