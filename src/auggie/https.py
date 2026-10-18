@@ -51,11 +51,18 @@ class NoRedirects(urllib.request.HTTPRedirectHandler):
 
 
 class LimitedTransport:
-    """Sends requests with the standard library, only to ``origins``, never following redirects."""
+    """Sends requests with the standard library, only to ``origins``, never following redirects.
 
-    def __init__(self, origins: tuple[str, ...], provider: str) -> None:
+    A reply body is read up to ``max_body_bytes`` and one byte more, so a caller can tell an
+    oversized reply from one that fits.
+    """
+
+    def __init__(
+        self, origins: tuple[str, ...], provider: str, max_body_bytes: int = MAX_BODY_BYTES
+    ) -> None:
         self._origins = origins
         self._provider = provider
+        self._max_body_bytes = max_body_bytes
         self._opener = urllib.request.build_opener(NoRedirects)
 
     def send(self, request: HttpRequest) -> HttpResponse:
@@ -67,8 +74,8 @@ class LimitedTransport:
         try:
             try:
                 with self._opener.open(outgoing, timeout=request.timeout) as reply:
-                    body = reply.read(MAX_BODY_BYTES + 1)
-                    if len(body) <= MAX_BODY_BYTES and getattr(reply, "length", None):
+                    body = reply.read(self._max_body_bytes + 1)
+                    if len(body) <= self._max_body_bytes and getattr(reply, "length", None):
                         # The reply ended before the length it announced.
                         raise OSError(f"the {self._provider} reply was cut short")
                     return HttpResponse(
@@ -78,7 +85,7 @@ class LimitedTransport:
                 return HttpResponse(
                     error.code,
                     {k.lower(): v for k, v in error.headers.items()},
-                    error.read(MAX_BODY_BYTES + 1),
+                    error.read(self._max_body_bytes + 1),
                 )
         except (http.client.HTTPException, ValueError):
             # Not chained: these errors can quote the request's headers, token included.

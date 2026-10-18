@@ -1,0 +1,46 @@
+{
+  "status": 200,
+  "headers": {
+    "content-type": "application/json; charset=utf-8"
+  },
+  "body": {
+    "apiVersion": "1",
+    "jobs": [
+      {
+        "title": "Detection and Response Manager",
+        "location": "London, UK",
+        "department": "Security",
+        "team": "Detection and Response",
+        "isListed": true,
+        "isRemote": false,
+        "employmentType": "FullTime",
+        "publishedAt": "2026-10-06T08:00:00.000+00:00",
+        "jobUrl": "https://jobs.ashby.example/saltmarsh/00000000-0000-4000-8000-0000000000a1",
+        "applyUrl": "https://jobs.ashby.example/saltmarsh/00000000-0000-4000-8000-0000000000a1/application"
+      },
+      {
+        "title": "IAM Engineer",
+        "location": "Remote (EMEA)",
+        "department": "Security",
+        "isListed": true,
+        "isRemote": true,
+        "employmentType": "FullTime",
+        "publishedAt": "2026-09-15T08:00:00.000+00:00",
+        "jobUrl": "https://jobs.ashby.example/saltmarsh/00000000-0000-4000-8000-0000000000a2",
+        "applyUrl": "https://jobs.ashby.example/saltmarsh/00000000-0000-4000-8000-0000000000a2/application"
+      },
+      {
+        "title": "Detection Engineer (referral only)",
+        "location": "London, UK",
+        "department": "Security",
+        "team": "Detection and Response",
+        "isListed": false,
+        "isRemote": false,
+        "employmentType": "FullTime",
+        "publishedAt": "2026-10-01T08:00:00.000+00:00",
+        "jobUrl": "https://jobs.ashby.example/saltmarsh/00000000-0000-4000-8000-0000000000a3",
+        "applyUrl": "https://jobs.ashby.example/saltmarsh/00000000-0000-4000-8000-0000000000a3/application"
+      }
+    ]
+  }
+}

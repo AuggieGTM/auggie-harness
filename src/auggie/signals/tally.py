@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Literal
+from typing import Literal, Protocol
 
 from auggie.contracts.strategy import Hiring, PatternName
 from auggie.signals import JUNIOR_OR_MID, MANAGER_OR_ABOVE, SENIOR_OR_ABOVE, family_of, level_of
@@ -70,14 +70,19 @@ class Outcome:
     readings: tuple[str, ...] = ()
 
 
-def count_once(roles: Iterable[Role]) -> tuple[tuple[Role, ...], bool]:
-    """Each role once, by its ID, and whether the copies agreed.
+class Identified(Protocol):
+    @property
+    def role_id(self) -> str: ...
+
+
+def count_once[R: Identified](roles: Iterable[R]) -> tuple[tuple[R, ...], bool]:
+    """Each role once, by its ID, in the order first seen, and whether the copies agreed.
 
     Identical copies, as pages that overlap produce, collapse into one. Copies of one ID
     that differ mean the listing gave two answers: the reading is then inconsistent
     (ADR 0024).
     """
-    seen: dict[str, Role] = {}
+    seen: dict[str, R] = {}
     consistent = True
     for role in roles:
         known = seen.setdefault(role.role_id, role)

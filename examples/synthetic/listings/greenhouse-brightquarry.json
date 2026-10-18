@@ -1,0 +1,49 @@
+{
+  "status": 200,
+  "headers": {
+    "content-type": "application/json; charset=utf-8"
+  },
+  "body": {
+    "jobs": [
+      {
+        "id": 4100001,
+        "internal_job_id": 3100001,
+        "title": "Threat Detection Engineer",
+        "updated_at": "2026-10-02T14:05:11-04:00",
+        "requisition_id": "SEC-101",
+        "location": {
+          "name": "Denver, CO"
+        },
+        "absolute_url": "https://boards.greenhouse.example/brightquarry/jobs/4100001",
+        "metadata": null
+      },
+      {
+        "id": 4100002,
+        "internal_job_id": 3100002,
+        "title": "Security Operations Lead",
+        "updated_at": "2026-09-21T09:30:00-04:00",
+        "requisition_id": "SEC-102",
+        "location": {
+          "name": "Remote"
+        },
+        "absolute_url": "https://boards.greenhouse.example/brightquarry/jobs/4100002",
+        "metadata": null
+      },
+      {
+        "id": 4100003,
+        "internal_job_id": 3100003,
+        "title": "Staff Software Engineer, Scheduling",
+        "updated_at": "2026-10-10T16:45:00-04:00",
+        "requisition_id": "ENG-207",
+        "location": {
+          "name": "Denver, CO"
+        },
+        "absolute_url": "https://boards.greenhouse.example/brightquarry/jobs/4100003",
+        "metadata": null
+      }
+    ],
+    "meta": {
+      "total": 3
+    }
+  }
+}
