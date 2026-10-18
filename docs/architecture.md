@@ -46,7 +46,7 @@ later runs use it ([ADR 0005](adr/0005-evidence-and-approval-gates.md)).
 | GitHub | Approved strategy and executable configuration | Authoritative for what is approved | [0003](adr/0003-systems-of-record.md) |
 | MongoDB Community, one database per customer, behind a typed Store API | Evidence, decisions, approvals, events, outcomes | Operational system of record | [0003](adr/0003-systems-of-record.md), [0015](adr/0015-mongodb-store-layout.md) |
 | Google Sheets / Docs | Read-only working and review views | None: projections of the Store | [0003](adr/0003-systems-of-record.md) |
-| EmailBison / Instantly | Sending | Delivery receipts only | [0006](adr/0006-delivery-through-existing-platforms.md) |
+| The seller's mailbox (Gmail, Microsoft 365) | Sending | Delivery receipts only | [0020](adr/0020-one-delivery-adapter-per-sending-platform.md) |
 | SageOx | Shared engineering context and rationale | None over execution; never customer intelligence | [0011](adr/0011-sageox-engineering-context.md) |
 
 Every operational record that depends on strategy carries a `StrategyRef`: Git commit, path and
@@ -89,7 +89,7 @@ flowchart LR
   J[Judgment: rules; synthesis: templates] --> S
   S[Typed Store API] --> M[(MongoDB Community, per customer)]
   S --> P[Projections: Sheets / Docs]
-  S --> DA[Delivery adapter] --> E[EmailBison / Instantly]
+  S --> DA[Delivery adapter] --> E[Seller's mailbox]
   R{{One task scheduler: Herdr or Foreman}} -.-> S
 ```
 
@@ -101,7 +101,7 @@ flowchart LR
 | Acquisition (Treg) | Data acquisition, recorded as `SourceEvidence` | First route built, tested on synthetic replies ([0008](adr/0008-treg-for-acquisition.md), [0017](adr/0017-first-treg-route.md)) |
 | Judgment and synthesis | Deterministic rules and play templates; model engines only after evaluation | **Exists** ([0009](adr/0009-judgment-and-synthesis-engines.md)) |
 | Task scheduler | Exactly one; Herdr or Foreman | **Open** ([0007](adr/0007-single-task-scheduler.md)) |
-| Delivery adapter | Thin hand-off to EmailBison/Instantly; simulated first | Simulated gate exists; platforms not built ([0006](adr/0006-delivery-through-existing-platforms.md)) |
+| Delivery adapter | One thin adapter per sending platform, the seller's mailbox first; simulated first | Simulated gate exists; adapters not built ([0020](adr/0020-one-delivery-adapter-per-sending-platform.md)) |
 | Projections | Sheets/Docs views generated from the Store | CSV, agent connector (live-checked) and service account (fake-tested) ([0003](adr/0003-systems-of-record.md), [0019](adr/0019-projection-writers-and-agent-connectors.md)) |
 
 ## Contracts
@@ -162,11 +162,12 @@ src/auggie/
   acquisition/   Exists    fixture replay, evidence validation, Treg page text (ADR 0017)
   judgment/      Exists    deterministic rules behind the Qualifier interface (ADR 0009)
   compose/       Exists    draft composition from strategy play templates; briefs proposed
-  approval/      Exists    recording a reviewer's decision; review workflow proposed
-  delivery/      Exists    authorization gate, simulated only; EmailBison/Instantly later
+  approval/      Exists    recording a reviewer's decision; review and revise at a terminal
+  delivery/      Exists    authorization gate, simulated only; the seller's mailbox later
   pipeline.py    Exists    the slice as plain sequential calls
   synthetic.py   Exists    run a synthetic scenario from its inputs
-  cli.py         Exists    `auggie run`, `auggie project`, `auggie treg-fetch`
+  operate.py     Exists    one prospect: research, review, revise, deliver, outcome
+  cli.py         Exists    `auggie run`, `project`, `verify-sheet`, `treg-fetch`, prospect steps
   external.py    Exists    the gate in front of every external call
   projections/   Exists    read-only tabs: CSV, agent workbook + verify, Google Sheet (ADR 0019)
 examples/synthetic/  Exists  synthetic fixtures only

@@ -1,8 +1,8 @@
 # ADR 0020: One delivery adapter per sending platform, the seller's mailbox first
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-18
-- **Would supersede:** [ADR 0006](0006-delivery-through-existing-platforms.md)
+- **Supersedes:** [ADR 0006](0006-delivery-through-existing-platforms.md)
 
 ## Context
 
@@ -40,7 +40,7 @@ return:
    access and plans vary by company, and these platforms run multi-step sequences, while the
    harness approves one message at a time.
 
-## Decision (proposed)
+## Decision
 
 - Delivery has one thin adapter per sending platform. Each deployment uses the platform it
   already sends from, and a delivery approval names that platform, as it does today.
@@ -81,7 +81,6 @@ return:
   OAuth tokens are renewed, and the harness never writes secrets, so how the seller obtains,
   stores and renews this one is decided with the adapter. If the harness would have to write it,
   that needs a change to ADR 0016 first.
-- On acceptance, ADR 0006 is marked superseded, `DeliveryPlatform` gains values for the mailbox
-  platforms while `emailbison` and `instantly` stay ([ADR 0012](0012-contract-conventions.md)),
-  and the architecture and roadmap name the adapters.
+- When the mailbox adapter is built, `DeliveryPlatform` gains values for the mailbox platforms,
+  and `emailbison` and `instantly` stay ([ADR 0012](0012-contract-conventions.md)).
 - Not built. Delivery stays simulated.

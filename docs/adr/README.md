@@ -18,7 +18,7 @@ behavior or the public boundary. The process is described in
 | [0003](0003-systems-of-record.md) | Git for approved strategy, MongoDB per customer for operations, Google for views | Accepted |
 | [0004](0004-customer-isolation.md) | Isolate each customer's credentials, data, knowledge and execution | Accepted |
 | [0005](0005-evidence-and-approval-gates.md) | Evidence before judgment; human approval before delivery | Accepted |
-| [0006](0006-delivery-through-existing-platforms.md) | Deliver through existing sending platforms; no SMTP | Accepted |
+| [0006](0006-delivery-through-existing-platforms.md) | Deliver through existing sending platforms; no SMTP | Superseded by [0020](0020-one-delivery-adapter-per-sending-platform.md) |
 | [0007](0007-single-task-scheduler.md) | One task scheduler: Herdr or Foreman | Open |
 | [0008](0008-treg-for-acquisition.md) | Treg for data acquisition, behind an adapter | Accepted |
 | [0009](0009-judgment-and-synthesis-engines.md) | Judgment and synthesis engines | Accepted |
@@ -32,4 +32,4 @@ behavior or the public boundary. The process is described in
 | [0017](0017-first-treg-route.md) | First Treg route: page text over HTTP | Accepted |
 | [0018](0018-sheets-projection.md) | Read-only Google Sheets projection | Superseded by [0019](0019-projection-writers-and-agent-connectors.md) |
 | [0019](0019-projection-writers-and-agent-connectors.md) | Projection writers, and what an agent's connectors may do | Accepted |
-| [0020](0020-one-delivery-adapter-per-sending-platform.md) | One delivery adapter per sending platform, the seller's mailbox first | Proposed |
+| [0020](0020-one-delivery-adapter-per-sending-platform.md) | One delivery adapter per sending platform, the seller's mailbox first | Accepted |

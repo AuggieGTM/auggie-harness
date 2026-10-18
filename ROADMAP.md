@@ -94,10 +94,10 @@ reproduce what was learned, land here.
 
 ## M5: Delivery and learning (Later)
 
-- Delivery adapters behind delivery approval. ADR 0006 names EmailBison and Instantly;
-  [ADR 0020](docs/adr/0020-one-delivery-adapter-per-sending-platform.md) (Proposed) would add
-  one adapter per sending platform: the seller's own mailbox here, with room for others such as
-  Instantly.
+- Delivery adapters behind delivery approval, one per sending platform: the seller's own
+  mailbox, Gmail and then Microsoft 365 ([ADR 0020](docs/adr/0020-one-delivery-adapter-per-sending-platform.md)).
+  First, how the seller obtains, stores and renews the mailbox credential, since the harness
+  never writes secrets ([ADR 0016](docs/adr/0016-credentials-and-spend-limits.md)).
 - Outcome intake and strategy-revision proposals that people review in Git.
 
 ## Public release readiness (Later)

@@ -1,6 +1,6 @@
 # ADR 0006: Deliver through existing sending platforms; no SMTP
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR 0020](0020-one-delivery-adapter-per-sending-platform.md)
 - **Date:** 2026-10-17
 
 ## Context
