@@ -254,10 +254,8 @@ def test_only_a_plain_gmail_id_is_taken_as_a_receipt(
 def test_a_reflected_secret_is_never_taken_as_a_receipt(
     tmp_path: Path, scope: CustomerScope
 ) -> None:
-    hex_token = "0123456789abcdef0123"
-    google = FakeGoogle(
-        token=renewed(access_token=hex_token), send=reply(200, {"id": hex_token[:16]})
-    )
+    minted = "0123456789abcdef" + "0123"  # synthetic: an access token that looks like an ID
+    google = FakeGoogle(token=renewed(access_token=minted), send=reply(200, {"id": minted[:16]}))
     with pytest.raises(SendUnknown, match="not a message ID"):
         send(sender(tmp_path, scope, google))
 

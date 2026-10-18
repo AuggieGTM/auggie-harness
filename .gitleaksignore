@@ -1,0 +1,3 @@
+# Synthetic test values that gitleaks's generic-api-key rule mistakes for secrets.
+# Each line is one finding's fingerprint: commit:file:rule:line.
+b3b2014b973e40153c8817e334b94e636f13f06d:tests/test_gmail.py:generic-api-key:257
