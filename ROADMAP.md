@@ -57,10 +57,10 @@ contract ([ADR 0014](docs/adr/0014-artifact-contract.md)), both Accepted.
   paid page fetch waits for a funded team and confirmed Treg and Exa retention terms.*
 - A judgment engine chosen ([ADR 0009](docs/adr/0009-judgment-and-synthesis-engines.md)). *Decided:
   rules for judgment, templates for synthesis.*
-- Read-only Sheets/Docs projection. *Built: four managed tabs regenerated from the Store, with
-  no page text, written as CSV, by an operator's agent connector, or by a scope's own service
-  account ([ADR 0019](docs/adr/0019-projection-writers-and-agent-connectors.md)). The connector
-  path passed a live check on 2026-10-17 on synthetic Northstar data: the grid read-back showed
+- Read-only Sheets projection; Docs later. *Built: four managed tabs regenerated from the
+  Store, with no page text, written as CSV, by an operator's agent connector, or by a scope's
+  own service account ([ADR 0019](docs/adr/0019-projection-writers-and-agent-connectors.md)).
+  The connector path passed a live check on 2026-10-17 on synthetic Northstar data: the grid read-back showed
   every tab at exactly the projection's size, from A1, every cell literal text and equal. The
   service-account path is tested against a fake Google only.*
 - The operator's flow for one prospect. *Built: `auggie research`, `review`, `deliver` and
@@ -91,9 +91,9 @@ reproduce what was learned, land here.
 
 ## M5: Delivery and learning (Later)
 
-- A delivery adapter behind delivery approval. ADR 0006 names EmailBison and Instantly;
-  [ADR 0020](docs/adr/0020-deliver-from-the-sellers-mailbox.md) (Proposed) would send from the
-  seller's own mailbox instead.
+- Delivery adapters behind delivery approval. ADR 0006 names EmailBison and Instantly;
+  [ADR 0020](docs/adr/0020-one-delivery-adapter-per-sending-platform.md) (Proposed) would add
+  one adapter per sending platform, the seller's own mailbox first, and keep Instantly planned.
 - Outcome intake and strategy-revision proposals that people review in Git.
 
 ## Public release readiness (Later)
