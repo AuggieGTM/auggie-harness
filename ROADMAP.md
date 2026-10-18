@@ -96,6 +96,10 @@ own vocabulary.
 - Careers snapshots, read whole from listing services' public feeds, and hiring tallies counted
   by rules ([ADR 0024](docs/adr/0024-careers-snapshots-and-hiring-tallies.md)).
 - A hiring tab in the workbook.
+- The research shell: `auggie shell` for questions across accounts and the whole flow, with
+  each question also a single command that prints JSON for a coding agent
+  ([ADR 0025](docs/adr/0025-the-research-shell.md)). Built after the tally engine and before the
+  listing readers.
 
 **Gate:** two synthetic sellers in different domains qualify and draft from their own
 vocabulary, with no domain words in the code; every tally line cites a dated snapshot and its
