@@ -42,9 +42,14 @@ def test_a_brief_has_no_recipient(draft: Artifact) -> None:
     assert Artifact.model_validate(brief).recipient_id is None
 
 
-def test_an_artifact_must_cite_evidence(draft: Artifact) -> None:
-    with pytest.raises(ValidationError, match="evidence_ids"):
+def test_an_artifact_must_cite_evidence_or_snapshots(draft: Artifact) -> None:
+    with pytest.raises(ValidationError, match="cites the evidence or snapshots"):
         Artifact.model_validate(variant(draft, evidence_ids=[]))
+    # A draft from a careers listing alone cites its snapshots (ADR 0024).
+    listed = Artifact.model_validate(variant(draft, evidence_ids=[], snapshot_ids=["snap-a"]))
+    assert listed.snapshot_ids == ("snap-a",)
+    with pytest.raises(ValidationError, match="snapshot_ids must not repeat"):
+        Artifact.model_validate(variant(draft, snapshot_ids=["snap-a", "snap-a"]))
 
 
 def test_cited_evidence_must_not_repeat(draft: Artifact) -> None:

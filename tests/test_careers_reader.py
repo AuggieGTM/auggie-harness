@@ -18,7 +18,13 @@ from auggie.acquisition.careers import (
     parse,
     request_for,
 )
-from auggie.contracts import CareersListing, CareersSnapshot, CustomerScope, roles_digest
+from auggie.contracts import (
+    CareersListing,
+    CareersSnapshot,
+    CustomerScope,
+    ScopeViolation,
+    roles_digest,
+)
 from auggie.contracts.careers import ListingService
 from auggie.external import ExternalCallRefused
 from auggie.https import HttpRequest, HttpResponse
@@ -96,6 +102,7 @@ def read(service: ListingService, transport: Replay, **changes: Any) -> CareersS
     reader = CareersReader(scope=scope(), transport=transport, now=lambda: READ_AT)
     return reader.read(
         listing=LISTINGS[service],
+        customer_id=changes.get("customer_id", "demo-security"),
         account_id=changes.get("account_id", "acc-prospect"),
         snapshot_id=changes.get("snapshot_id", "snap-prospect-0001"),
     )
@@ -297,7 +304,14 @@ def test_reads_are_refused_before_anything_is_sent() -> None:
     transport = Replay(reply(COMPLETE["lever"]))
     reader = CareersReader(scope=scope(external=False), transport=transport)
     with pytest.raises(ExternalCallRefused):
-        reader.read(listing=LISTINGS["lever"], account_id="acc-a", snapshot_id="snap-a")
+        reader.read(
+            listing=LISTINGS["lever"],
+            customer_id="demo-security",
+            account_id="acc-a",
+            snapshot_id="snap-a",
+        )
+    with pytest.raises(ScopeViolation):
+        read("lever", transport, customer_id="demo-msp")
     with pytest.raises(ValueError, match="snapshot ID"):
         read("lever", transport, snapshot_id="snap a")
     with pytest.raises(ValueError, match="account ID"):

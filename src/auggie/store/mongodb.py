@@ -284,6 +284,9 @@ class MongoStore:
     def _find_evidence(self, evidence_ids: Iterable[str]) -> tuple[SourceEvidence, ...]:
         return self._find("evidence", SourceEvidence, {"_id": {"$in": list(evidence_ids)}})
 
+    def _find_snapshots(self, snapshot_ids: Iterable[str]) -> tuple[CareersSnapshot, ...]:
+        return self._find("careers", CareersSnapshot, {"_id": {"$in": list(snapshot_ids)}})
+
     # People
 
     def put_person(self, person: Person) -> None:
@@ -341,7 +344,12 @@ class MongoStore:
 
     def put_qualification(self, decision: QualificationDecision) -> None:
         self._writing()
-        check_qualification(self._scope, decision, self._find_evidence(decision.cited_evidence_ids))
+        check_qualification(
+            self._scope,
+            decision,
+            self._find_evidence(decision.cited_evidence_ids),
+            self._find_snapshots(decision.cited_snapshot_ids),
+        )
         self._insert("qualifications", decision.decision_id, decision)
 
     def get_qualification(self, decision_id: str) -> QualificationDecision:
@@ -372,6 +380,7 @@ class MongoStore:
                 "qualifications", QualificationDecision, {"_id": artifact.qualification_id}
             ),
             cited=self._find_evidence(artifact.evidence_ids),
+            snapshots=self._find_snapshots(artifact.snapshot_ids),
             recipient=(
                 self._find_one("people", Person, {"_id": artifact.recipient_id})
                 if artifact.recipient_id is not None

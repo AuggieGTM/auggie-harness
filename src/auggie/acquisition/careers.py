@@ -27,7 +27,7 @@ import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Protocol
 
 from pydantic import TypeAdapter, ValidationError
 
@@ -37,12 +37,13 @@ from auggie.contracts import (
     CareersSnapshot,
     CustomerScope,
     OpenRole,
+    ScopeViolation,
     roles_digest,
 )
 from auggie.contracts.careers import ListingService, ReadStatus
 from auggie.contracts.common import RecordId
 from auggie.external import require_external_calls
-from auggie.https import HttpRequest, LimitedTransport, Transport
+from auggie.https import HttpRequest, HttpResponse, LimitedTransport, Transport
 from auggie.signals.tally import count_once
 
 ORIGINS: dict[ListingService, str] = {
@@ -218,6 +219,50 @@ def parse(service: ListingService, body: bytes) -> Parsed:
     return Parsed("complete", roles)
 
 
+def snapshot_of(
+    *,
+    customer_id: str,
+    listing: CareersListing,
+    account_id: str,
+    snapshot_id: str,
+    read_at: datetime,
+    response: HttpResponse | None,
+    actor: Actor,
+) -> CareersSnapshot:
+    """The snapshot one read attempt makes. ``response`` is None when no reply arrived."""
+    if response is None:
+        parsed = Parsed("failed", reason="The listing service could not be reached.")
+    elif response.status != 200:
+        parsed = Parsed("failed", reason=f"The listing service answered HTTP {response.status}.")
+    elif len(response.body) > MAX_LISTING_BYTES:
+        parsed = Parsed("failed", reason="The listing reply was too large to read.")
+    else:
+        parsed = parse(listing.service, response.body)
+    return CareersSnapshot(
+        snapshot_id=snapshot_id,
+        customer_id=customer_id,
+        account_id=account_id,
+        listing=listing,
+        read_at=read_at,
+        status=parsed.status,
+        failure_reason=parsed.reason,
+        roles=parsed.roles,
+        content_hash=roles_digest(parsed.roles),
+        acquired_via=actor,
+    )
+
+
+class ListingReader(Protocol):
+    """Reads one account's listing once. Whatever the outcome, the result is a snapshot."""
+
+    @property
+    def actor(self) -> Actor: ...
+
+    def read(
+        self, *, listing: CareersListing, customer_id: str, account_id: str, snapshot_id: str
+    ) -> CareersSnapshot: ...
+
+
 _RECORD_ID: TypeAdapter[str] = TypeAdapter(RecordId)
 
 
@@ -242,40 +287,32 @@ class CareersReader:
         self._now = now
 
     def read(
-        self, *, listing: CareersListing, account_id: str, snapshot_id: str
+        self, *, listing: CareersListing, customer_id: str, account_id: str, snapshot_id: str
     ) -> CareersSnapshot:
         """Read ``listing`` once and return the snapshot, whatever the outcome.
 
         Refusals raise before anything is sent. The snapshot is stamped when the reply
         arrives, or when the read fails.
         """
+        if customer_id != self._scope.customer_id:
+            raise ScopeViolation(f"this reader serves {self._scope.customer_id!r}")
         require_external_calls(self._scope)
         for value, what in ((account_id, "account ID"), (snapshot_id, "snapshot ID")):
             try:
                 _RECORD_ID.validate_python(value)
             except ValidationError:
                 raise ValueError(f"not a valid {what}: {value!r}") from None
+        response: HttpResponse | None
         try:
             response = self._transport.send(request_for(listing))
         except OSError:
-            parsed = Parsed("failed", reason="The listing service could not be reached.")
-        else:
-            if response.status != 200:
-                reason = f"The listing service answered HTTP {response.status}."
-                parsed = Parsed("failed", reason=reason)
-            elif len(response.body) > MAX_LISTING_BYTES:
-                parsed = Parsed("failed", reason="The listing reply was too large to read.")
-            else:
-                parsed = parse(listing.service, response.body)
-        return CareersSnapshot(
-            snapshot_id=snapshot_id,
-            customer_id=self._scope.customer_id,
-            account_id=account_id,
+            response = None
+        return snapshot_of(
+            customer_id=customer_id,
             listing=listing,
+            account_id=account_id,
+            snapshot_id=snapshot_id,
             read_at=self._now(),
-            status=parsed.status,
-            failure_reason=parsed.reason,
-            roles=parsed.roles,
-            content_hash=roles_digest(parsed.roles),
-            acquired_via=self.actor,
+            response=response,
+            actor=self.actor,
         )

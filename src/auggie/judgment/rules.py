@@ -20,9 +20,11 @@ from auggie.contracts import (
     StackMention,
     Strategy,
 )
-from auggie.contracts.qualification import QualificationOutcome
+from auggie.contracts.qualification import Assessment, QualificationOutcome
 from auggie.contracts.strategy import AnyCriterion
+from auggie.judgment import ListingReadings
 from auggie.signals import stack_matches
+from auggie.signals.tally import Outcome, family_openings, listing_pattern
 from auggie.strategy import LoadedStrategy
 
 HEADCOUNT = re.compile(r"\b(\d{1,3}(?:,\d{3})+|\d+) (?:staff|employees|people)\b")
@@ -129,14 +131,65 @@ def _stack(criterion: StackMention, strategy: Strategy, label: str, verdict: Ver
     )
 
 
+SERVICES = {"lever": "Lever", "greenhouse": "Greenhouse", "ashby": "Ashby"}
+ASSESSMENTS: dict[str, Assessment] = {
+    "met": "meets",
+    "unmet": "does_not_meet",
+    "unknown": "unknown",
+}
+
+
+def _hiring(
+    criterion: FamilyOpenings | ListingPattern,
+    strategy: Strategy,
+    listing: ListingReadings | None,
+) -> Finding:
+    """A tally from the account's listing, as inference (ADR 0024). It cites the snapshots it
+    counted, and states what the listing showed on the day it was read."""
+    if listing is None:
+        return _unknown(criterion.id, "No careers listing was read for this account.")
+    hiring = strategy.signals.hiring
+    assert hiring is not None  # the strategy contract guarantees it
+    current, earlier = listing.readings()
+    outcome: Outcome
+    if isinstance(criterion, FamilyOpenings):
+        outcome = family_openings(current, criterion.family, criterion.min_roles, hiring)
+    else:
+        outcome = listing_pattern(criterion.pattern, current, earlier, criterion.family, hiring)
+    snapshots = {s.snapshot_id: s for s in (*listing.earlier, listing.current)}
+    read = listing.current
+    rationale = (
+        f"{hiring.families[criterion.family].label} on the {SERVICES[read.listing.service]} "
+        f"listing read {read.read_at:%Y-%m-%d}: {outcome.reason}"
+    )
+    compared = [snapshots[r] for r in outcome.readings if r != read.snapshot_id]
+    if compared:
+        rationale += f" Compared with the reading of {compared[0].read_at:%Y-%m-%d}."
+    if read.failure_reason:
+        rationale += f" {read.failure_reason[:500]}"
+    if outcome.roles:
+        # Links illustrate; a very long one is left out so the rationale stays bounded.
+        examples = [f"{r.title} ({r.url})" if len(r.url) <= 300 else r.title for r in outcome.roles]
+        rationale += f" For example: {'; '.join(examples)}."
+    cited = tuple(r for r in outcome.readings if snapshots[r].usable)
+    return Finding(
+        criterion=criterion.id,
+        assessment=ASSESSMENTS[outcome.answer],
+        basis="inference" if cited else "hypothesis",
+        snapshot_ids=cited,
+        rationale=rationale,
+    )
+
+
 def assess(
     criterion: AnyCriterion,
     strategy: Strategy,
     sources: Mapping[str, Verdict],
     at: datetime,
+    listing: ListingReadings | None = None,
 ) -> Finding:
     if isinstance(criterion, FamilyOpenings | ListingPattern):
-        return _unknown(criterion.id, "No careers listing was read for this account.")
+        return _hiring(criterion, strategy, listing)
     label = strategy.sources[criterion.source].label
     verdict = sources.get(criterion.source)
     if verdict is None or not verdict.admitted:
@@ -168,11 +221,14 @@ class RulesQualifier:
         strategy: LoadedStrategy,
         sources: Mapping[str, Verdict],
         at: datetime,
+        listing: ListingReadings | None = None,
     ) -> QualificationDecision:
         rules = strategy.strategy
         if rules.customer_id != customer_id:
             raise ScopeViolation(f"strategy belongs to {rules.customer_id!r}, not {customer_id!r}")
-        findings = tuple(assess(criterion, rules, sources, at) for criterion in rules.criteria)
+        findings = tuple(
+            assess(criterion, rules, sources, at, listing) for criterion in rules.criteria
+        )
         assessed = {finding.criterion: finding.assessment for finding in findings}
         disqualifiers = tuple(
             criterion.id

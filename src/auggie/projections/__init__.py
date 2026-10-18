@@ -118,9 +118,14 @@ def project(store: Store) -> Workbook:
                     finding.assessment,
                     finding.basis,
                     finding.rationale,
-                    "; ".join(finding.evidence_ids),
+                    # A careers snapshot is evidence too (ADR 0024): its listing is the source.
+                    "; ".join(finding.evidence_ids + finding.snapshot_ids),
                     "; ".join(
-                        str(store.get_evidence(eid).source_url) for eid in finding.evidence_ids
+                        [str(store.get_evidence(eid).source_url) for eid in finding.evidence_ids]
+                        + [
+                            str(store.get_careers_snapshot(sid).listing.url)
+                            for sid in finding.snapshot_ids
+                        ]
                     ),
                 )
             )

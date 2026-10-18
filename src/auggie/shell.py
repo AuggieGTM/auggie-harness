@@ -18,11 +18,12 @@ from typing import Any, Literal, cast, get_args
 from auggie import operate
 from auggie.accounts import Account
 from auggie.acquisition import Acquisition
+from auggie.acquisition.careers import ListingReader
 from auggie.acquisition.treg import CEILING_MICRO_USD
 from auggie.contracts import sha256_digest
 from auggie.contracts.events import OutcomeKind
 from auggie.delivery import Sender
-from auggie.pipeline import record_page
+from auggie.pipeline import reads_listing, record_page
 from auggie.queries import account_ids, accounts_view, brief_view, find_view, stack_view
 from auggie.store import Store
 from auggie.strategy import LoadedStrategy
@@ -51,8 +52,8 @@ the flow (yours alone)
 
 @dataclass
 class Session:
-    """What one shell session works with. ``acquisition`` and ``sender`` are built per command,
-    so each command is its own run with its own spending limit."""
+    """What one shell session works with. ``acquisition``, ``listings`` and ``sender`` are built
+    per command, so each command is its own run with its own spending limit."""
 
     store: Store
     me: str
@@ -60,7 +61,9 @@ class Session:
     out: Print
     acquisition: Callable[[], Acquisition]
     live: bool
-    """Whether reads go to a paid provider (Treg) rather than recorded responses."""
+    """Whether reads go to a paid provider (Treg) and the listing services, rather than
+    recorded responses."""
+    listings: Callable[[], ListingReader | None] = lambda: None
     prospects: Mapping[str, Account] = field(default_factory=dict)
     strategy: LoadedStrategy | None = None
     sender: Callable[[], Sender | None] = lambda: None
@@ -200,8 +203,11 @@ def _research(session: Session, args: list[str]) -> None:
         raise ValueError("start the shell with --strategy-repo and --strategy-path to research")
     kinds = [k for k in session.strategy.strategy.sources if k in prospect.sources]
     acquisition = session.acquisition()
+    listing = prospect.careers_listing
+    reads = reads_listing(session.strategy, prospect) and listing is not None
+    also = f", and the careers listing on {listing.service}, free" if reads and listing else ""
     if session.live and not _yes(
-        session, f"{len(kinds)} pages through Treg, {_cost(len(kinds))}; go ahead?"
+        session, f"{len(kinds)} pages through Treg, {_cost(len(kinds))}{also}; go ahead?"
     ):
         session.out("nothing read")
         return
@@ -212,6 +218,7 @@ def _research(session: Session, args: list[str]) -> None:
         acquisition=acquisition,
         operator=session.me,
         now=session.research_clock or operate.utc_now,
+        listings=session.listings(),
     )
     decision = result.decision
     session.out(f"judged    {decision.account_id} {decision.outcome} ({decision.decision_id})")
@@ -335,7 +342,8 @@ def render_brief(view: Mapping[str, Any]) -> list[str]:
             f"{judged['strategy']} ({judged['decision_id']})"
         )
         for f in judged["findings"]:
-            cites = f" [{', '.join(f['evidence_ids'])}]" if f["evidence_ids"] else ""
+            cited = f["evidence_ids"] + f["snapshot_ids"]
+            cites = f" [{', '.join(cited)}]" if cited else ""
             found = f"{f['criterion']} ({f['basis']}): {f['rationale']}{cites}"
             lines.append(f"    {f['assessment']:<13} {found}")
     lines.append("  evidence")

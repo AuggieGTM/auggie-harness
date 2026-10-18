@@ -11,12 +11,15 @@ import pytest
 from auggie import cli
 from auggie.cli import main
 from auggie.contracts import CustomerScope
+from auggie.https import HttpResponse
 from auggie.projections.exchange import load_workbook
 from auggie.synthetic import run_scenario
-from tests.conftest import MONGODB_URI, NORTHSTAR, mongo_backend
+from tests.conftest import EXAMPLES, MONGODB_URI, NORTHSTAR, mongo_backend
 from tests.test_exchange import as_grid
 from tests.test_sheets import MemorySheets
-from tests.test_treg import CAREERS, TOKEN_VALUE, Replay, reply
+from tests.test_treg import CAREERS, TOKEN_VALUE, Replay, page, reply
+
+KESTREL = EXAMPLES / "kestrel-security"
 
 
 def test_run_reports_every_stage(capsys: pytest.CaptureFixture[str]) -> None:
@@ -42,8 +45,9 @@ def test_show_draft_prints_the_composed_text(capsys: pytest.CaptureFixture[str])
     assert "          | Hi Jordan," in capsys.readouterr().out.splitlines()
 
 
-def test_negative_paths_are_all_blocked(capsys: pytest.CaptureFixture[str]) -> None:
-    assert main(["run", str(NORTHSTAR), "--negative"]) == 0
+@pytest.mark.parametrize("scenario", [NORTHSTAR, KESTREL], ids=["northstar", "kestrel"])
+def test_negative_paths_are_all_blocked(scenario: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["run", str(scenario), "--negative"]) == 0
     out = capsys.readouterr().out
     assert out.count("\nblocked   ") == 6
     assert "NOT BLOCKED" not in out
@@ -270,12 +274,65 @@ def test_one_prospect_runs_from_research_to_outcome(
         assert "no store for 'demo-msp'" in capsys.readouterr().out
 
 
-def test_the_walkthrough_files_match_the_scenario_inputs() -> None:
-    inputs = json.loads((NORTHSTAR / "inputs/inputs.json").read_text(encoding="utf-8"))
-    assert (
-        json.loads((NORTHSTAR / "prospect.json").read_text(encoding="utf-8")) == inputs["account"]
-    )
-    assert json.loads((NORTHSTAR / "scope.json").read_text(encoding="utf-8")) == inputs["scope"]
+@pytest.mark.parametrize("scenario", [NORTHSTAR, KESTREL], ids=["northstar", "kestrel"])
+def test_the_walkthrough_files_match_the_scenario_inputs(scenario: Path) -> None:
+    inputs = json.loads((scenario / "inputs/inputs.json").read_text(encoding="utf-8"))
+    assert json.loads((scenario / "prospect.json").read_text(encoding="utf-8")) == inputs["account"]
+    assert json.loads((scenario / "scope.json").read_text(encoding="utf-8")) == inputs["scope"]
+
+
+def test_live_research_reads_the_careers_listing_for_free(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    inputs = json.loads((KESTREL / "inputs/inputs.json").read_text(encoding="utf-8"))
+    scope = {
+        **inputs["scope"],
+        "execution": {
+            "delivery": "simulated",
+            "external_providers": True,
+            "max_run_spend_micro_usd": 10_000,
+        },
+    }
+    scope_file = tmp_path / "scope.json"
+    scope_file.write_text(json.dumps(scope), encoding="utf-8")
+    folder = tmp_path / "credentials" / scope["credential_namespace"]
+    folder.mkdir(mode=0o700, parents=True)
+    (folder / "treg-token").write_text(TOKEN_VALUE, encoding="utf-8")
+    (folder / "treg-token").chmod(0o600)
+    security = inputs["responses"][0]
+    treg = Replay(page(security["url"], security["excerpt"]))
+    listing = Replay(HttpResponse(200, {}, json.dumps(inputs["listings"][-1]["body"]).encode()))
+    monkeypatch.setattr(cli, "treg_transport", lambda: treg)
+    monkeypatch.setattr(cli, "listing_transport", lambda: listing)
+    with mongo_backend() as backend:
+        research = [
+            "research",
+            str(scope_file),
+            str(KESTREL / "prospect.json"),
+            "--strategy-repo",
+            str(Path(__file__).resolve().parent.parent),
+            "--strategy-path",
+            "examples/synthetic/kestrel-security/inputs/strategy/security.toml",
+            "--operator",
+            "demo-operator",
+            "--credentials",
+            str(tmp_path / "credentials"),
+            "--mongodb",
+            os.environ[MONGODB_URI],
+            "--database-prefix",
+            backend.database_prefix,
+        ]
+        assert main(research) == 0
+    out = capsys.readouterr().out
+    assert "and the prospect's careers listing on lever, which is free" in out
+    assert "complete  https://jobs.lever.example/fernhollow, 4 roles" in out
+    assert "judge     acc-fernhollow qualified" in out
+    assert "meets         detection-hiring" in out
+    assert "unknown       detection-openings-new" in out  # no earlier read, so no baseline
+    assert "compose   draft-fernhollow-run-" in out
+    [request] = listing.requests
+    assert request.url.startswith("https://api.lever.co/v0/postings/fernhollow?")
+    assert len(treg.requests) == 1
 
 
 @pytest.mark.parametrize(

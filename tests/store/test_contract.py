@@ -266,6 +266,48 @@ def test_an_artifact_needs_its_qualification_and_usable_evidence(
         store.put_artifact(other_account)
 
 
+def test_decisions_and_drafts_cite_only_usable_snapshots_of_their_account(
+    store: Store, scenario: Scenario, draft: Artifact
+) -> None:
+    from tests.test_careers_contract import snapshot as make
+
+    for evidence in scenario.evidence:
+        store.put_evidence(evidence)
+    mine = {"customer_id": "demo-msp", "account_id": "acc-northstar"}
+    store.put_careers_snapshot(make(snapshot_id="snap-read", **mine))
+    store.put_careers_snapshot(
+        make(
+            snapshot_id="snap-failed", status="failed", failure_reason="HTTP 503.", roles=(), **mine
+        )
+    )
+    store.put_careers_snapshot(make(snapshot_id="snap-mixed", status="inconsistent", **mine))
+    store.put_careers_snapshot(
+        make(snapshot_id="snap-elsewhere", customer_id="demo-msp", account_id="acc-elsewhere")
+    )
+
+    def citing(*snapshot_ids: str) -> QualificationDecision:
+        findings = [f.model_dump(mode="json") for f in scenario.qualification.findings]
+        findings[0]["snapshot_ids"] = list(snapshot_ids)
+        return QualificationDecision.model_validate(
+            variant(scenario.qualification, findings=findings)
+        )
+
+    for cited, problem in (
+        ("snap-missing", "not found"),
+        ("snap-failed", "failed, cannot support"),
+        ("snap-mixed", "inconsistent, cannot support"),
+        ("snap-elsewhere", "about a different account"),
+    ):
+        with pytest.raises(CitationError, match=f"{cited}: {problem}"):
+            store.put_qualification(citing(cited))
+    store.put_qualification(citing("snap-read"))
+    for cited, problem in (("snap-failed", "failed"), ("snap-elsewhere", "different account")):
+        with pytest.raises(CitationError, match=f"{cited}: .*{problem}"):
+            store.put_artifact(Artifact.model_validate(variant(draft, snapshot_ids=[cited])))
+    store.put_artifact(Artifact.model_validate(variant(draft, snapshot_ids=["snap-read"])))
+    assert store.latest_artifact(draft.ref.artifact_id).snapshot_ids == ("snap-read",)
+
+
 def test_artifact_versions_form_one_line(store: Store, scenario: Scenario, draft: Artifact) -> None:
     load(store, scenario, draft)
     v2 = revise(draft, draft.content.replace("Would that be useful?", "Worth a look?"))

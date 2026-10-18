@@ -219,6 +219,7 @@ def brief_view(store: Store, account_id: str, prospects: Mapping[str, Account] =
                         "basis": f.basis,
                         "rationale": f.rationale,
                         "evidence_ids": list(f.evidence_ids),
+                        "snapshot_ids": list(f.snapshot_ids),
                     }
                     for f in decision.findings
                 ],

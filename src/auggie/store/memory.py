@@ -148,6 +148,13 @@ class InMemoryStore:
         records = (_load(SourceEvidence, data) for data in self._data.evidence.values())
         return tuple(r for r in records if subject is None or r.subject == subject)
 
+    def _find_snapshots(self, snapshot_ids: Iterable[str]) -> list[CareersSnapshot]:
+        return [
+            _load(CareersSnapshot, self._data.careers[sid])
+            for sid in snapshot_ids
+            if sid in self._data.careers
+        ]
+
     def _find_evidence(self, evidence_ids: Iterable[str]) -> list[SourceEvidence]:
         return [
             _load(SourceEvidence, self._data.evidence[eid])
@@ -158,7 +165,12 @@ class InMemoryStore:
     # Qualifications
 
     def put_qualification(self, decision: QualificationDecision) -> None:
-        check_qualification(self._scope, decision, self._find_evidence(decision.cited_evidence_ids))
+        check_qualification(
+            self._scope,
+            decision,
+            self._find_evidence(decision.cited_evidence_ids),
+            self._find_snapshots(decision.cited_snapshot_ids),
+        )
         _put(self._data.qualifications, decision.decision_id, decision)
 
     def get_qualification(self, decision_id: str) -> QualificationDecision:
@@ -185,6 +197,7 @@ class InMemoryStore:
             previous=_load(Artifact, versions[-1]) if versions else None,
             qualification=_load(QualificationDecision, qualification) if qualification else None,
             cited=self._find_evidence(artifact.evidence_ids),
+            snapshots=self._find_snapshots(artifact.snapshot_ids),
             recipient=self._stored_person(artifact.recipient_id),
         )
         self._data.artifacts.setdefault(artifact.ref.artifact_id, []).append(

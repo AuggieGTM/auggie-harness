@@ -7,6 +7,7 @@ from typing import Annotated, Literal
 
 from pydantic import Field, model_validator
 
+from auggie.contracts.careers import CareersSnapshot
 from auggie.contracts.common import Actor, Contract, RecordId, Slug, StrategyRef, Text, UtcDatetime
 from auggie.contracts.evidence import SourceEvidence
 
@@ -16,7 +17,7 @@ QualificationOutcome = Literal["qualified", "disqualified", "needs_review"]
 
 
 class CitationError(ValueError):
-    """A decision cites evidence that is missing, unusable or out of scope."""
+    """A decision cites evidence or snapshots that are missing, unusable or out of scope."""
 
 
 class Finding(Contract):
@@ -25,12 +26,16 @@ class Finding(Contract):
     ``basis`` says how the conclusion relates to its sources. A source fact
     or a vendor claim restates evidence. An inference reasons from evidence.
     A hypothesis is a hunch to test and cannot settle a criterion.
+
+    Page evidence is cited in ``evidence_ids``, careers snapshots in
+    ``snapshot_ids`` (ADR 0024). A source fact or vendor claim restates a page.
     """
 
     criterion: Slug
     assessment: Assessment
     basis: Basis
     evidence_ids: tuple[RecordId, ...] = ()
+    snapshot_ids: tuple[RecordId, ...] = ()
     rationale: Text
 
     @model_validator(mode="after")
@@ -40,7 +45,7 @@ class Finding(Contract):
         if self.assessment != "unknown":
             if self.basis == "hypothesis":
                 raise ValueError("a hypothesis cannot settle a criterion; assess it as unknown")
-            if not self.evidence_ids:
+            if not self.evidence_ids and not self.snapshot_ids:
                 raise ValueError(
                     f"assessing {self.criterion!r} as {self.assessment} needs evidence"
                 )
@@ -86,18 +91,34 @@ class QualificationDecision(Contract):
     def cited_evidence_ids(self) -> frozenset[str]:
         return frozenset(eid for finding in self.findings for eid in finding.evidence_ids)
 
+    @property
+    def cited_snapshot_ids(self) -> frozenset[str]:
+        return frozenset(sid for finding in self.findings for sid in finding.snapshot_ids)
 
-def verify_citations(decision: QualificationDecision, evidence: Iterable[SourceEvidence]) -> None:
-    """Raise ``CitationError`` unless every cited evidence record exists and may support it.
+
+def verify_citations(
+    decision: QualificationDecision,
+    evidence: Iterable[SourceEvidence],
+    snapshots: Iterable[CareersSnapshot] = (),
+) -> None:
+    """Raise ``CitationError`` unless every cited record exists and may support it.
 
     Cited evidence must belong to the same customer, have been retrieved, and
-    (when about an account) be about the account being qualified.
+    (when about an account) be about the account being qualified. Cited
+    snapshots must belong to the same customer and account, and have been read
+    complete or in part.
     """
     verify_cited_evidence(
         customer_id=decision.customer_id,
         account_id=decision.account_id,
         evidence_ids=decision.cited_evidence_ids,
         evidence=evidence,
+    )
+    verify_cited_snapshots(
+        customer_id=decision.customer_id,
+        account_id=decision.account_id,
+        snapshot_ids=decision.cited_snapshot_ids,
+        snapshots=snapshots,
     )
 
 
@@ -121,5 +142,32 @@ def verify_cited_evidence(
             problems.append(f"{evidence_id}: {record.status}, cannot support a finding")
         elif record.subject.kind == "account" and record.subject.id != account_id:
             problems.append(f"{evidence_id}: about a different account")
+    if problems:
+        raise CitationError("; ".join(problems))
+
+
+def verify_cited_snapshots(
+    *,
+    customer_id: str,
+    account_id: str,
+    snapshot_ids: Iterable[str],
+    snapshots: Iterable[CareersSnapshot],
+) -> None:
+    """Raise ``CitationError`` unless each ID names a usable snapshot of this account's listing.
+
+    A failed or inconsistent read settles nothing, so it supports no finding (ADR 0024).
+    """
+    known = {record.snapshot_id: record for record in snapshots}
+    problems: list[str] = []
+    for snapshot_id in sorted(set(snapshot_ids)):
+        record = known.get(snapshot_id)
+        if record is None:
+            problems.append(f"{snapshot_id}: not found")
+        elif record.customer_id != customer_id:
+            problems.append(f"{snapshot_id}: belongs to another customer")
+        elif record.account_id != account_id:
+            problems.append(f"{snapshot_id}: about a different account")
+        elif not record.usable:
+            problems.append(f"{snapshot_id}: {record.status}, cannot support a finding")
     if problems:
         raise CitationError("; ".join(problems))

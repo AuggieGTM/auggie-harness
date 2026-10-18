@@ -14,7 +14,8 @@ from typing import Literal
 
 from auggie.accounts import Account
 from auggie.acquisition import Acquisition
-from auggie.acquisition.fixture import RecordedResponse
+from auggie.acquisition.careers import ListingReader
+from auggie.acquisition.fixture import RecordedListing, RecordedResponse
 from auggie.approval import ReviewDecision
 from auggie.contracts import (
     Actor,
@@ -81,8 +82,11 @@ def research_prospect(
     acquisition: Acquisition,
     operator: str,
     now: Clock = utc_now,
+    listings: ListingReader | None = None,
 ) -> RunResult:
     """Research one prospect from its sources up to a draft, then stop for review.
+
+    ``listings`` reads the prospect's careers listing when the strategy counts hiring.
 
     The prospect and the strategy must belong to the store's customer; nothing
     is written otherwise. Each stage is stamped by ``now`` as it happens.
@@ -108,16 +112,20 @@ def research_prospect(
         times=times,
         per_run_ids=True,
         clock=now,
+        listings=listings,
     )
 
 
-def replay_clock(responses: Sequence[RecordedResponse]) -> Clock:
-    """The clock for a rehearsal: the moment the recorded responses were last observed.
+def replay_clock(
+    responses: Sequence[RecordedResponse], listings: Sequence[RecordedListing] = ()
+) -> Clock:
+    """The clock for a rehearsal: the moment the recorded responses were last observed, or
+    the recorded listings last read.
 
     Judging recorded evidence against today's date would let it go stale, and
     a rehearsal must give the same result whenever it is run.
     """
-    as_of = max(response.observed_at for response in responses)
+    as_of = max([r.observed_at for r in responses] + [r.read_at for r in listings])
     return lambda: as_of
 
 
@@ -141,6 +149,12 @@ def describe_draft(store: Store, draft: Artifact, out: Print) -> None:
     for evidence_id in draft.evidence_ids:
         evidence = store.get_evidence(evidence_id)
         out(f"          {evidence_id}: {evidence.source_url} (observed {evidence.observed_at})")
+    for snapshot_id in draft.snapshot_ids:
+        snapshot = store.get_careers_snapshot(snapshot_id)
+        out(
+            f"          {snapshot_id}: {snapshot.listing.url} "
+            f"(read {snapshot.read_at}, {snapshot.status}, {len(snapshot.roles)} roles)"
+        )
 
 
 def _next_id(store: Store, artifact_id: str, scope: str) -> str:

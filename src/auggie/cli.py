@@ -24,7 +24,13 @@ from typing import TYPE_CHECKING, Any, get_args
 
 from auggie.accounts import Account
 from auggie.acquisition import Acquisition
-from auggie.acquisition.fixture import FixtureAcquisition, RecordedResponse
+from auggie.acquisition.careers import CareersReader, ListingReader
+from auggie.acquisition.fixture import (
+    FixtureAcquisition,
+    RecordedListing,
+    RecordedListings,
+    RecordedResponse,
+)
 from auggie.acquisition.treg import TregPageText
 from auggie.contracts import (
     Artifact,
@@ -37,7 +43,7 @@ from auggie.contracts.events import OutcomeKind
 from auggie.contracts.qualification import CitationError
 from auggie.credentials import CredentialFiles
 from auggie.delivery import DeliveryBlocked, Sender, SendUnknown
-from auggie.pipeline import RunResult, deliver
+from auggie.pipeline import RunResult, deliver, reads_listing, record_snapshot
 from auggie.projections import project
 from auggie.projections.csv import write_csv
 from auggie.projections.exchange import compare, dump_workbook, load_readback, load_workbook
@@ -75,6 +81,10 @@ def report_research(
         e = verdict.evidence
         detail = f" ({e.failure_reason})" if e.failure_reason else ""
         out(f"observe   {e.evidence_id:<24} {e.status:<9} {e.source_url}{detail}")
+    if result.snapshot is not None:
+        s = result.snapshot
+        detail = f" ({s.failure_reason})" if s.failure_reason else f", {len(s.roles)} roles"
+        out(f"observe   {s.snapshot_id:<24} {s.status:<9} {s.listing.url}{detail}")
     for verdict in result.verdicts:
         e = verdict.evidence
         status = "admitted" if verdict.admitted else f"rejected: {verdict.rejected_for}"
@@ -86,7 +96,7 @@ def report_research(
         return
     out(
         f"compose   {draft.ref.artifact_id} sha256 {_short(draft.ref.content_hash)} "
-        f"for {draft.recipient_id}, citing {', '.join(draft.evidence_ids)}"
+        f"for {draft.recipient_id}, citing {', '.join(draft.evidence_ids + draft.snapshot_ids)}"
     )
     if show_draft:
         out("")
@@ -132,7 +142,8 @@ def _report_decision(decision: QualificationDecision, out: Print) -> None:
         f"{decision.decided_by.id} {decision.decided_by.version or ''}".rstrip()
     )
     for finding in decision.findings:
-        cites = f" [{', '.join(finding.evidence_ids)}]" if finding.evidence_ids else ""
+        cited = finding.evidence_ids + finding.snapshot_ids
+        cites = f" [{', '.join(cited)}]" if cited else ""
         out(
             f"          {finding.assessment:<13} {finding.criterion:<25} "
             f"{finding.basis}: {finding.rationale}{cites}"
@@ -178,7 +189,23 @@ def _negative_paths(directory: Path) -> list[tuple[str, Callable[[], object]]]:
     def cite_failed_source() -> object:
         _, run = until_review()
         failed = [v.evidence.evidence_id for v in run.result.verdicts if not v.admitted]
-        finding = run.result.decision.findings[0].model_copy(update={"evidence_ids": tuple(failed)})
+        finding = run.result.decision.findings[0]
+        if failed:
+            finding = finding.model_copy(update={"evidence_ids": tuple(failed)})
+        else:
+            # No page failed in this scenario, so a listing read that failed is cited instead.
+            listing = inputs.account.careers_listing
+            if listing is None:
+                raise RuntimeError("the scenario has no failed source to cite")
+            reply = RecordedListing(listing=listing, read_at=at, status=503, body="")
+            snapshot = record_snapshot(
+                run.store,
+                reader=RecordedListings([reply]),
+                account=inputs.account,
+                snapshot_id="snap-negative",
+                run_id=None,
+            )
+            finding = finding.model_copy(update={"snapshot_ids": (snapshot.snapshot_id,)})
         decision = run.result.decision.model_copy(
             update={"decision_id": "qual-negative", "findings": (finding,)}
         )
@@ -211,7 +238,7 @@ def _negative_paths(directory: Path) -> list[tuple[str, Callable[[], object]]]:
         return None
 
     return [
-        ("a decision citing the failed source", cite_failed_source),
+        ("a decision citing a failed read", cite_failed_source),
         ("delivering a draft edited after approval", deliver_edited_draft),
         ("delivering the original after it was edited", deliver_superseded_original),
         ("delivering with content approval only", deliver_with_content_approval_only),
@@ -569,15 +596,14 @@ def _session(
     scope = store.scope
     research_clock = None
     if args.replay is not None:
-        recorded = json.loads(args.replay.read_text(encoding="utf-8"))
-        responses = recorded.get("responses") if isinstance(recorded, dict) else recorded
-        if not isinstance(responses, list) or not responses:
-            raise ValueError(f"{args.replay} holds no list of recorded responses")
-        recordings = [RecordedResponse.model_validate(r) for r in responses]
-        research_clock = operate.replay_clock(recordings)
+        recordings, listed = _recorded(args.replay)
+        research_clock = operate.replay_clock(recordings, listed)
 
         def acquisition() -> Acquisition:
             return FixtureAcquisition(recordings)
+
+        def listings() -> ListingReader:
+            return RecordedListings(listed)
     else:
 
         def acquisition() -> Acquisition:
@@ -587,6 +613,9 @@ def _session(
                 budget=RunBudget.for_scope(scope),
                 transport=treg_transport(),
             )
+
+        def listings() -> ListingReader:
+            return CareersReader(scope=scope, transport=listing_transport())
 
     def sender() -> Sender | None:
         if scope.execution.platform != "gmail":
@@ -603,12 +632,28 @@ def _session(
         ask=ask,
         out=out,
         acquisition=acquisition,
+        listings=listings,
         live=args.replay is None,
         prospects=prospects,
         strategy=loaded,
         sender=sender,
         edit=edit_in_editor,
         research_clock=research_clock,
+    )
+
+
+def _recorded(path: Path) -> tuple[list[RecordedResponse], list[RecordedListing]]:
+    """Recorded page responses, and any recorded listing replies, from a replay file."""
+    recorded = json.loads(path.read_text(encoding="utf-8"))
+    responses = recorded.get("responses") if isinstance(recorded, dict) else recorded
+    if not isinstance(responses, list) or not responses:
+        raise ValueError(f"{path} holds no list of recorded responses")
+    listed = recorded.get("listings", []) if isinstance(recorded, dict) else []
+    if not isinstance(listed, list):
+        raise ValueError(f"{path}: listings must be a list of recorded listing replies")
+    return (
+        [RecordedResponse.model_validate(r) for r in responses],
+        [RecordedListing.model_validate(r) for r in listed],
     )
 
 
@@ -711,14 +756,12 @@ def _prospect_step(
         )
         prospect = Account.model_validate_json(args.prospect.read_text(encoding="utf-8"))
         acquisition: Acquisition
+        listings: ListingReader
         if args.replay is not None:
-            recorded = json.loads(args.replay.read_text(encoding="utf-8"))
-            responses = recorded.get("responses") if isinstance(recorded, dict) else recorded
-            if not isinstance(responses, list) or not responses:
-                raise ValueError(f"{args.replay} holds no list of recorded responses")
-            recordings = [RecordedResponse.model_validate(r) for r in responses]
+            recordings, listed = _recorded(args.replay)
             acquisition = FixtureAcquisition(recordings)
-            clock = operate.replay_clock(recordings)
+            listings = RecordedListings(listed)
+            clock = operate.replay_clock(recordings, listed)
             out(f"{store.scope.customer_id}: research from recorded responses, no provider calls")
         else:
             budget = RunBudget.for_scope(store.scope)
@@ -728,10 +771,14 @@ def _prospect_step(
                 budget=budget,
                 transport=treg_transport(),
             )
+            listings = CareersReader(scope=store.scope, transport=listing_transport())
             out(
                 f"{store.scope.customer_id}: live research through Treg, run limit "
                 f"{budget.limit_micro_usd} micro-USD"
             )
+            if reads_listing(strategy, prospect) and prospect.careers_listing is not None:
+                service = prospect.careers_listing.service
+                out(f"          and the prospect's careers listing on {service}, which is free")
             clock = operate.utc_now
         out("")
         result = operate.research_prospect(
@@ -741,6 +788,7 @@ def _prospect_step(
             acquisition=acquisition,
             operator=args.operator,
             now=clock,
+            listings=listings,
         )
         report_research(strategy, args.operator, result, out, show_draft=args.show_draft)
         if result.draft is not None:
@@ -949,6 +997,13 @@ def treg_transport() -> Transport:
     from auggie.acquisition.treg import HttpsTransport
 
     return HttpsTransport()
+
+
+def listing_transport() -> Transport:
+    """The transport the careers readers use; tests replace it."""
+    from auggie.acquisition.careers import ListingTransport
+
+    return ListingTransport()
 
 
 def google_transport() -> Transport:

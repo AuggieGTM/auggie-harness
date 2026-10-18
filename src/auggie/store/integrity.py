@@ -6,6 +6,7 @@ from collections.abc import Callable, Iterable
 
 from auggie.contracts import (
     Artifact,
+    CareersSnapshot,
     CustomerScope,
     HumanApproval,
     OperationalEvent,
@@ -16,6 +17,7 @@ from auggie.contracts import (
     ensure_in_scope,
     verify_citations,
     verify_cited_evidence,
+    verify_cited_snapshots,
 )
 from auggie.store import IntegrityError
 
@@ -35,10 +37,13 @@ def literal(value: object, what: str) -> str:
 
 
 def check_qualification(
-    scope: CustomerScope, decision: QualificationDecision, cited: Iterable[SourceEvidence]
+    scope: CustomerScope,
+    decision: QualificationDecision,
+    cited: Iterable[SourceEvidence],
+    snapshots: Iterable[CareersSnapshot] = (),
 ) -> None:
     ensure_in_scope(scope, decision)
-    verify_citations(decision, cited)
+    verify_citations(decision, cited, snapshots)
 
 
 def check_artifact(
@@ -48,6 +53,7 @@ def check_artifact(
     previous: Artifact | None,
     qualification: QualificationDecision | None,
     cited: Iterable[SourceEvidence],
+    snapshots: Iterable[CareersSnapshot] = (),
     recipient: Person | None = None,
 ) -> None:
     """Check lineage, and that ``artifact`` is the next version after ``previous``.
@@ -66,6 +72,12 @@ def check_artifact(
         account_id=artifact.account_id,
         evidence_ids=artifact.evidence_ids,
         evidence=cited,
+    )
+    verify_cited_snapshots(
+        customer_id=artifact.customer_id,
+        account_id=artifact.account_id,
+        snapshot_ids=artifact.snapshot_ids,
+        snapshots=snapshots,
     )
     if previous is None:
         if artifact.supersedes is not None:

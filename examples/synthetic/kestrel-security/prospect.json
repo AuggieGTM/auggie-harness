@@ -1,0 +1,19 @@
+{
+  "account_id": "acc-fernhollow",
+  "customer_id": "demo-security",
+  "key": "fernhollow",
+  "name": "Fernhollow Logistics",
+  "sources": {
+    "security": "https://fernhollow.example/security"
+  },
+  "recipient": {
+    "person_id": "per-casey-lindqvist",
+    "first_name": "Casey",
+    "email": "casey.lindqvist@fernhollow.example"
+  },
+  "careers_listing": {
+    "service": "lever",
+    "board": "fernhollow",
+    "url": "https://jobs.lever.example/fernhollow"
+  }
+}

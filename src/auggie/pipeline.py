@@ -21,6 +21,7 @@ from pydantic import HttpUrl, TypeAdapter, ValidationError
 
 from auggie.accounts import Account
 from auggie.acquisition import Acquisition
+from auggie.acquisition.careers import ListingReader
 from auggie.acquisition.validation import VALIDATOR, Verdict, check_evidence
 from auggie.approval import ReviewDecision, approval_for
 from auggie.compose.template import COMPOSER, compose_draft, select_play
@@ -28,6 +29,8 @@ from auggie.contracts import (
     Actor,
     Artifact,
     ArtifactRef,
+    CareersSnapshot,
+    CitationError,
     Contract,
     DeliveryTarget,
     HumanApproval,
@@ -42,6 +45,7 @@ from auggie.contracts import (
 from auggie.contracts.approval import DeliveryPlatform
 from auggie.contracts.common import RecordId, UtcDatetime
 from auggie.contracts.events import AttributeValue, EventType, OutcomeKind
+from auggie.contracts.strategy import LISTING_CRITERIA
 from auggie.delivery import (
     SIMULATED_DELIVERY,
     DeliveryBlocked,
@@ -52,7 +56,7 @@ from auggie.delivery import (
     split_message,
 )
 from auggie.external import require_external_calls
-from auggie.judgment import Qualifier
+from auggie.judgment import ListingReadings, Qualifier
 from auggie.store import Appended, RecordConflict, RecordNotFound, Store
 from auggie.strategy import LoadedStrategy
 
@@ -82,6 +86,8 @@ class RunResult:
     draft: Artifact | None
     stopped: str | None = None
     """Why no draft was composed, when there is none."""
+    snapshot: CareersSnapshot | None = None
+    """This run's read of the account's careers listing, if it read one."""
 
 
 def _append(
@@ -265,6 +271,85 @@ def record_page(
 _RECORD_ID: TypeAdapter[str] = TypeAdapter(RecordId)
 
 
+def record_snapshot(
+    store: Store,
+    *,
+    reader: ListingReader,
+    account: Account,
+    snapshot_id: str,
+    run_id: str | None,
+) -> CareersSnapshot:
+    """Read the account's careers listing once, and record the snapshot with its event,
+    whatever the outcome (ADR 0024). A failed read is kept, with its reason."""
+    ensure_in_scope(store.scope, account)
+    if account.careers_listing is None:
+        raise ValueError(f"{account.account_id} names no careers listing")
+    snapshot = reader.read(
+        listing=account.careers_listing,
+        customer_id=store.scope.customer_id,
+        account_id=account.account_id,
+        snapshot_id=snapshot_id,
+    )
+    store.put_careers_snapshot(snapshot)
+    _append(
+        store,
+        "careers.recorded",
+        at=snapshot.read_at,
+        actor=reader.actor,
+        refs=[
+            RecordRef(kind="careers", id=snapshot.snapshot_id),
+            RecordRef(kind="account", id=account.account_id),
+        ],
+        key=f"careers.recorded:{snapshot.snapshot_id}",
+        run_id=run_id,
+        attributes={"status": snapshot.status, "roles": len(snapshot.roles)},
+    )
+    return snapshot
+
+
+def reads_listing(strategy: LoadedStrategy, account: Account) -> bool:
+    """Whether research reads the account's careers listing: the strategy counts hiring and
+    the prospect names a listing."""
+    counts_hiring = any(isinstance(c, LISTING_CRITERIA) for c in strategy.strategy.criteria)
+    return counts_hiring and account.careers_listing is not None
+
+
+def _read_listing(
+    store: Store,
+    strategy: LoadedStrategy,
+    account: Account,
+    reader: ListingReader | None,
+    snapshot_id: str,
+    run_id: str,
+) -> ListingReadings | None:
+    """This run's read of the account's listing, when the strategy counts hiring and the
+    prospect names a listing; with every earlier snapshot of the account."""
+    if reader is None or not reads_listing(strategy, account):
+        return None
+    current = record_snapshot(
+        store, reader=reader, account=account, snapshot_id=snapshot_id, run_id=run_id
+    )
+    earlier = tuple(
+        s
+        for s in store.list_careers_snapshots(account.account_id)
+        if s.snapshot_id != current.snapshot_id
+    )
+    return ListingReadings(current, earlier)
+
+
+def _check_listing_citations(
+    decision: QualificationDecision, strategy: LoadedStrategy, listing: ListingReadings | None
+) -> None:
+    """A finding cites this run's read of the listing, or its baseline, and no other."""
+    hiring = strategy.strategy.signals.hiring
+    citable = listing.citable(hiring) if listing is not None and hiring is not None else set()
+    stray = sorted(decision.cited_snapshot_ids - citable)
+    if stray:
+        raise CitationError(
+            f"{', '.join(stray)}: neither this run's read of the listing nor its baseline"
+        )
+
+
 def research_run(
     store: Store,
     *,
@@ -275,8 +360,12 @@ def research_run(
     times: RunTimes,
     per_run_ids: bool = False,
     clock: Callable[[], datetime] | None = None,
+    listings: ListingReader | None = None,
 ) -> RunResult:
     """Observe, validate, judge and compose for one account, then stop for review.
+
+    When the strategy counts hiring and the account names a careers listing,
+    ``listings`` reads it once; without a reader, those criteria are unknown.
 
     Each stage is stamped from ``clock`` when one is given, at the moment it
     happens; otherwise from the planned ``times``, as synthetic scenarios do.
@@ -309,6 +398,10 @@ def research_run(
             store, acquisition, f"ev-{account.key}-{kind}{suffix}", subject, url, run_id
         )
 
+    listing = _read_listing(
+        store, strategy, account, listings, f"snap-{account.key}{suffix or '-001'}", run_id
+    )
+
     validated_at = at(times.validated_at)
     for verdict in sources.values():
         _record_verdict(store, verdict, validated_at, run_id)
@@ -321,7 +414,9 @@ def research_run(
         strategy=strategy,
         sources=sources,
         at=qualified_at,
+        listing=listing,
     )
+    _check_listing_citations(decision, strategy, listing)
     store.put_qualification(decision)
     _append(
         store,
@@ -338,11 +433,12 @@ def research_run(
     )
 
     verdicts = tuple(sources.values())
+    read = listing.current if listing is not None else None
     if decision.outcome != "qualified":
-        return RunResult(verdicts, decision, None, f"the account is {decision.outcome}")
+        return RunResult(verdicts, decision, None, f"the account is {decision.outcome}", read)
     play = select_play(strategy, decision)
     if play is None:
-        return RunResult(verdicts, decision, None, "no play's criteria are all met")
+        return RunResult(verdicts, decision, None, "no play's criteria are all met", read)
     composed_at = at(times.composed_at)
     draft = compose_draft(
         artifact_id=f"draft-{account.key}{suffix or '-001'}",
@@ -363,11 +459,12 @@ def research_run(
             RecordRef(kind="artifact", id=draft.ref.artifact_id),
             RecordRef(kind="qualification", id=decision.decision_id),
             *(RecordRef(kind="evidence", id=eid) for eid in draft.evidence_ids),
+            *(RecordRef(kind="careers", id=sid) for sid in draft.snapshot_ids),
         ],
         key=f"draft.composed:{draft.ref.artifact_id}",
         run_id=run_id,
     )
-    return RunResult(verdicts, decision, draft)
+    return RunResult(verdicts, decision, draft, snapshot=read)
 
 
 def record_revision(
@@ -404,6 +501,7 @@ def record_revision(
         recipient_id=recipient,
         qualification_id=edited.qualification_id,
         evidence_ids=edited.evidence_ids,
+        snapshot_ids=edited.snapshot_ids,
         strategy=edited.strategy,
         composed_by=by,
         composed_at=at,

@@ -90,6 +90,11 @@ class CareersSnapshot(Contract):
         return self
 
     @property
+    def usable(self) -> bool:
+        """Read complete or in part. A failed or inconsistent read settles nothing."""
+        return self.status in ("complete", "partial")
+
+    @property
     def listing_key(self) -> str:
         """The account and listing a baseline must share with the current reading."""
         return f"{self.account_id}/{self.listing.service}:{self.listing.board}"

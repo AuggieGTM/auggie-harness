@@ -1,0 +1,185 @@
+{
+  "note": "SYNTHETIC inputs for the Fernhollow run, researched by a second seller in another domain (ADR 0023). Every company, person, URL, role and identifier is invented, and domains use the reserved .example TLD. The strategy commit is a placeholder because no strategy repository exists. Responses and listing replies replay recorded reads, so they carry the time they were read; the first listing reply was read by an earlier run and is the baseline for new openings. Review and delivery entries stand in for what a person does.",
+  "scope": {
+    "customer_id": "demo-security",
+    "synthetic": true,
+    "data_namespace": "auggie_demo_security",
+    "credential_namespace": "demo-security",
+    "knowledge_namespace": "demo-security-strategy",
+    "execution": {
+      "delivery": "simulated",
+      "external_providers": false
+    }
+  },
+  "strategy": {
+    "path": "strategy/security.toml",
+    "commit": "0000000000000000000000000000000000000002",
+    "activated_by": {
+      "kind": "human",
+      "id": "demo-reviewer"
+    },
+    "activated_at": "2026-09-01T15:00:00Z"
+  },
+  "account": {
+    "account_id": "acc-fernhollow",
+    "customer_id": "demo-security",
+    "key": "fernhollow",
+    "name": "Fernhollow Logistics",
+    "sources": {
+      "security": "https://fernhollow.example/security"
+    },
+    "recipient": {
+      "person_id": "per-casey-lindqvist",
+      "first_name": "Casey",
+      "email": "casey.lindqvist@fernhollow.example"
+    },
+    "careers_listing": {
+      "service": "lever",
+      "board": "fernhollow",
+      "url": "https://jobs.lever.example/fernhollow"
+    }
+  },
+  "responses": [
+    {
+      "url": "https://fernhollow.example/security",
+      "status": "retrieved",
+      "observed_at": "2026-10-15T09:00:00Z",
+      "excerpt": "Security at Fernhollow Logistics\n\nOur SIEM is Beaconlog, which collects logs from every depot and truck gateway.\n\nReport a vulnerability to the security team through our disclosure form."
+    }
+  ],
+  "listings": [
+    {
+      "listing": {
+        "service": "lever",
+        "board": "fernhollow",
+        "url": "https://jobs.lever.example/fernhollow"
+      },
+      "read_at": "2026-09-10T09:00:00Z",
+      "status": 200,
+      "body": [
+        {
+          "id": "6a1f0c2e-0000-4000-8000-000000000003",
+          "text": "SOC Analyst II",
+          "categories": {
+            "commitment": "Full-time",
+            "department": "Engineering",
+            "location": "Columbus, OH",
+            "team": "Security"
+          },
+          "hostedUrl": "https://jobs.lever.example/fernhollow/6a1f0c2e-0000-4000-8000-000000000003",
+          "applyUrl": "https://jobs.lever.example/fernhollow/6a1f0c2e-0000-4000-8000-000000000003/apply"
+        },
+        {
+          "id": "6a1f0c2e-0000-4000-8000-000000000004",
+          "text": "Account Executive, Mid-Market",
+          "categories": {
+            "commitment": "Full-time",
+            "department": "Sales",
+            "location": "Chicago, IL"
+          },
+          "hostedUrl": "https://jobs.lever.example/fernhollow/6a1f0c2e-0000-4000-8000-000000000004",
+          "applyUrl": "https://jobs.lever.example/fernhollow/6a1f0c2e-0000-4000-8000-000000000004/apply"
+        }
+      ]
+    },
+    {
+      "listing": {
+        "service": "lever",
+        "board": "fernhollow",
+        "url": "https://jobs.lever.example/fernhollow"
+      },
+      "read_at": "2026-10-15T09:00:03Z",
+      "status": 200,
+      "body": [
+        {
+          "id": "6a1f0c2e-0000-4000-8000-000000000001",
+          "text": "Senior Detection Engineer",
+          "categories": {
+            "commitment": "Full-time",
+            "department": "Engineering",
+            "location": "Remote (US)",
+            "team": "Security"
+          },
+          "hostedUrl": "https://jobs.lever.example/fernhollow/6a1f0c2e-0000-4000-8000-000000000001",
+          "applyUrl": "https://jobs.lever.example/fernhollow/6a1f0c2e-0000-4000-8000-000000000001/apply"
+        },
+        {
+          "id": "6a1f0c2e-0000-4000-8000-000000000002",
+          "text": "Detection Engineer",
+          "categories": {
+            "commitment": "Full-time",
+            "department": "Engineering",
+            "location": "Remote (US)",
+            "team": "Security"
+          },
+          "hostedUrl": "https://jobs.lever.example/fernhollow/6a1f0c2e-0000-4000-8000-000000000002",
+          "applyUrl": "https://jobs.lever.example/fernhollow/6a1f0c2e-0000-4000-8000-000000000002/apply"
+        },
+        {
+          "id": "6a1f0c2e-0000-4000-8000-000000000003",
+          "text": "SOC Analyst II",
+          "categories": {
+            "commitment": "Full-time",
+            "department": "Engineering",
+            "location": "Columbus, OH",
+            "team": "Security"
+          },
+          "hostedUrl": "https://jobs.lever.example/fernhollow/6a1f0c2e-0000-4000-8000-000000000003",
+          "applyUrl": "https://jobs.lever.example/fernhollow/6a1f0c2e-0000-4000-8000-000000000003/apply"
+        },
+        {
+          "id": "6a1f0c2e-0000-4000-8000-000000000004",
+          "text": "Account Executive, Mid-Market",
+          "categories": {
+            "commitment": "Full-time",
+            "department": "Sales",
+            "location": "Chicago, IL"
+          },
+          "hostedUrl": "https://jobs.lever.example/fernhollow/6a1f0c2e-0000-4000-8000-000000000004",
+          "applyUrl": "https://jobs.lever.example/fernhollow/6a1f0c2e-0000-4000-8000-000000000004/apply"
+        }
+      ]
+    }
+  ],
+  "run": {
+    "run_id": "run-001",
+    "validated_at": "2026-10-15T09:01:00Z",
+    "qualified_at": "2026-10-15T09:05:00Z",
+    "composed_at": "2026-10-15T09:10:00Z"
+  },
+  "reviews": [
+    {
+      "scope": "content",
+      "decision": "approved",
+      "reviewer": {
+        "kind": "human",
+        "id": "demo-reviewer"
+      },
+      "decided_at": "2026-10-16T15:00:00Z",
+      "note": "The hiring claim matches the listing on the day it was read."
+    },
+    {
+      "scope": "delivery",
+      "platform": "simulated",
+      "decision": "approved",
+      "reviewer": {
+        "kind": "human",
+        "id": "demo-reviewer"
+      },
+      "decided_at": "2026-10-16T15:02:00Z",
+      "expires_at": "2026-10-23T15:02:00Z"
+    }
+  ],
+  "delivery": {
+    "platform": "simulated",
+    "requested_at": "2026-10-16T15:05:00Z"
+  },
+  "outcome": {
+    "outcome": "meeting_booked",
+    "reported_by": {
+      "kind": "human",
+      "id": "demo-reviewer"
+    },
+    "occurred_at": "2026-10-19T17:00:00Z"
+  }
+}

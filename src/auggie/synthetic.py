@@ -4,6 +4,10 @@ A scenario directory holds ``inputs/inputs.json`` and the strategy files it
 names. Reviewer decisions, the delivery request and the outcome in the inputs
 stand in for what a person does. Records go to an in-memory Store unless a
 backend is given.
+
+Recorded listing replies are oldest first. The last is the run's own read of the
+account's listing; any before it stand for reads by earlier runs, and are
+recorded before the run starts.
 """
 
 from __future__ import annotations
@@ -15,7 +19,12 @@ from typing import Annotated
 from pydantic import StringConstraints
 
 from auggie.accounts import Account
-from auggie.acquisition.fixture import FixtureAcquisition, RecordedResponse
+from auggie.acquisition.fixture import (
+    FixtureAcquisition,
+    RecordedListing,
+    RecordedListings,
+    RecordedResponse,
+)
 from auggie.approval import ReviewDecision
 from auggie.contracts import Actor, Contract, CustomerScope, HumanApproval
 from auggie.contracts.approval import DeliveryPlatform
@@ -30,6 +39,7 @@ from auggie.pipeline import (
     record_outcome,
     record_person,
     record_review,
+    record_snapshot,
     research_run,
 )
 from auggie.store import Appended, Backend, Store
@@ -55,6 +65,7 @@ class SyntheticInputs(Contract):
     strategy: StrategyInput
     account: Account
     responses: tuple[RecordedResponse, ...]
+    listings: tuple[RecordedListing, ...] = ()
     run: RunTimes
     reviews: tuple[ReviewDecision, ...]
     delivery: DeliveryRequest | None = None
@@ -104,6 +115,15 @@ def run_scenario(
         by=inputs.strategy.activated_by,
         at=inputs.strategy.activated_at,
     )
+    *earlier, current = inputs.listings or (None,)
+    for n, reply in enumerate(earlier, start=1):
+        record_snapshot(
+            store,
+            reader=RecordedListings([reply]),
+            account=inputs.account,
+            snapshot_id=f"snap-{inputs.account.key}-before-{n}",
+            run_id=None,
+        )
     result = research_run(
         store,
         strategy=strategy,
@@ -111,6 +131,7 @@ def run_scenario(
         acquisition=FixtureAcquisition(inputs.responses),
         qualifier=RulesQualifier(),
         times=inputs.run,
+        listings=RecordedListings([current]) if current is not None else None,
     )
     if result.draft is None:
         return ScenarioRun(store, strategy, activation, result, (), None, None)

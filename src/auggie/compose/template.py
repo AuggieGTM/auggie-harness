@@ -55,6 +55,7 @@ def compose_draft(
         raise ComposeBlocked(f"play {play.id!r} does not apply to {decision.decision_id!r}")
     findings = {f.criterion: f for f in decision.findings}
     used = {eid for name in play.requires for eid in findings[name].evidence_ids}
+    snapshots = [sid for name in play.requires for sid in findings[name].snapshot_ids]
     values = {"first_name": account.recipient.first_name, "account_name": account.name}
     for name, field in play.fields.items():
         label = strategy.strategy.sources[field.source].label
@@ -81,6 +82,7 @@ def compose_draft(
         recipient_id=account.recipient.person_id,
         qualification_id=decision.decision_id,
         evidence_ids=tuple(in_source_order),
+        snapshot_ids=tuple(dict.fromkeys(snapshots)),
         strategy=strategy.ref,
         composed_by=COMPOSER,
         composed_at=at,
