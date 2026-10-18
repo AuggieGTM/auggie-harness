@@ -31,6 +31,7 @@ from auggie.pipeline import (
     RunResult,
     RunTimes,
     activate_strategy,
+    complete_revision,
     deliver,
     record_outcome,
     record_review,
@@ -152,6 +153,7 @@ def review_draft(
 
     Content first; delivery is asked only if the content was approved.
     """
+    _finish_last_revision(store, draft_id, out)
     draft = store.latest_artifact(draft_id)
     describe_draft(store, draft, out)
     person = Actor(kind="human", id=reviewer)
@@ -205,6 +207,11 @@ def review_draft(
     return approvals
 
 
+def _finish_last_revision(store: Store, draft_id: str, out: Print) -> None:
+    if complete_revision(store, draft_id):
+        out(f"recorded  the last revision of {draft_id}, which an earlier run left unfinished")
+
+
 def revise_draft(
     store: Store,
     *,
@@ -220,6 +227,7 @@ def revise_draft(
     returns None when the text comes back unchanged. A delivered draft is
     not revised; research again for a new one.
     """
+    _finish_last_revision(store, draft_id, out)
     draft = store.latest_artifact(draft_id)
     if draft.recipient_id is not None and was_delivered(store, draft_id, draft.recipient_id):
         raise ValueError(f"{draft_id} was already delivered; research again for a new draft")

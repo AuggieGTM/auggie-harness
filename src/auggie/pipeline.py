@@ -305,24 +305,40 @@ def record_revision(
         composed_at=at,
         supersedes=previous.content_hash,
     )
-    # Built before anything is written, so a version is never stored without its event.
-    event = _event(
+    _revision_event(store, revised)  # an event that cannot be recorded stops this before any write
+    store.put_artifact(revised)
+    store.append_event(_revision_event(store, revised))
+    return revised
+
+
+def complete_revision(store: Store, artifact_id: str) -> bool:
+    """Record the latest version's revision event if a run stopped before recording it.
+
+    The event is rebuilt from the stored version, so this changes nothing
+    when the event is already there (ADR 0015). Returns whether it was added.
+    """
+    latest = store.latest_artifact(artifact_id)
+    if latest.supersedes is None:
+        return False
+    return store.append_event(_revision_event(store, latest)).created
+
+
+def _revision_event(store: Store, revised: Artifact) -> OperationalEvent:
+    artifact_id = revised.ref.artifact_id
+    return _event(
         store,
         "draft.composed",
-        at=at,
-        actor=by,
+        at=revised.composed_at,
+        actor=revised.composed_by,
         refs=[
             RecordRef(kind="artifact", id=artifact_id),
             RecordRef(kind="qualification", id=revised.qualification_id),
             *(RecordRef(kind="evidence", id=eid) for eid in revised.evidence_ids),
         ],
         # "@" never appears in a record ID, so this cannot match another draft's first key.
-        key=f"draft.composed:{artifact_id}@{ref.content_hash.removeprefix('sha256:')[:32]}",
-        attributes={"supersedes": previous.content_hash},
+        key=f"draft.composed:{artifact_id}@{revised.ref.content_hash.removeprefix('sha256:')[:32]}",
+        attributes={"supersedes": revised.supersedes},
     )
-    store.put_artifact(revised)
-    store.append_event(event)
-    return revised
 
 
 def was_delivered(store: Store, artifact_id: str, recipient_id: str) -> bool:

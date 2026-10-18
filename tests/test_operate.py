@@ -346,3 +346,33 @@ def test_a_revision_of_the_longest_draft_id_keeps_its_event(store: Store) -> Non
     assert store.latest_artifact(long_id) == revised
     (event,) = store.list_events()[events:]
     assert len(event.idempotency_key) <= 200
+
+
+def test_a_revision_stopped_before_its_event_is_finished_by_the_next_step(
+    store: Store, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    draft = research(store).draft
+    assert draft is not None
+    draft_id = draft.ref.artifact_id
+
+    def stop(*_: object) -> None:
+        raise ConnectionError("the run stopped here")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(store, "append_event", stop)
+        with pytest.raises(ConnectionError):
+            revise_draft(
+                store, draft_id=draft_id, author="demo-seller", edit=lambda t: t + "PS\n", out=print
+            )
+    revised = store.latest_artifact(draft_id)
+    assert revised.supersedes == draft.ref.content_hash
+
+    def by_seller() -> list[object]:
+        return [e for e in store.list_events(type="draft.composed") if e.actor.id == "demo-seller"]
+
+    assert by_seller() == []
+    shown: list[str] = []
+    review(store, draft_id, "n", "")
+    revise_draft(store, draft_id=draft_id, author="demo-seller", edit=lambda t: t, out=shown.append)
+    assert len(by_seller()) == 1
+    assert not any("unfinished" in line for line in shown)
