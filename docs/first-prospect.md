@@ -167,8 +167,9 @@ uv run auggie outcome <scope.json> --draft <draft id> --outcome <what happened> 
 uv run auggie project <scope.json> --mongodb <uri> --workbook <file outside the clone>
 ```
 
-Each `research` run fetches every source URL in `prospect.json`, so it may spend up to $0.002
-for each of them, within the scope's per-run limit.
+Each `research` run fetches one URL from `prospect.json` for each source kind the strategy
+names, and ignores any others. It may spend up to $0.002 for each, within the scope's per-run
+limit.
 
 ### What to check
 

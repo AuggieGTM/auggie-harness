@@ -87,8 +87,8 @@ your questions about what I sell and about the prospect. Use Bash for every comm
    until I say it is done. To confirm the token file exists, list its directory with ls -l and
    nothing more.
 6. Paid calls wait for my yes. Before each one, tell me what it will fetch and the most it can
-   spend: for the token check, its one URL; for research without --replay, every source URL in
-   prospect.json and the run's limit. Ask again before a retry or a changed list of URLs.
+   spend: for the token check, its one URL; for research without --replay, the prospect.json
+   URL for each source kind the strategy names, and the run's limit. Ask again before a retry or a changed list of URLs.
 7. Run research and show me what each stage printed. Then give me the review command for my
    own terminal, written out in full as in the rehearsal, and wait. Run deliver once I tell you
    I approved both the content and the delivery, and outcome when I tell you what happened.
