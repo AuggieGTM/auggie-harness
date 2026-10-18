@@ -10,6 +10,7 @@ from __future__ import annotations
 import secrets
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
+from typing import Literal
 
 from auggie.accounts import Account
 from auggie.acquisition import Acquisition
@@ -25,6 +26,7 @@ from auggie.contracts import (
 )
 from auggie.contracts.approval import ApprovalDecision
 from auggie.contracts.events import OutcomeKind
+from auggie.delivery import Sender
 from auggie.judgment.rules import RulesQualifier
 from auggie.pipeline import (
     OutcomeReport,
@@ -33,12 +35,13 @@ from auggie.pipeline import (
     activate_strategy,
     complete_revision,
     deliver,
+    ensure_undelivered,
     record_outcome,
     record_person,
     record_review,
     record_revision,
     research_run,
-    was_delivered,
+    resolve_send,
 )
 from auggie.store import Appended, Store, StoreError
 from auggie.strategy import LoadedStrategy
@@ -189,14 +192,21 @@ def review_draft(
     ]
     if decision != "approved":
         return approvals
-    question = (
-        f"Approve delivery to {draft.recipient_id} (simulated), valid {delivery_days} days? [y/N]: "
-    )
+    platform = store.scope.execution.platform
+    if platform == "simulated":
+        where = f"{draft.recipient_id} (simulated)"
+    else:
+        recipient = store.get_person(draft.recipient_id) if draft.recipient_id else None
+        if recipient is None or recipient.email is None:
+            out(f"no address is recorded for {draft.recipient_id}, so delivery cannot be approved")
+            return approvals
+        where = f"{recipient.first_name} <{recipient.email}> from your {platform} mailbox"
+    question = f"Approve sending to {where}, valid {delivery_days} days? [y/N]: "
     if ask(question).strip().lower() in ("y", "yes"):
         decided = now()
         delivery = ReviewDecision(
             scope="delivery",
-            platform="simulated",
+            platform=platform,
             decision="approved",
             reviewer=person,
             decided_at=decided,
@@ -235,8 +245,8 @@ def revise_draft(
     """
     _finish_last_revision(store, draft_id, out)
     draft = store.latest_artifact(draft_id)
-    if draft.recipient_id is not None and was_delivered(store, draft_id, draft.recipient_id):
-        raise ValueError(f"{draft_id} was already delivered; research again for a new draft")
+    if draft.recipient_id is not None:
+        ensure_undelivered(store, draft_id, draft.recipient_id)
     for approval in store.list_approvals(draft_id):
         if approval.artifact == draft.ref and approval.note:
             out(f"review    {approval.decision} by {approval.reviewer.id}: {approval.note}")
@@ -252,10 +262,30 @@ def revise_draft(
     )
 
 
-def deliver_draft(store: Store, *, draft_id: str, now: Clock = utc_now) -> Appended:
-    """Hand the latest version off (simulated) if it is authorized now; raise otherwise."""
+def deliver_draft(
+    store: Store, *, draft_id: str, sender: Sender | None = None, now: Clock = utc_now
+) -> Appended:
+    """Deliver the latest version on the scope's platform if it is authorized now; raise otherwise.
+
+    A live scope sends through ``sender`` (ADR 0022).
+    """
     draft = store.latest_artifact(draft_id)
-    return deliver(store, requested=draft.ref, platform="simulated", at=now())
+    platform = store.scope.execution.platform
+    return deliver(store, requested=draft.ref, platform=platform, at=now(), sender=sender)
+
+
+def resolve_delivery(
+    store: Store,
+    *,
+    draft_id: str,
+    found: Literal["sent", "not-sent"],
+    reporter: str,
+    now: Clock = utc_now,
+) -> Appended:
+    """Record what a person found in their Sent folder for an unknown send (ADR 0022)."""
+    return resolve_send(
+        store, artifact_id=draft_id, found=found, by=Actor(kind="human", id=reporter), at=now()
+    )
 
 
 def report_outcome(

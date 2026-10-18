@@ -14,6 +14,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Literal
 
 from auggie.accounts import Account
 from auggie.acquisition import Acquisition
@@ -38,7 +39,14 @@ from auggie.contracts import (
 from auggie.contracts.approval import DeliveryPlatform
 from auggie.contracts.common import RecordId, UtcDatetime
 from auggie.contracts.events import AttributeValue, EventType, OutcomeKind
-from auggie.delivery import SIMULATED_DELIVERY, authorize_delivery
+from auggie.delivery import (
+    SIMULATED_DELIVERY,
+    DeliveryBlocked,
+    Sender,
+    SendRefused,
+    authorize_delivery,
+    split_message,
+)
 from auggie.judgment import Qualifier
 from auggie.store import Appended, RecordConflict, RecordNotFound, Store
 from auggie.strategy import LoadedStrategy
@@ -320,8 +328,8 @@ def record_revision(
     if store.latest_artifact(artifact_id).ref != previous:
         raise ValueError(f"{artifact_id} has a newer version than the one edited")
     recipient = edited.recipient_id
-    if recipient is not None and was_delivered(store, artifact_id, recipient):
-        raise ValueError(f"{artifact_id} was already delivered; research again for a new draft")
+    if recipient is not None:
+        ensure_undelivered(store, artifact_id, recipient)
     ref = ArtifactRef(
         artifact_id=artifact_id, kind=previous.kind, content_hash=sha256_digest(content)
     )
@@ -396,13 +404,53 @@ def _revision_event(store: Store, revised: Artifact) -> OperationalEvent:
     )
 
 
+DELIVERY_EVENTS = ("delivery.simulated", "delivery.attempted", "delivery.sent", "delivery.failed")
+
+
+@dataclass(frozen=True)
+class DeliveryState:
+    """What the records say about delivering one draft to one person (ADR 0022)."""
+
+    attempts: tuple[OperationalEvent, ...]
+    sent: OperationalEvent | None
+    """The simulated hand-off or the send's receipt, if there is one."""
+    unknown: bool
+    """The last attempt has neither a receipt nor a failure: it may have gone out."""
+    closed: bool
+    """A person recorded an attempt as not sent. The harness never retries the draft."""
+
+
+def delivery_state(store: Store, artifact_id: str, recipient_id: str) -> DeliveryState:
+    about = {RecordRef(kind="artifact", id=artifact_id), RecordRef(kind="person", id=recipient_id)}
+    events = [e for e in store.list_events() if e.type in DELIVERY_EVENTS and about <= set(e.refs)]
+    attempts = tuple(e for e in events if e.type == "delivery.attempted")
+    sent = next((e for e in events if e.type in ("delivery.simulated", "delivery.sent")), None)
+    failed = [e for e in events if e.type == "delivery.failed"]
+    unknown = bool(attempts) and sent is None
+    if unknown:
+        last = attempts[-1].attributes.get("attempt")
+        unknown = not any(e.attributes.get("attempt") == last for e in failed)
+    closed = any(e.actor.kind == "human" for e in failed)
+    return DeliveryState(attempts, sent, unknown, closed)
+
+
 def was_delivered(store: Store, artifact_id: str, recipient_id: str) -> bool:
-    """Whether a hand-off of ``artifact_id`` to ``recipient_id`` is recorded."""
-    return any(
-        RecordRef(kind="artifact", id=artifact_id) in event.refs
-        and RecordRef(kind="person", id=recipient_id) in event.refs
-        for event in store.list_events(type="delivery.simulated")
-    )
+    """Whether a hand-off or a send of ``artifact_id`` to ``recipient_id`` is recorded."""
+    return delivery_state(store, artifact_id, recipient_id).sent is not None
+
+
+def ensure_undelivered(store: Store, artifact_id: str, recipient_id: str) -> None:
+    """Refuse to change a draft that went out, may have gone out, or will never go out."""
+    state = delivery_state(store, artifact_id, recipient_id)
+    if state.sent is not None:
+        raise ValueError(f"{artifact_id} was already delivered; research again for a new draft")
+    if state.unknown:
+        raise ValueError(f"an attempt to send {artifact_id} is unresolved; resolve it first")
+    if state.closed:
+        raise ValueError(
+            f"an attempt to send {artifact_id} was recorded as not sent, and it is never retried; "
+            "research again for a new draft"
+        )
 
 
 def record_review(
@@ -426,36 +474,133 @@ def record_review(
 
 
 def deliver(
-    store: Store, *, requested: ArtifactRef, platform: DeliveryPlatform, at: datetime
+    store: Store,
+    *,
+    requested: ArtifactRef,
+    platform: DeliveryPlatform,
+    at: datetime,
+    sender: Sender | None = None,
 ) -> Appended:
-    """Hand ``requested`` off if, and only if, it is authorized now.
+    """Hand ``requested`` off, or send it through ``sender``, if and only if it is authorized now.
 
-    Raises ``DeliveryBlocked`` otherwise. Delivering the same draft to the
-    same recipient again returns the first delivery with ``created=False``.
+    Raises ``DeliveryBlocked`` otherwise. Delivering a draft that already went
+    to its recipient returns that delivery with ``created=False``. A real send
+    is recorded as an attempt before the request, then as sent or failed
+    (ADR 0022). An exception from ``sender`` other than ``SendRefused``
+    propagates and leaves the attempt unknown, which blocks every later one.
     """
-    latest = store.latest_artifact(requested.artifact_id)
+    artifact_id = requested.artifact_id
+    latest = store.latest_artifact(artifact_id)
     if latest.recipient_id is None:
-        raise ValueError(f"{requested.artifact_id} has no recipient")
-    target = DeliveryTarget(platform=platform, recipient_id=latest.recipient_id)
+        raise ValueError(f"{artifact_id} has no recipient")
+    recipient = latest.recipient_id
+    target = DeliveryTarget(platform=platform, recipient_id=recipient)
     approval = authorize_delivery(
         scope=store.scope,
         requested=requested,
         latest=latest,
         target=target,
-        approvals=store.list_approvals(requested.artifact_id),
+        approvals=store.list_approvals(artifact_id),
         at=at,
     )
+    refs = [
+        RecordRef(kind="approval", id=approval.approval_id),
+        RecordRef(kind="artifact", id=artifact_id),
+        RecordRef(kind="person", id=recipient),
+    ]
+    if platform == "simulated":
+        return _append(
+            store,
+            "delivery.simulated",
+            at=at,
+            actor=SIMULATED_DELIVERY,
+            refs=refs,
+            key=f"delivery.simulated:{artifact_id}:{recipient}",
+        )
+    if sender is None or sender.platform != platform:
+        raise DeliveryBlocked(f"no {platform} sender is available")
+    state = delivery_state(store, artifact_id, recipient)
+    if state.sent is not None:
+        return Appended(state.sent, created=False)
+    if state.unknown:
+        raise DeliveryBlocked(
+            "an earlier attempt to send this draft is unknown: check your Sent folder, then "
+            "record what you found with --resolve"
+        )
+    if state.closed:
+        raise DeliveryBlocked(
+            "an earlier attempt was recorded as not sent, and the harness never retries it; "
+            "research again for a new draft"
+        )
+    address = store.get_person(recipient).email
+    if address is None:
+        raise DeliveryBlocked(f"no address is recorded for {recipient}")
+    subject, body = split_message(latest.content)
+    attempt = len(state.attempts) + 1
+    facts: dict[str, AttributeValue] = {"platform": platform, "attempt": attempt}
+    _append(
+        store,
+        "delivery.attempted",
+        at=at,
+        actor=sender.actor,
+        refs=refs,
+        key=f"delivery.attempted:{artifact_id}:{recipient}:{attempt}",
+        attributes=facts,
+    )
+    try:
+        receipt = sender.send(to=address, subject=subject, body=body)
+    except SendRefused as refused:
+        _append(
+            store,
+            "delivery.failed",
+            at=at,
+            actor=sender.actor,
+            refs=refs,
+            key=f"delivery.failed:{artifact_id}:{recipient}:{attempt}",
+            attributes={**facts, "reason": refused.reason[:500]},
+        )
+        raise DeliveryBlocked(f"nothing was sent: {refused.reason}") from None
     return _append(
         store,
-        "delivery.simulated",
+        "delivery.sent",
         at=at,
-        actor=SIMULATED_DELIVERY,
-        refs=[
-            RecordRef(kind="approval", id=approval.approval_id),
-            RecordRef(kind="artifact", id=requested.artifact_id),
-            RecordRef(kind="person", id=target.recipient_id),
-        ],
-        key=f"delivery.simulated:{requested.artifact_id}:{target.recipient_id}",
+        actor=sender.actor,
+        refs=refs,
+        key=f"delivery.sent:{artifact_id}:{recipient}",
+        attributes={**facts, "receipt": receipt[:500]},
+    )
+
+
+def resolve_send(
+    store: Store, *, artifact_id: str, found: Literal["sent", "not-sent"], by: Actor, at: datetime
+) -> Appended:
+    """Record what a person found for an unknown send. Either way, it is never retried."""
+    recipient = store.latest_artifact(artifact_id).recipient_id
+    if recipient is None:
+        raise ValueError(f"{artifact_id} has no recipient")
+    state = delivery_state(store, artifact_id, recipient)
+    if not state.unknown:
+        raise ValueError(f"{artifact_id} has no unknown send to resolve")
+    last = state.attempts[-1]
+    facts = {**last.attributes, "resolved": True}
+    if found == "sent":
+        return _append(
+            store,
+            "delivery.sent",
+            at=at,
+            actor=by,
+            refs=list(last.refs),
+            key=f"delivery.sent:{artifact_id}:{recipient}",
+            attributes=facts,
+        )
+    return _append(
+        store,
+        "delivery.failed",
+        at=at,
+        actor=by,
+        refs=list(last.refs),
+        key=f"delivery.failed:{artifact_id}:{recipient}:{last.attributes.get('attempt')}",
+        attributes={**facts, "reason": "the seller found it was not sent"},
     )
 
 

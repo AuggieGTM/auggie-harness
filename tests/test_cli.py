@@ -277,14 +277,22 @@ def test_the_walkthrough_files_match_the_scenario_inputs() -> None:
     assert json.loads((NORTHSTAR / "scope.json").read_text(encoding="utf-8")) == inputs["scope"]
 
 
-@pytest.mark.parametrize("command", ["review", "revise"])
+@pytest.mark.parametrize(
+    "step",
+    [
+        ["review", "--reviewer", "someone"],
+        ["revise", "--author", "someone"],
+        ["deliver", "--resolve", "not-sent", "--reporter", "someone"],
+    ],
+    ids=["review", "revise", "resolve"],
+)
 def test_person_commands_refuse_input_that_does_not_come_from_a_terminal(
-    command: str, capsys: pytest.CaptureFixture[str]
+    step: list[str], capsys: pytest.CaptureFixture[str]
 ) -> None:
     scope = str(NORTHSTAR / "scope.json")
     unreachable = ["--mongodb", "mongodb://127.0.0.1:1"]
-    person = "--reviewer" if command == "review" else "--author"
-    assert main([command, scope, "--draft", "draft-x", person, "someone", *unreachable]) == 1
+    command, *flags = step
+    assert main([command, scope, "--draft", "draft-x", *flags, *unreachable]) == 1
     assert "must be answered at a terminal" in capsys.readouterr().out
 
 

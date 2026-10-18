@@ -218,7 +218,7 @@ def test_a_scope_with_delivery_disabled_cannot_deliver() -> None:
         run_scenario(NORTHSTAR, inputs=inputs(scope=scope))
 
 
-def test_live_delivery_is_not_built() -> None:
+def test_a_platform_without_an_adapter_cannot_deliver() -> None:
     run = until_review(review("content"), review("delivery"))
     draft = draft_of(run)
     live = CustomerScope.model_validate(
@@ -228,7 +228,7 @@ def test_live_delivery_is_not_built() -> None:
             execution={"delivery": "live", "platform": "instantly"},
         )
     )
-    with pytest.raises(DeliveryBlocked, match="only simulated delivery exists"):
+    with pytest.raises(DeliveryBlocked, match="no instantly delivery adapter exists"):
         authorize_delivery(
             scope=live,
             requested=draft.ref,
@@ -239,9 +239,9 @@ def test_live_delivery_is_not_built() -> None:
         )
 
 
-def test_live_platforms_are_refused() -> None:
+def test_only_the_scopes_platform_is_delivered_on() -> None:
     run = until_review(review("content"), review("delivery"))
-    with pytest.raises(DeliveryBlocked, match="only simulated delivery exists"):
+    with pytest.raises(DeliveryBlocked, match="delivers on 'simulated', not 'instantly'"):
         deliver(run.store, requested=draft_of(run).ref, platform="instantly", at=DELIVER_AT)
 
 

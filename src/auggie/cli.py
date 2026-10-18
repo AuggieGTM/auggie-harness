@@ -393,8 +393,14 @@ def _add_prospect_commands(commands: Any) -> None:
     revise.add_argument("--draft", required=True, help="the draft's ID, as research printed it")
     revise.add_argument("--author", required=True, help="your name, recorded on the new version")
 
-    deliver_ = common("deliver", "hand an approved draft off (simulated)")
+    deliver_ = common("deliver", "deliver an approved draft on the scope's platform")
     deliver_.add_argument("--draft", required=True)
+    deliver_.add_argument(
+        "--resolve",
+        choices=("sent", "not-sent"),
+        help="record what you found in your Sent folder for an unknown send",
+    )
+    deliver_.add_argument("--reporter", help="your name, recorded with --resolve")
 
     outcome = common("outcome", "record what happened after a delivery")
     outcome.add_argument("--draft", required=True)
@@ -428,9 +434,12 @@ def edit_in_editor(text: str) -> str:
 
 def prospect_command(args: argparse.Namespace, out: Print, ask: Callable[[str], str]) -> int:
     """Run one step of the operator's flow against the scope's MongoDB Store."""
-    if args.command in PERSON_COMMANDS and not interactive():
+    person_step = PERSON_COMMANDS.get(args.command)
+    if args.command == "deliver" and args.resolve is not None:
+        person_step = "resolving a send records what a person found"
+    if person_step is not None and not interactive():
         out(
-            f"stopped   {PERSON_COMMANDS[args.command]}, so it must be answered at a "
+            f"stopped   {person_step}, so it must be answered at a "
             "terminal: redirected input or output is refused"
         )
         return 1
@@ -551,10 +560,22 @@ def _prospect_step(
             )
             out(f"next      auggie review ... --draft {args.draft} --reviewer <you>")
         return 0
+    if args.command == "deliver" and args.resolve is not None:
+        if not args.reporter:
+            raise ValueError("--resolve needs --reporter, your name")
+        operate.resolve_delivery(
+            store, draft_id=args.draft, found=args.resolve, reporter=args.reporter
+        )
+        out(f"deliver   {args.draft} recorded as {args.resolve}; it is never sent again")
+        return 0
     if args.command == "deliver":
         delivered = operate.deliver_draft(store, draft_id=args.draft)
         again = "" if delivered.created else " (already delivered; nothing sent again)"
-        out(f"deliver   simulated hand-off of {args.draft}{again}")
+        if delivered.event.type == "delivery.simulated":
+            out(f"deliver   simulated hand-off of {args.draft}{again}")
+        else:
+            receipt = delivered.event.attributes.get("receipt")
+            out(f"deliver   {args.draft} sent, receipt {receipt}{again}")
         return 0
     recorded_outcome = operate.report_outcome(
         store, draft_id=args.draft, outcome=args.outcome, reporter=args.reporter
