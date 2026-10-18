@@ -35,3 +35,5 @@ behavior or the public boundary. The process is described in
 | [0020](0020-one-delivery-adapter-per-sending-platform.md) | One delivery adapter per sending platform, the seller's mailbox first | Accepted |
 | [0021](0021-the-sellers-gmail-credential.md) | The seller's Gmail credential | Accepted |
 | [0022](0022-live-delivery-records.md) | Live delivery records | Accepted |
+| [0023](0023-signal-vocabulary-in-the-strategy.md) | The seller's strategy holds the signal vocabulary | Proposed |
+| [0024](0024-careers-snapshots-and-hiring-tallies.md) | Careers snapshots and hiring tallies | Proposed |

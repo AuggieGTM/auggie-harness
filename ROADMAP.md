@@ -76,6 +76,9 @@ contract ([ADR 0014](docs/adr/0014-artifact-contract.md)), both Accepted.
   run.*
 - Delivery stays simulated.
 
+**Next:** a first live run on the maintainer's own prospect: a paid Treg page fetch, and a
+Gmail send to themself.
+
 **Gate:** per-scope credentials; provider spend bounded per run; no live delivery. *Credential
 files and the per-run spend limit are built
 ([ADR 0016](docs/adr/0016-credentials-and-spend-limits.md)).*
@@ -83,7 +86,42 @@ files and the per-run spend limit are built
 if any work must run in the background. *M3 runs stay operator-triggered from the CLI, so ADR 0007
 can stay open.*
 
-## M4: Proven in real deployments (Planned)
+## M4: Signals (Next)
+
+Who is hiring for what, which technologies an account runs, and what changed, in the seller's
+own vocabulary.
+
+- The seller's strategy holds the vocabulary: hiring families, pattern thresholds and stack
+  terms ([ADR 0023](docs/adr/0023-signal-vocabulary-in-the-strategy.md), Proposed).
+- Careers snapshots, read whole from listing services' public feeds, and hiring tallies counted
+  by rules ([ADR 0024](docs/adr/0024-careers-snapshots-and-hiring-tallies.md), Proposed).
+- A hiring tab in the workbook.
+
+**Gate:** two synthetic sellers in different domains qualify and draft from their own
+vocabulary, with no domain words in the code; every tally line cites a dated snapshot and its
+role links; a failed listing read leaves its criteria unknown.
+
+## M5: The seller's point of view (Planned)
+
+- Proof points as exact claims from the seller's case studies, each with one source and marked
+  as a vendor claim, and pains with where the seller fits, where it stops, and its approved
+  offer, all in the seller's private strategy repository.
+- Plays select by signal, and a draft pairs the account's evidence with a proof and an offer.
+  Drafts stay templates.
+
+**Gate:** every proof in a draft is a vendor claim with exactly one source, quoted exactly; a
+person still approves each draft.
+
+## M6: Many accounts (Planned)
+
+- A prospect list imported from CSV, previewed before anything is written.
+- Research over the whole list in one foreground run, within a spending cap for the batch.
+- `review --next` through the drafts waiting for a person.
+
+**Gate:** a list of accounts is researched in one run within its cap, and each draft is still
+approved on its own.
+
+## M7: Proven in real deployments (Planned)
 
 Sellers run the harness for their own prospecting outside this repository, as does the
 maintainer's own private service. Their configuration, strategy and data stay in their own
@@ -92,7 +130,7 @@ reproduce what was learned, land here.
 
 **Gate:** two independent deployments differ by configuration only.
 
-## M5: Delivery and learning (Later)
+## M8: Delivery and learning (Later)
 
 - Delivery adapters behind delivery approval, one per sending platform: the seller's own
   mailbox, Gmail and then Microsoft 365
@@ -105,6 +143,14 @@ reproduce what was learned, land here.
   of [ADR 0022](docs/adr/0022-live-delivery-records.md), tested against a fake Google. Nothing
   has been sent through it yet.*
 - Outcome intake and strategy-revision proposals that people review in Git.
+
+## Later, each its own decision
+
+- A weekly refresh of watched accounts, which needs the scheduler
+  ([ADR 0007](docs/adr/0007-single-task-scheduler.md), Open).
+- Discovery: accounts hiring for the seller's vocabulary, proposed for the seller to accept.
+- Drafts worded by a model, where code decides every fact and a sentence without a source is
+  dropped ([ADR 0009](docs/adr/0009-judgment-and-synthesis-engines.md) would be revisited).
 
 ## Public release readiness (Later)
 
