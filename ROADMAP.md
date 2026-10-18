@@ -60,9 +60,9 @@ contract ([ADR 0014](docs/adr/0014-artifact-contract.md)), both Accepted.
 - Read-only Sheets projection; Docs later. *Built: four managed tabs regenerated from the
   Store, with no page text, written as CSV, by an operator's agent connector, or by a scope's
   own service account ([ADR 0019](docs/adr/0019-projection-writers-and-agent-connectors.md)).
-  The connector path passed a live check on 2026-10-17 on synthetic Northstar data: the grid read-back showed
-  every tab at exactly the projection's size, from A1, every cell literal text and equal. The
-  service-account path is tested against a fake Google only.*
+  The connector path passed a live check on 2026-10-17 on synthetic Northstar data: the grid
+  read-back showed every tab at exactly the projection's size, from A1, every cell literal text
+  and equal. The service-account path is tested against a fake Google only.*
 - The operator's flow for one prospect. *Built: `auggie research`, `review`, `deliver` and
   `outcome`, each a separate command a person runs, with `review` refusing to run outside a
   terminal. [Your first prospect](docs/first-prospect.md) walks a seller through a rehearsal and
@@ -93,7 +93,8 @@ reproduce what was learned, land here.
 
 - Delivery adapters behind delivery approval. ADR 0006 names EmailBison and Instantly;
   [ADR 0020](docs/adr/0020-one-delivery-adapter-per-sending-platform.md) (Proposed) would add
-  one adapter per sending platform, the seller's own mailbox first, and keep Instantly planned.
+  one adapter per sending platform: the seller's own mailbox here, with room for others such as
+  Instantly.
 - Outcome intake and strategy-revision proposals that people review in Git.
 
 ## Public release readiness (Later)

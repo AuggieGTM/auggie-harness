@@ -29,11 +29,12 @@ return:
    Sent folder after a response is lost. Both need an OAuth client, and a company's Google
    Workspace or Microsoft 365 administrators can decide which apps may use one.
 2. **Create a draft for the seller to send.** A draft-only adapter would not implement sending,
-   but the permissions are wider, not narrower: Gmail's drafts need `gmail.compose` ("Manage
-   drafts and send emails", restricted), and Graph's need `Mail.ReadWrite`, which reads and
-   changes the mailbox's mail. The seller can also edit the draft before sending it, so what goes
-   out can differ from the approved version. [ADR 0005](0005-evidence-and-approval-gates.md)
-   ties every sent message to an approved draft hash, which an edited draft no longer matches.
+   but the permissions are wider, not narrower: Gmail's drafts take `gmail.compose` ("Manage
+   drafts and send emails", restricted) or broader, and Graph's take `Mail.ReadWrite`, which
+   reads and changes the mailbox's mail, though it does not itself send. The seller can also
+   edit the draft before sending it, so what goes out can differ from the approved version.
+   [ADR 0005](0005-evidence-and-approval-gates.md) ties every sent message to an approved
+   draft hash, which an edited draft no longer matches.
 3. **Hand off to the company's sales engagement platform** (Outreach, Salesloft, HubSpot
    sequences). Many companies' sellers send from one, often with CRM logging built in. API
    access and plans vary by company, and these platforms run multi-step sequences, while the
@@ -47,8 +48,10 @@ return:
   permissions: Gmail's `gmail.send`, then Microsoft 365's delegated `Mail.Send` for the
   signed-in seller. Graph's application permission is not used, because on its own it is not
   limited to one mailbox.
-- Instantly stays a planned adapter, for deployments that send from their own sending domains.
-  EmailBison, also named in ADR 0006, stays allowed but is not planned.
+- This harness is for sellers, so the seller's mailbox is the delivery it plans. Platforms built
+  for outreach from dedicated sending domains, such as Instantly and EmailBison, are not planned
+  here. The adapter interface and their `DeliveryPlatform` values stay, so a deployment that
+  sends that way can add one.
 - Sales engagement platforms (option 3) follow one at a time, where a company uses one and
   grants API access.
 - The adapter submits exactly the approved subject, body and recipient. One approved message is
