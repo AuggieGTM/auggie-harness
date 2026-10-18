@@ -543,9 +543,20 @@ def _add_prospect_commands(commands: Any) -> None:
     )
 
     outcome = common("outcome", "record what happened after a delivery")
-    outcome.add_argument("--draft", required=True)
-    outcome.add_argument("--outcome", required=True, choices=get_args(OutcomeKind))
+    source = outcome.add_mutually_exclusive_group(required=True)
+    source.add_argument("--draft", help="the delivered draft")
+    source.add_argument(
+        "--from",
+        dest="from_list",
+        type=Path,
+        metavar="CSV",
+        help="a list of outcomes: draft, outcome and occurred_at",
+    )
+    outcome.add_argument("--outcome", choices=get_args(OutcomeKind), help="with --draft")
     outcome.add_argument("--reporter", required=True, help="your name, recorded on the outcome")
+    outcome.add_argument(
+        "--write", action="store_true", help="with --from: after the preview, record the new rows"
+    )
 
 
 QUERY_COMMANDS = ("accounts", "brief", "find", "stack", "hiring", "proofs", "learn")
@@ -1344,10 +1355,38 @@ def _prospect_step(
             receipt = delivered.event.attributes.get("receipt")
             out(f"deliver   {args.draft} sent, receipt {receipt}{again}")
         return 0
+    if args.from_list is not None:
+        return _outcomes_from(args, store, out)
+    if args.outcome is None:
+        raise ValueError("--draft needs --outcome")
     recorded_outcome = operate.report_outcome(
         store, draft_id=args.draft, outcome=args.outcome, reporter=args.reporter
     )
     out(f"learn     outcome {args.outcome} recorded ({recorded_outcome.event.idempotency_key})")
+    return 0
+
+
+def _outcomes_from(args: argparse.Namespace, store: Store, out: Print) -> int:
+    """Preview a list of outcomes against the Store and, with --write, record the new rows
+    (ADR 0028)."""
+    from auggie import operate, outcome_list
+
+    Actor(kind="human", id=args.reporter)  # an unusable name is refused before anything
+    rows = outcome_list.check(
+        outcome_list.read_outcomes(args.from_list.read_text(encoding="utf-8")),
+        store,
+        operate.utc_now,
+    )
+    for row in rows:
+        out(outcome_list.describe(row))
+    counts = {s: sum(r.status == s for r in rows) for s in ("new", "recorded", "refused")}
+    out("")
+    out(f"{counts['new']} new, {counts['recorded']} already recorded, {counts['refused']} refused")
+    if not args.write:
+        out("Nothing recorded. Run again with --write to record the new rows.")
+        return 0
+    recorded = outcome_list.record(rows, store, args.reporter)
+    out(f"Recorded {len(recorded)} outcomes.")
     return 0
 
 
