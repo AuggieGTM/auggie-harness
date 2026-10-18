@@ -13,7 +13,7 @@ import pytest
 from auggie.acquisition.fixture import FixtureAcquisition
 from auggie.contracts import Actor, Artifact, CustomerScope
 from auggie.contracts.approval import DeliveryPlatform
-from auggie.delivery import DeliveryBlocked, SendRefused, split_message
+from auggie.delivery import DeliveryBlocked, SendRefused, SendUnknown, split_message
 from auggie.external import ExternalCallRefused
 from auggie.operate import (
     deliver_draft,
@@ -38,6 +38,7 @@ class FakeSender:
     outcomes: list[str | Exception] = field(default_factory=lambda: ["msg-001"])
     sent: list[tuple[str, str, str]] = field(default_factory=list)
     platform: DeliveryPlatform = "gmail"
+    scope: CustomerScope = field(default_factory=lambda: live_scope())
     actor: Actor = field(
         default_factory=lambda: Actor(kind="service", id="fake-gmail", version="0")
     )
@@ -238,7 +239,7 @@ def test_a_live_send_needs_external_calls_allowed() -> None:
     store = InMemoryBackend().open(scope_with(external_providers=False))
     draft = researched(store)
     approve(store, draft)
-    sender = FakeSender()
+    sender = FakeSender(scope=store.scope)
     with pytest.raises(ExternalCallRefused):
         deliver_draft(store, draft_id=draft.ref.artifact_id, sender=sender, now=sent_at)
     assert sender.sent == [] and kinds(store) == []
@@ -303,8 +304,8 @@ def test_a_receipt_or_reason_that_is_not_plain_is_never_recorded(store: Store) -
     sender = FakeSender(outcomes=[noisy, "id with spaces <jordan@northstar.example>"])
     with pytest.raises(DeliveryBlocked, match="nothing was sent: the platform refused"):
         deliver_draft(store, draft_id=draft.ref.artifact_id, sender=sender, now=sent_at)
-    sent = deliver_draft(store, draft_id=draft.ref.artifact_id, sender=sender, now=sent_at)
-    assert sent.event.attributes["receipt"] == "unrecognized"
+    with pytest.raises(SendUnknown):
+        deliver_draft(store, draft_id=draft.ref.artifact_id, sender=sender, now=sent_at)
     recorded = json.dumps([e.model_dump(mode="json") for e in store.list_events()])
     assert "jordan.avery@" not in recorded and "Hi Jordan" not in recorded
 
@@ -327,3 +328,30 @@ def test_a_send_shows_in_the_workbook_as_delivered(store: Store) -> None:
     header, *rows = project(store)["auggie: drafts"]
     (row,) = rows
     assert row[header.index("delivered_at")] == sent_at().isoformat()
+
+
+def test_a_sender_for_another_scope_is_refused(store: Store) -> None:
+    draft = researched(store)
+    approve(store, draft)
+    elsewhere = CustomerScope.model_validate(
+        variant(
+            store.scope,
+            customer_id="other-seller",
+            data_namespace="auggie_other_seller",
+            credential_namespace="other-seller",
+            knowledge_namespace="other-seller-strategy",
+        )
+    )
+    sender = FakeSender(scope=elsewhere)
+    with pytest.raises(DeliveryBlocked, match="another scope"):
+        deliver_draft(store, draft_id=draft.ref.artifact_id, sender=sender, now=sent_at)
+    assert sender.sent == [] and kinds(store) == []
+
+
+def test_a_receipt_that_is_not_an_id_leaves_the_send_unknown(store: Store) -> None:
+    draft = researched(store)
+    approve(store, draft)
+    sender = FakeSender(outcomes=["id with spaces <jordan@northstar.example>"])
+    with pytest.raises(SendUnknown):
+        deliver_draft(store, draft_id=draft.ref.artifact_id, sender=sender, now=sent_at)
+    assert kinds(store) == ["delivery.attempted"]

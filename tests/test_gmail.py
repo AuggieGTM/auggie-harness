@@ -49,7 +49,7 @@ class FakeGoogle:
         send: HttpResponse | Exception | None = None,
     ) -> None:
         self.token = token or renewed()
-        self.answer = send or reply(200, {"id": "msg-synthetic-1", "threadId": "t-1"})
+        self.answer = send or reply(200, {"id": "18c2f0a1b2c3d4e5", "threadId": "t-1"})
         self.requests: list[HttpRequest] = []
 
     def send(self, request: HttpRequest) -> HttpResponse:
@@ -102,7 +102,7 @@ def test_one_message_goes_out_with_a_token_renewed_for_gmail_send_only(
     tmp_path: Path, scope: CustomerScope
 ) -> None:
     google = FakeGoogle()
-    assert send(sender(tmp_path, scope, google)) == "msg-synthetic-1"
+    assert send(sender(tmp_path, scope, google)) == "18c2f0a1b2c3d4e5"
     renew, mail = google.requests
     assert (renew.method, renew.url) == ("POST", TOKEN_URL)
     form = urllib.parse.parse_qs(renew.body.decode())
@@ -227,3 +227,84 @@ def test_the_transport_reaches_only_google() -> None:
     )
     with pytest.raises(ValueError, match="may only go to"):
         GoogleTransport().send(request)
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        reply(200, {"id": ACCESS_TOKEN}),
+        reply(200, {"id": "abcdef0123456789", "threadId": "t"}),
+        reply(200, {"id": "Hi Jordan, thanks"}),
+    ],
+    ids=["reflected-token", "hex-but-fine", "message-text"],
+)
+def test_only_a_plain_gmail_id_is_taken_as_a_receipt(
+    answer: HttpResponse, tmp_path: Path, scope: CustomerScope
+) -> None:
+    google = FakeGoogle(send=answer)
+    gmail = sender(tmp_path, scope, google)
+    if json.loads(answer.body)["id"] == "abcdef0123456789":
+        assert send(gmail) == "abcdef0123456789"
+        return
+    with pytest.raises(SendUnknown) as raised:
+        send(gmail)
+    assert ACCESS_TOKEN not in str(raised.value) and "Jordan" not in str(raised.value)
+
+
+def test_a_reflected_secret_is_never_taken_as_a_receipt(
+    tmp_path: Path, scope: CustomerScope
+) -> None:
+    hex_token = "0123456789abcdef0123"
+    google = FakeGoogle(
+        token=renewed(access_token=hex_token), send=reply(200, {"id": hex_token[:16]})
+    )
+    with pytest.raises(SendUnknown, match="not a message ID"):
+        send(sender(tmp_path, scope, google))
+
+
+def test_an_unknown_oauth_error_is_never_repeated(tmp_path: Path, scope: CustomerScope) -> None:
+    google = FakeGoogle(token=reply(400, {"error": REFRESH_TOKEN.replace("-", "_")}))
+    with pytest.raises(SendRefused) as refused:
+        send(sender(tmp_path, scope, google))
+    assert "synthetic_refresh" not in str(refused.value)
+    assert "Google refused to renew the token (HTTP 400)" in str(refused.value)
+
+
+@pytest.mark.parametrize(
+    "body",
+    ["Hi Jordan", "Hi Jordan,\n\nThanks\n", "Thanks\n\n\n", "Grüße, Jördan — ✓\n"],
+    ids=["no-final-newline", "one", "several", "unicode"],
+)
+def test_the_sent_text_is_exactly_the_approved_body(
+    body: str, tmp_path: Path, scope: CustomerScope
+) -> None:
+    google = FakeGoogle()
+    sender(tmp_path, scope, google).send(
+        to="jordan.avery@northstar.example", subject="Hi", body=body
+    )
+    raw = base64.urlsafe_b64decode(json.loads(google.requests[-1].body)["raw"])
+    sent = message_from_bytes(raw, policy=default)
+    assert sent.get_content().replace("\r\n", "\n") == body
+
+
+def test_a_reply_cut_short_is_not_complete(monkeypatch: pytest.MonkeyPatch) -> None:
+    import http.client
+    import io
+
+    class Socket:
+        def makefile(self, mode: str) -> io.BytesIO:
+            return io.BytesIO(
+                b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 1000\r\n\r\n"
+                b'{"id":"18c2f0a1b2c3d4e5"}'
+            )
+
+    def opened(*_: object, **__: object) -> http.client.HTTPResponse:
+        reply = http.client.HTTPResponse(Socket())  # type: ignore[arg-type]
+        reply.begin()
+        return reply
+
+    transport = GoogleTransport()
+    monkeypatch.setattr(transport._opener, "open", opened)
+    request = HttpRequest(method="POST", url=SEND_URL, headers={}, body=b"", timeout=1)
+    with pytest.raises(OSError, match="cut short"):
+        transport.send(request)

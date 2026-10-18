@@ -67,10 +67,12 @@ class LimitedTransport:
         try:
             try:
                 with self._opener.open(outgoing, timeout=request.timeout) as reply:
+                    body = reply.read(MAX_BODY_BYTES + 1)
+                    if len(body) <= MAX_BODY_BYTES and getattr(reply, "length", None):
+                        # The reply ended before the length it announced.
+                        raise OSError(f"the {self._provider} reply was cut short")
                     return HttpResponse(
-                        reply.status,
-                        {k.lower(): v for k, v in reply.headers.items()},
-                        reply.read(MAX_BODY_BYTES + 1),
+                        reply.status, {k.lower(): v for k, v in reply.headers.items()}, body
                     )
             except urllib.error.HTTPError as error:
                 return HttpResponse(

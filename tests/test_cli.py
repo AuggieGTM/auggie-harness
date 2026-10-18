@@ -394,7 +394,7 @@ def test_a_live_gmail_scope_sends_once_and_stops_on_an_unknown_send(
         deliver = ["--credentials", str(secrets.root), *store]
         first = researched()
         assert main(["deliver", scope, "--draft", first, *deliver]) == 0
-        assert "sent, receipt msg-synthetic-1" in capsys.readouterr().out
+        assert "sent, receipt 18c2f0a1b2c3d4e5" in capsys.readouterr().out
         assert main(["deliver", scope, "--draft", first, *deliver]) == 0
         assert "already delivered" in capsys.readouterr().out
         assert (

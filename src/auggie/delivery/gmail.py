@@ -19,7 +19,7 @@ from auggie.contracts.approval import DeliveryPlatform
 from auggie.credentials import CredentialError, CredentialFiles
 from auggie.delivery import SendRefused, SendUnknown
 from auggie.external import require_external_calls
-from auggie.https import HttpRequest, HttpResponse, LimitedTransport, Transport
+from auggie.https import MAX_BODY_BYTES, HttpRequest, HttpResponse, LimitedTransport, Transport
 
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 SEND_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send"
@@ -29,6 +29,27 @@ CREDENTIAL = "gmail-token"
 
 TIMEOUT_SECONDS = 30.0
 GMAIL = Actor(kind="service", id="gmail-delivery", version="1")
+
+MESSAGE_ID = re.compile(r"[0-9a-f]{8,40}")
+"""Gmail's message IDs are hexadecimal. A reply holding anything else is not trusted as one."""
+
+OAUTH_ERRORS = frozenset(
+    {
+        "access_denied",
+        "admin_policy_enforced",
+        "deleted_client",
+        "disabled_client",
+        "invalid_client",
+        "invalid_grant",
+        "invalid_rapt",
+        "invalid_request",
+        "invalid_scope",
+        "org_internal",
+        "unauthorized_client",
+        "unsupported_grant_type",
+    }
+)
+"""OAuth error codes Google documents. Only these are ever repeated back; others are dropped."""
 
 
 class GoogleTransport(LimitedTransport):
@@ -54,6 +75,11 @@ class GmailSender:
         self._credentials = credentials
         self._transport = transport
 
+    @property
+    def scope(self) -> CustomerScope:
+        """The scope whose mailbox and credential this sender uses."""
+        return self._scope
+
     def send(self, *, to: str, subject: str, body: str) -> str:
         """Send one message and return Gmail's message ID.
 
@@ -61,7 +87,7 @@ class GmailSender:
         the message may have gone out without Gmail confirming it.
         """
         message = _message(to, subject, body)
-        token = self._access_token()
+        token, secrets = self._access_token()
         request = HttpRequest(
             method="POST",
             url=SEND_URL,
@@ -75,6 +101,8 @@ class GmailSender:
             raise SendUnknown(
                 "the Gmail call did not complete; the message may have been sent"
             ) from None
+        if len(response.body) > MAX_BODY_BYTES:
+            raise SendUnknown("Gmail's reply was too large to read; the message may have been sent")
         if 400 <= response.status < 500:
             raise SendRefused(f"Gmail refused the message (HTTP {response.status})")
         if response.status != 200:
@@ -82,12 +110,18 @@ class GmailSender:
                 f"Gmail answered HTTP {response.status}; the message may have been sent"
             )
         message_id = _field(response, "id")
-        if message_id is None:
+        if message_id is None or not MESSAGE_ID.fullmatch(message_id):
             raise SendUnknown("Gmail accepted the message but returned no message ID")
+        if any(message_id in secret or secret in message_id for secret in secrets):
+            raise SendUnknown("Gmail's reply was not a message ID; the message may have been sent")
         return message_id
 
-    def _access_token(self) -> str:
-        """Renew an access token for exactly ``gmail.send``. Raises ``SendRefused`` otherwise."""
+    def _access_token(self) -> tuple[str, tuple[str, ...]]:
+        """Renew an access token for exactly ``gmail.send``. Raises ``SendRefused`` otherwise.
+
+        Returns the token and every secret value involved, so a reply that
+        repeats one is never trusted as a receipt.
+        """
         try:
             secret = self._credentials.secret(self._scope, CREDENTIAL)
         except CredentialError as error:
@@ -117,9 +151,11 @@ class GmailSender:
             response = self._transport.send(request)
         except OSError:
             raise SendRefused("Google could not be reached to renew the token") from None
+        if len(response.body) > MAX_BODY_BYTES:
+            raise SendRefused("Google's token reply was too large to read")
         if response.status != 200:
             reason = _field(response, "error")
-            code = f" ({reason})" if reason and re.fullmatch(r"[a-z_]{1,40}", reason) else ""
+            code = f" ({reason})" if reason in OAUTH_ERRORS else ""
             raise SendRefused(
                 f"Google refused to renew the token{code} (HTTP {response.status}); sign in again"
             )
@@ -131,20 +167,25 @@ class GmailSender:
             raise SendRefused(
                 "the token is not granted exactly gmail.send; sign in again with only that scope"
             )
-        return token
+        return token, (token, form["client_secret"], form["refresh_token"])
 
 
 def _message(to: str, subject: str, body: str) -> str:
     """The message as Gmail's base64url ``raw`` form: these headers and this text, nothing else.
 
-    Lines end in CRLF, as RFC 5322 requires; the text is otherwise the approved body.
+    The body travels base64-encoded, its lines ending in CRLF as RFC 5322
+    requires and nothing added: decoded, with CRLF read as LF, it is exactly
+    the approved body, final newline or not.
     """
     if any(character in subject for character in "\r\n"):
         raise SendRefused("the subject holds a line break")
     message = EmailMessage(policy=SMTP)
     message["To"] = to
     message["Subject"] = subject
-    message.set_content(body)
+    message["MIME-Version"] = "1.0"
+    message["Content-Type"] = 'text/plain; charset="utf-8"'
+    message["Content-Transfer-Encoding"] = "base64"
+    message.set_payload(base64.encodebytes(body.replace("\n", "\r\n").encode()).decode("ascii"))
     return base64.urlsafe_b64encode(message.as_bytes()).decode("ascii")
 
 

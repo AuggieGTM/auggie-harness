@@ -50,7 +50,8 @@ class Signed:
 
 def client(tmp_path: Path, kind: str = "installed") -> Path:
     path = tmp_path / "client_secret.json"
-    path.write_text(json.dumps({kind: {"client_id": "synthetic-client"}}), encoding="utf-8")
+    config = {"client_id": "synthetic-client", "client_secret": "s"}
+    path.write_text(json.dumps({kind: config}), encoding="utf-8")
     return path
 
 
@@ -130,3 +131,68 @@ def test_the_sign_in_asks_google_for_gmail_send_only(tmp_path: Path) -> None:
 
     script.sign_in(NORTHSTAR / "scope.json", client(tmp_path), root=tmp_path / "c", run=run)
     assert asked == [SEND_SCOPE]
+
+
+def test_another_scopes_folder_is_never_reached_through_a_link(tmp_path: Path) -> None:
+    credentials = tmp_path / "credentials"
+    other = credentials / "other-seller"
+    other.mkdir(parents=True, mode=0o700)
+    (other / "gmail-token").write_text("the other seller's token\n")
+    (credentials / "demo-msp").symlink_to(other, target_is_directory=True)
+    with pytest.raises(script.SignInRefused, match="not a real folder"):
+        script.sign_in(
+            NORTHSTAR / "scope.json",
+            client(tmp_path),
+            root=credentials,
+            run=lambda _client, _scope: Signed(),
+        )
+    assert (other / "gmail-token").read_text() == "the other seller's token\n"
+    assert stat.S_IMODE(other.stat().st_mode) == 0o700
+
+
+def test_a_failed_sign_in_prints_nothing_of_googles_reply(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def fails(_client: object, _scope: str) -> Signed:
+        raise RuntimeError(f"invalid_grant: {REFRESH_TOKEN} was rejected")
+
+    monkeypatch.setattr(script, "google_sign_in", fails)
+    monkeypatch.setattr(script.sign_in, "__defaults__", (None, fails))
+    monkeypatch.setenv("AUGGIE_CREDENTIALS_DIR", str(tmp_path / "credentials"))
+    code = script.main([str(NORTHSTAR / "scope.json"), str(client(tmp_path))])
+    out = capsys.readouterr()
+    assert code == 1 and "did not complete" in out.err
+    assert REFRESH_TOKEN not in out.out + out.err
+    assert not (tmp_path / "credentials").exists()
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        {"installed": {"client_id": "a", "client_secret": "b"}, "web": {"client_id": "c"}},
+        {"web": {"client_id": "a", "client_secret": "b"}},
+        {"installed": {"client_id": "a"}},
+        {"installed": "not an object"},
+    ],
+    ids=["installed-and-web", "web", "no-secret", "malformed"],
+)
+def test_only_an_unambiguous_desktop_client_is_used(
+    content: dict[str, object], tmp_path: Path
+) -> None:
+    path = tmp_path / "client_secret.json"
+    path.write_text(json.dumps(content), encoding="utf-8")
+    with pytest.raises(script.SignInRefused, match="Desktop app"):
+        script.sign_in(
+            NORTHSTAR / "scope.json", path, root=tmp_path / "c", run=lambda _c, _s: Signed()
+        )
+
+
+def test_the_flow_gets_only_the_desktop_configuration(tmp_path: Path) -> None:
+    given: list[object] = []
+
+    def run(client: object, scope: str) -> Signed:
+        given.append(client)
+        return Signed()
+
+    script.sign_in(NORTHSTAR / "scope.json", client(tmp_path), root=tmp_path / "c", run=run)
+    assert given == [{"installed": {"client_id": "synthetic-client", "client_secret": "s"}}]

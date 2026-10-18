@@ -45,6 +45,7 @@ from auggie.delivery import (
     DeliveryBlocked,
     Sender,
     SendRefused,
+    SendUnknown,
     authorize_delivery,
     split_message,
 )
@@ -538,6 +539,8 @@ def deliver(
         )
     if sender is None or sender.platform != platform:
         raise DeliveryBlocked(f"no {platform} sender is available")
+    if sender.scope != store.scope:
+        raise DeliveryBlocked("the sender belongs to another scope")
     require_external_calls(store.scope)
     if person.email is None:
         raise DeliveryBlocked(f"no address is recorded for {recipient}")
@@ -568,6 +571,8 @@ def deliver(
             attributes={**facts, "reason": reason},
         )
         raise DeliveryBlocked(f"nothing was sent: {reason}") from None
+    if not RECEIPT.fullmatch(receipt):
+        raise SendUnknown("the platform's receipt was not an ID; the message may have been sent")
     return _append(
         store,
         "delivery.sent",
@@ -575,12 +580,12 @@ def deliver(
         actor=sender.actor,
         refs=refs,
         key=f"delivery.sent:{pair}",
-        attributes={**facts, "receipt": receipt if RECEIPT.fullmatch(receipt) else "unrecognized"},
+        attributes={**facts, "receipt": receipt},
     )
 
 
 RECEIPT = re.compile(r"[A-Za-z0-9_.:-]{1,200}")
-"""A platform receipt is an ID. Anything else is recorded as unrecognized, never verbatim."""
+"""A platform receipt is an ID. Anything else leaves the send unknown and is never recorded."""
 
 
 def _pair(artifact_id: str, recipient_id: str) -> str:
