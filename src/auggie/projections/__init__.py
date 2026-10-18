@@ -98,15 +98,19 @@ def _hiring(row: Mapping[str, Any], counted: bool) -> Row:
         status = f"failed: {row['failure_reason']}"
     bound = "at least " if row["status"] == "partial" else ""
     usable = row["status"] in ("complete", "partial")
+    # A partial read is a lower bound, and so is every count taken from it.
     families = "; ".join(
-        f"{f['label']} {f['roles']} ({', '.join(f'{lv} {n}' for lv, n in f['levels'].items())})"
+        f"{f['label']} {bound}{f['roles']} "
+        f"({', '.join(f'{lv} {n}' for lv, n in f['levels'].items())})"
         for f in row["families"]
     )
     patterns = "; ".join(
         f"{p['label']} in {p['family_label']}: {p['reason']} [{', '.join(p['snapshots'])}]"
         for p in row["patterns"]
     )
-    links = "; ".join(e["url"] for p in row["patterns"] for e in p["examples"])
+    examples = [e for f in row["families"] for e in f["examples"]]
+    examples += [e for p in row["patterns"] for e in p["examples"]]
+    links = "; ".join(dict.fromkeys(e["url"] for e in examples))
     return (
         row["account_id"],
         row["snapshot_id"],
@@ -114,7 +118,7 @@ def _hiring(row: Mapping[str, Any], counted: bool) -> Row:
         row["listing"],
         status,
         f"{bound}{row['roles']}" if usable else "",
-        str(row["relevant"]) if counted and usable else "",
+        f"{bound}{row['relevant']}" if counted and usable else "",
         families,
         patterns,
         links,

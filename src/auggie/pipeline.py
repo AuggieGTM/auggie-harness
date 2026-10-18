@@ -45,7 +45,7 @@ from auggie.contracts import (
 from auggie.contracts.approval import DeliveryPlatform
 from auggie.contracts.common import RecordId, UtcDatetime
 from auggie.contracts.events import AttributeValue, EventType, OutcomeKind
-from auggie.contracts.strategy import LISTING_CRITERIA
+from auggie.contracts.strategy import LISTING_CRITERIA, ListingPattern
 from auggie.delivery import (
     SIMULATED_DELIVERY,
     DeliveryBlocked,
@@ -280,18 +280,29 @@ def record_snapshot(
     run_id: str | None,
 ) -> CareersSnapshot:
     """Read the account's careers listing once, and record the snapshot with its event,
-    whatever the outcome (ADR 0024). A failed read is kept, with its reason."""
+    whatever the outcome (ADR 0024). A failed read is kept, with its reason.
+
+    Every ID is checked before the listing is read, and the event is built before the
+    snapshot is stored, so a bad input leaves no record without its event.
+    """
     ensure_in_scope(store.scope, account)
     if account.careers_listing is None:
         raise ValueError(f"{account.account_id} names no careers listing")
+    for value, what in ((snapshot_id, "snapshot ID"), (run_id, "run ID")):
+        try:
+            if value is not None:
+                _RECORD_ID.validate_python(value)
+        except ValidationError:
+            raise ValueError(f"not a valid {what}: {value!r}") from None
     snapshot = reader.read(
         listing=account.careers_listing,
         customer_id=store.scope.customer_id,
         account_id=account.account_id,
         snapshot_id=snapshot_id,
     )
-    store.put_careers_snapshot(snapshot)
-    _append(
+    if snapshot.snapshot_id != snapshot_id or snapshot.account_id != account.account_id:
+        raise ValueError("the reader returned a snapshot of something else")
+    event = _event(
         store,
         "careers.recorded",
         at=snapshot.read_at,
@@ -304,6 +315,8 @@ def record_snapshot(
         run_id=run_id,
         attributes={"status": snapshot.status, "roles": len(snapshot.roles)},
     )
+    store.put_careers_snapshot(snapshot)
+    store.append_event(event)
     return snapshot
 
 
@@ -337,17 +350,51 @@ def _read_listing(
     return ListingReadings(current, earlier)
 
 
+COMPARED: frozenset[str] = frozenset({"new_openings", "more_openings"})
+"""The patterns that compare this run's read with a baseline."""
+
+
 def _check_listing_citations(
     decision: QualificationDecision, strategy: LoadedStrategy, listing: ListingReadings | None
 ) -> None:
-    """A finding cites this run's read of the listing, or its baseline, and no other."""
-    hiring = strategy.strategy.signals.hiring
-    citable = listing.citable(hiring) if listing is not None and hiring is not None else set()
-    stray = sorted(decision.cited_snapshot_ids - citable)
-    if stray:
-        raise CitationError(
-            f"{', '.join(stray)}: neither this run's read of the listing nor its baseline"
-        )
+    """Whatever the qualifier, each hiring finding rests on this run's own read of the listing,
+    and a pattern that compares on its baseline too; no other snapshot, and no other finding,
+    is cited. A read that settles nothing settles no finding (ADR 0024)."""
+    rules = strategy.strategy
+    hiring = rules.signals.hiring
+    current = listing.current if listing is not None else None
+    baseline = listing.baseline(hiring) if listing is not None and hiring is not None else None
+    problems: list[str] = []
+    for finding in decision.findings:
+        cited = set(finding.snapshot_ids)
+        try:
+            criterion = rules.criterion(finding.criterion)
+        except KeyError:
+            problems.append(f"{finding.criterion}: not a criterion of {rules.strategy_id}")
+            continue
+        if not isinstance(criterion, LISTING_CRITERIA):
+            if cited:
+                problems.append(f"{finding.criterion}: only a hiring criterion cites snapshots")
+            continue
+        allowed = {current.snapshot_id} if current is not None else set()
+        compares = isinstance(criterion, ListingPattern) and criterion.pattern in COMPARED
+        if baseline is not None and compares:
+            allowed.add(baseline)
+        stray = sorted(cited - allowed)
+        if stray:
+            problems.append(
+                f"{finding.criterion}: {', '.join(stray)} is neither this run's read of the "
+                "listing nor its baseline"
+            )
+        if finding.assessment != "unknown" and (
+            current is None or not current.usable or current.snapshot_id not in cited
+        ):
+            problems.append(
+                f"{finding.criterion}: settled without citing a usable read of the listing "
+                "made in this run"
+            )
+    if problems:
+        raise CitationError("; ".join(problems))
 
 
 def research_run(

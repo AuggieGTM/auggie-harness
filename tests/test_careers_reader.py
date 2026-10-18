@@ -108,6 +108,9 @@ def read(service: ListingService, transport: Replay, **changes: Any) -> CareersS
     )
 
 
+ASHBY_JOB = {"title": "Detection Engineer", "jobUrl": "https://jobs.ashby.example/saltmarsh/1"}
+
+
 def lever_postings(count: int) -> bytes:
     return json.dumps(
         [
@@ -199,6 +202,15 @@ def test_a_greenhouse_total_the_jobs_do_not_match_is_inconsistent() -> None:
     assert parsed.status == "inconsistent" and len(parsed.roles) == 3
 
 
+def test_a_stated_total_counts_each_role_once() -> None:
+    job = {"id": 1, "title": "Detection Engineer", "absolute_url": "https://jobs.example/1"}
+    # Two copies of one role are one role: a total of two disagrees with the listing.
+    twice = parse("greenhouse", encode({"jobs": [job, job], "meta": {"total": 2}}))
+    assert twice.status == "inconsistent" and len(twice.roles) == 1
+    once = parse("greenhouse", encode({"jobs": [job, job], "meta": {"total": 1}}))
+    assert once.status == "complete" and len(once.roles) == 1
+
+
 def test_a_listing_longer_than_the_cap_is_partial() -> None:
     lever = parse("lever", lever_postings(ROLE_CAP + 1))
     assert lever.status == "partial" and len(lever.roles) == ROLE_CAP
@@ -227,7 +239,12 @@ def test_a_listing_longer_than_the_cap_is_partial() -> None:
             encode({"jobs": [{"id": True, "title": "x", "absolute_url": "https://a.example/"}]}),
             "a role has no ID",
         ),
-        ("ashby", encode({"jobs": [{"title": "x"}]}), "a role has no ID"),
+        ("ashby", encode({"jobs": [{"title": "x", "isListed": True}]}), "a role has no ID"),
+        *(
+            ("ashby", encode({"jobs": [{**ASHBY_JOB, "isListed": flag}]}), "whether it is listed")
+            for flag in ("false", 0, None)
+        ),
+        ("ashby", encode({"jobs": [{"title": "x", "jobUrl": "https://a.example/1"}]}), "listed"),
         (
             "lever",
             encode([{"id": "p1", "text": "  ", "hostedUrl": "https://a.example/"}]),

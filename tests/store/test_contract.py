@@ -301,8 +301,9 @@ def test_decisions_and_drafts_cite_only_usable_snapshots_of_their_account(
         with pytest.raises(CitationError, match=f"{cited}: {problem}"):
             store.put_qualification(citing(cited))
     store.put_qualification(citing("snap-read"))
-    for cited, problem in (("snap-failed", "failed"), ("snap-elsewhere", "different account")):
-        with pytest.raises(CitationError, match=f"{cited}: .*{problem}"):
+    # A draft rests only on snapshots its qualification cites.
+    for cited in ("snap-failed", "snap-elsewhere"):
+        with pytest.raises(IntegrityError, match=f"its qualification does not: {cited}"):
             store.put_artifact(Artifact.model_validate(variant(draft, snapshot_ids=[cited])))
     store.put_artifact(Artifact.model_validate(variant(draft, snapshot_ids=["snap-read"])))
     assert store.latest_artifact(draft.ref.artifact_id).snapshot_ids == ("snap-read",)

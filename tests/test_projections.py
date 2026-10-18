@@ -357,7 +357,8 @@ def test_the_hiring_tab_counts_each_accounts_newest_read_by_the_sellers_families
         "new detection openings in detection engineering: None before; 2 open now. "
         "[snap-fernhollow-001, snap-fernhollow-before-1]",
         "https://jobs.lever.example/fernhollow/6a1f0c2e-0000-4000-8000-000000000001; "
-        "https://jobs.lever.example/fernhollow/6a1f0c2e-0000-4000-8000-000000000002",
+        "https://jobs.lever.example/fernhollow/6a1f0c2e-0000-4000-8000-000000000002; "
+        "https://jobs.lever.example/fernhollow/6a1f0c2e-0000-4000-8000-000000000003",
     )
     # Without the strategy there are no families to count by: only what the read was.
     _, bare = project(kestrel.store)[TABS[4]]

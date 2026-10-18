@@ -441,10 +441,14 @@ def render_hiring(row: Mapping[str, Any]) -> list[str]:
     bound = "at least " if row["status"] == "partial" else ""
     if row["relevant"] is None:
         return [f"{head}: {bound}{row['roles']} roles; the strategy defines no hiring families"]
-    lines = [f"{head}: {bound}{row['roles']} roles, {row['relevant']} of them in your families"]
+    # A partial read is a lower bound, and so is every count taken from it.
+    lines = [
+        f"{head}: {bound}{row['roles']} roles, {bound}{row['relevant']} of them in your families"
+    ]
     for family in row["families"]:
         levels = ", ".join(f"{level} {n}" for level, n in family["levels"].items())
-        lines.append(f"    {family['label']}: {family['roles']} ({levels})")
+        lines.append(f"    {family['label']}: {bound}{family['roles']} ({levels})")
+        lines.extend(f"      {e['title']} {e['url']}" for e in family["examples"])
     for pattern in row["patterns"]:
         lines.append(
             f"    holds (inference): {pattern['label']} in {pattern['family_label']}: "

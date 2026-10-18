@@ -43,11 +43,11 @@ class ListingReadings:
         earlier = tuple(reading(s, n) for n, s in enumerate(self.earlier))
         return reading(self.current, len(earlier)), earlier
 
-    def citable(self, hiring: Hiring) -> frozenset[str]:
-        """The snapshots a finding may cite: this run's read and its baseline."""
+    def baseline(self, hiring: Hiring) -> str | None:
+        """The snapshot new and more openings compare this run's read with, if any."""
         current, earlier = self.readings()
-        baseline = choose_baseline(current, earlier, hiring)
-        return frozenset({current.reading_id} | ({baseline.reading_id} if baseline else set()))
+        chosen = choose_baseline(current, earlier, hiring)
+        return chosen.reading_id if chosen is not None else None
 
 
 class Qualifier(Protocol):

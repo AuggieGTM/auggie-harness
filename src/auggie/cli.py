@@ -552,6 +552,10 @@ def shell_command(args: argparse.Namespace, out: Print, ask: Callable[[str], str
                 args.strategy_repo, args.strategy_path, revision=args.revision, scope=scope
             )
         if args.command == "hiring" and args.read:
+            refused = _cannot_read(args, prospects, loaded)
+            if refused is not None:
+                out(f"stopped   {refused}")
+                return 1
             return _read_and_answer(args, backend.open(scope), prospects, loaded, out)
         if args.command != "shell":
             store = backend.open_existing(scope)  # questions only read
@@ -610,6 +614,22 @@ def _answer(
     return 0
 
 
+def _cannot_read(
+    args: argparse.Namespace, prospects: dict[str, Account], loaded: LoadedStrategy | None
+) -> str | None:
+    """Why ``hiring --read`` cannot run as given, before anything is opened or read."""
+    if args.json:
+        return "--read records a snapshot, and JSON commands only read; drop --json"
+    if loaded is None:
+        return "hiring needs --strategy-repo and --strategy-path"
+    if args.account is None:
+        return "--read needs --account, and --prospects with that account's file"
+    prospect = prospects.get(args.account)
+    if prospect is None or prospect.careers_listing is None:
+        return f"no prospect file names a careers listing for {args.account!r}"
+    return None
+
+
 def _read_and_answer(
     args: argparse.Namespace,
     store: Store,
@@ -617,20 +637,12 @@ def _read_and_answer(
     loaded: LoadedStrategy | None,
     out: Print,
 ) -> int:
-    """``hiring --read``: read one account's careers listing now, then show its tally. It
-    records a snapshot, so it never prints JSON: JSON commands only read (ADR 0025)."""
+    """``hiring --read``, checked by ``_cannot_read``: read one account's careers listing now,
+    then show its tally. It records a snapshot, so it never prints JSON (ADR 0025)."""
     from auggie import operate
 
-    if args.json:
-        out("stopped   --read records a snapshot, and JSON commands only read; drop --json")
-        return 1
-    if args.account is None:
-        out("stopped   --read needs --account, and --prospects with that account's file")
-        return 1
-    prospect = prospects.get(args.account)
-    if prospect is None or prospect.careers_listing is None:
-        out(f"stopped   no prospect file names a careers listing for {args.account!r}")
-        return 1
+    prospect = prospects[args.account]
+    assert prospect.careers_listing is not None  # checked by _cannot_read
     run_id = operate.new_run_id(operate.utc_now())
     snapshot = record_snapshot(
         store,

@@ -370,6 +370,8 @@ def hiring_view(
     for known in [account_id] if account_id is not None else account_ids(store, prospects):
         snapshots = store.list_careers_snapshots(known)
         if snapshots:
-            *earlier, current = snapshots
-            rows.append(hiring_row(known, ListingReadings(current, tuple(earlier)), hiring))
+            # Read last; of two read at once, the one recorded later.
+            newest = max(range(len(snapshots)), key=lambda n: (snapshots[n].read_at, n))
+            earlier = snapshots[:newest] + snapshots[newest + 1 :]
+            rows.append(hiring_row(known, ListingReadings(snapshots[newest], earlier), hiring))
     return rows

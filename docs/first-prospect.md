@@ -180,8 +180,9 @@ records what it showed as a careers snapshot. A read that fails is recorded too,
 hiring criteria it would have settled stay unknown. Before the first live read, check that
 service's terms of use and your company's policy, as you did for Treg
 ([ADR 0024](adr/0024-careers-snapshots-and-hiring-tallies.md)). None of the three services says
-when a role was posted, so the long-listed pattern always stays unknown. Lever's EU-hosted
-boards are not supported yet.
+when a role was posted, so the long-listed pattern is never met: it stays unknown for a family
+with open roles, and only a complete read with none rules it out. Lever's EU-hosted boards are
+not supported yet.
 
 Keep it to what your company is allowed to hold about the prospect.
 

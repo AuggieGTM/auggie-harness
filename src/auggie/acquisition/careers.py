@@ -180,7 +180,10 @@ def ashby(reply: Any) -> Reply:
         raise Malformed("not an object")
     roles = []
     for job in _objects(reply.get("jobs"), "jobs"):
-        if job.get("isListed") is False:
+        listed = job.get("isListed")
+        if not isinstance(listed, bool):
+            raise Malformed("a job does not say whether it is listed")
+        if not listed:
             continue  # reachable only by a direct link, so not part of the listing
         url = job.get("jobUrl")
         roles.append(
@@ -212,7 +215,8 @@ def parse(service: ListingService, body: bytes) -> Parsed:
     except (ValueError, RecursionError):
         return Parsed("failed", reason="The listing reply was not JSON.")
     roles, consistent = count_once(reply.roles)
-    if not consistent or (reply.total is not None and reply.total != len(reply.roles)):
+    # A stated total is a count of roles, and each role counts once (ADR 0024).
+    if not consistent or (reply.total is not None and reply.total != len(roles)):
         return Parsed("inconsistent", roles[:ROLE_CAP])
     if reply.more or len(roles) > ROLE_CAP:
         return Parsed("partial", roles[:ROLE_CAP])

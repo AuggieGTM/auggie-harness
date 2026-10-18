@@ -22,7 +22,7 @@ from auggie.judgment.rules import RulesQualifier, assess
 from auggie.operate import describe_draft
 from auggie.pipeline import record_revision, record_snapshot, research_run
 from auggie.projections import TABS, project
-from auggie.queries import brief_view, hiring_view
+from auggie.queries import brief_view, hiring_row, hiring_view
 from auggie.store import Backend, Store
 from auggie.store.memory import InMemoryBackend
 from auggie.strategy import LoadedStrategy, load_strategy
@@ -227,7 +227,7 @@ def test_research_refuses_a_citation_of_a_snapshot_that_is_not_the_baseline() ->
         snapshot_id="snap-before-1",
         run_id=None,
     )
-    with pytest.raises(CitationError, match="snap-before-1: neither this run's read"):
+    with pytest.raises(CitationError, match="snap-before-1 is neither this run's read"):
         research_run(
             store,
             strategy=strategy(),
@@ -392,7 +392,13 @@ def test_hiring_shows_each_accounts_newest_read_counted_by_family() -> None:
         "acc-fernhollow: Lever listing read 2026-10-15 (snap-fernhollow-001), complete: "
         "4 roles, 3 of them in your families",
         "    detection engineering: 2 (senior 1, unlevelled 1)",
+        "      Senior Detection Engineer "
+        "https://jobs.lever.example/fernhollow/6a1f0c2e-0000-4000-8000-000000000001",
+        "      Detection Engineer "
+        "https://jobs.lever.example/fernhollow/6a1f0c2e-0000-4000-8000-000000000002",
         "    security operations: 1 (unlevelled 1)",
+        "      SOC Analyst II "
+        "https://jobs.lever.example/fernhollow/6a1f0c2e-0000-4000-8000-000000000003",
         "    holds (inference): new detection openings in detection engineering: None before; "
         "2 open now. [snap-fernhollow-001, snap-fernhollow-before-1]",
         "      Senior Detection Engineer "
@@ -477,3 +483,222 @@ def test_hiring_from_the_command_line_reads_on_request_and_prints_json(
         assert row["patterns"] == []  # one read, so no baseline yet
     [request] = listing.requests
     assert request.url.startswith("https://api.lever.co/v0/postings/fernhollow?")
+
+
+# What Pi's review found
+
+
+def research_with(store: Store, inputs: SyntheticInputs, qualifier: Any) -> Any:
+    return research_run(
+        store,
+        strategy=strategy(),
+        account=inputs.account,
+        acquisition=FixtureAcquisition(inputs.responses),
+        qualifier=qualifier,
+        times=inputs.run,
+        listings=RecordedListings([inputs.listings[-1]]),
+    )
+
+
+def test_no_qualifier_can_settle_hiring_from_an_older_read_when_this_runs_failed(
+    backend: Backend,
+) -> None:
+    failed_now = with_current(503, "unavailable")
+    store = backend.open(failed_now.scope)
+    baseline = failed_now.listings[0].model_copy(
+        update={"body": INPUTS.listings[1].body}  # two detection roles, read in September
+    )
+    record_snapshot(
+        store,
+        reader=RecordedListings([baseline]),
+        account=failed_now.account,
+        snapshot_id="snap-before-1",
+        run_id=None,
+    )
+
+    class UsesTheOlderRead(RulesQualifier):
+        """Judges as if the September read were this run's: the substitution ADR 0024 forbids."""
+
+        def qualify(self, **kwargs: Any) -> Any:
+            listing = kwargs["listing"]
+            (older,) = listing.earlier
+            kwargs["listing"] = ListingReadings(older, ())
+            return super().qualify(**kwargs)
+
+    with pytest.raises(CitationError, match="settled without citing a usable read"):
+        research_with(store, failed_now, UsesTheOlderRead())
+    assert store.list_events(type="qualification.decided") == ()
+    assert store.list_events(type="draft.composed") == ()
+
+
+@pytest.mark.parametrize(
+    ("criterion", "snapshot_ids", "problem"),
+    [
+        ("names-beaconlog", ("snap-fernhollow-001",), "only a hiring criterion cites snapshots"),
+        ("detection-hiring", ("snap-fernhollow-001", "snap-before-1"), "snap-before-1 is neither"),
+        ("detection-hiring", ("snap-other-board",), "snap-other-board is neither"),
+    ],
+    ids=["page-finding", "baseline-for-a-count", "another-board"],
+)
+def test_research_refuses_snapshot_citations_outside_each_findings_own_reads(
+    backend: Backend, criterion: str, snapshot_ids: tuple[str, ...], problem: str
+) -> None:
+    store = backend.open(INPUTS.scope)
+    record_snapshot(
+        store,
+        reader=RecordedListings([INPUTS.listings[0]]),
+        account=INPUTS.account,
+        snapshot_id="snap-before-1",
+        run_id=None,
+    )
+    other_board = INPUTS.listings[1].model_copy(
+        update={
+            "listing": INPUTS.listings[1].listing.model_copy(update={"board": "fernhollow-eu"}),
+            "read_at": datetime(2000, 1, 1, tzinfo=UTC),
+        }
+    )
+    elsewhere = INPUTS.account.model_copy(update={"careers_listing": other_board.listing})
+    record_snapshot(
+        store,
+        reader=RecordedListings([other_board]),
+        account=elsewhere,
+        snapshot_id="snap-other-board",
+        run_id=None,
+    )
+
+    class Cites(RulesQualifier):
+        def qualify(self, **kwargs: Any) -> Any:
+            decision = super().qualify(**kwargs)
+            findings = tuple(
+                f.model_copy(update={"snapshot_ids": snapshot_ids})
+                if f.criterion == criterion
+                else f
+                for f in decision.findings
+            )
+            return decision.model_copy(update={"findings": findings})
+
+    with pytest.raises(CitationError, match=problem):
+        research_with(store, INPUTS, Cites())
+    assert store.list_events(type="qualification.decided") == ()
+
+
+def test_a_hiring_finding_cannot_be_settled_from_page_evidence() -> None:
+    store = InMemoryBackend().open(INPUTS.scope)
+
+    class FromThePage(RulesQualifier):
+        def qualify(self, **kwargs: Any) -> Any:
+            decision = super().qualify(**kwargs)
+            hiring, *rest = decision.findings
+            moved = hiring.model_copy(
+                update={"snapshot_ids": (), "evidence_ids": ("ev-fernhollow-security",)}
+            )
+            return decision.model_copy(update={"findings": (moved, *rest)})
+
+    with pytest.raises(CitationError, match="detection-hiring: settled without citing"):
+        research_with(store, INPUTS, FromThePage())
+
+
+def test_an_older_read_recorded_later_never_stands_in_for_a_newer_failure(
+    backend: Backend,
+) -> None:
+    store = backend.open(INPUTS.scope)
+    failed = INPUTS.listings[1].model_copy(
+        update={"read_at": datetime(2026, 10, 18, 9, tzinfo=UTC), "status": 503, "body": ""}
+    )
+    for n, reply in enumerate((failed, INPUTS.listings[1], INPUTS.listings[0]), start=1):
+        record_snapshot(
+            store,
+            reader=RecordedListings([reply]),
+            account=INPUTS.account,
+            snapshot_id=f"snap-{n}",
+            run_id=None,
+        )
+    (row,) = hiring_view(store, strategy().strategy)
+    assert (row["snapshot_id"], row["status"], row["families"]) == ("snap-1", "failed", [])
+    # Of two read at the same moment, the one recorded later is the newer.
+    same_time = INPUTS.listings[1].model_copy(update={"read_at": failed.read_at})
+    record_snapshot(
+        store,
+        reader=RecordedListings([same_time]),
+        account=INPUTS.account,
+        snapshot_id="snap-4",
+        run_id=None,
+    )
+    (row,) = hiring_view(store, strategy().strategy)
+    assert (row["snapshot_id"], row["status"], row["relevant"]) == ("snap-4", "complete", 3)
+
+
+def test_a_bad_id_stops_a_listing_read_before_it_is_made(backend: Backend) -> None:
+    store = backend.open(INPUTS.scope)
+    reads: list[str] = []
+
+    class Counting(RecordedListings):
+        def read(self, **kwargs: Any) -> CareersSnapshot:
+            reads.append(kwargs["snapshot_id"])
+            return super().read(**kwargs)
+
+    for snapshot_id, run_id in (("snap-ok", "bad run id"), ("snap bad", "run-001")):
+        with pytest.raises(ValueError, match="not a valid"):
+            record_snapshot(
+                store,
+                reader=Counting([INPUTS.listings[1]]),
+                account=INPUTS.account,
+                snapshot_id=snapshot_id,
+                run_id=run_id,
+            )
+    assert reads == []
+    assert store.list_careers_snapshots("acc-fernhollow") == ()
+    assert store.list_events() == ()
+
+
+def test_counts_from_a_partial_read_are_shown_as_lower_bounds() -> None:
+    current = snap("s1", "2026-10-15T09:00:00Z", "partial", [*DETECTION, "SOC Analyst"])
+    hiring = strategy().strategy.signals.hiring
+    row = hiring_row("acc-fernhollow", ListingReadings(current), hiring)
+    lines = shell.render_hiring(row)
+    assert lines[0].endswith("partial: at least 3 roles, at least 3 of them in your families")
+    assert "    detection engineering: at least 2 (senior 1, unlevelled 1)" in lines
+    assert row["status"] == "partial"  # the JSON says the counts are a lower bound too
+
+
+def test_hiring_read_is_refused_whole_before_the_store_is_opened(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from pymongo import MongoClient
+
+    prospects = tmp_path / "prospects"
+    prospects.mkdir()
+    (prospects / "fernhollow.json").write_text((KESTREL / "prospect.json").read_text())
+    scope = json.loads((KESTREL / "scope.json").read_text(encoding="utf-8"))
+    scope["execution"]["external_providers"] = True
+    scope_file = tmp_path / "scope.json"
+    scope_file.write_text(json.dumps(scope), encoding="utf-8")
+    listing = Replay(HttpResponse(200, {}, b"[]"))
+    monkeypatch.setattr(cli, "listing_transport", lambda: listing)
+    repo = ["--strategy-repo", str(Path(__file__).resolve().parent.parent)]
+    path = ["--strategy-path", "examples/synthetic/kestrel-security/inputs/strategy/security.toml"]
+    with mongo_backend() as backend:
+        common = [
+            str(scope_file),
+            "--mongodb",
+            os.environ[MONGODB_URI],
+            "--database-prefix",
+            backend.database_prefix,
+            "--prospects",
+            str(prospects),
+        ]
+        reading = ["hiring", *common, "--account", "acc-fernhollow", "--read"]
+        for extra, refusal in (
+            ([*repo, *path, "--json"], "JSON commands only read"),
+            ([], "hiring needs --strategy-repo and --strategy-path"),
+            ([*repo, *path, "--account", "acc-elsewhere"], "no prospect file names"),
+        ):
+            assert main([*reading, *extra]) == 1
+            assert refusal in capsys.readouterr().out
+        client: MongoClient[dict[str, Any]] = MongoClient(os.environ[MONGODB_URI])
+        try:
+            names = client.list_database_names()
+        finally:
+            client.close()
+        assert not [n for n in names if n.startswith(backend.database_prefix)]
+    assert listing.requests == []

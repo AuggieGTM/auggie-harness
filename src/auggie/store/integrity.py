@@ -67,6 +67,11 @@ def check_artifact(
         raise IntegrityError(f"qualification {artifact.qualification_id!r} is not stored")
     if qualification.account_id != artifact.account_id:
         raise IntegrityError("the artifact and its qualification are about different accounts")
+    uncited = sorted(set(artifact.snapshot_ids) - qualification.cited_snapshot_ids)
+    if uncited:
+        raise IntegrityError(
+            f"the artifact cites snapshots its qualification does not: {', '.join(uncited)}"
+        )
     verify_cited_evidence(
         customer_id=artifact.customer_id,
         account_id=artifact.account_id,

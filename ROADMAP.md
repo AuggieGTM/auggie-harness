@@ -101,7 +101,8 @@ own vocabulary.
   the run's read, and findings and drafts cite their snapshots. The second seller's scenario
   qualifies and drafts from a replayed listing. Not built: a play field that quotes a hiring
   rationale, and Lever's EU-hosted boards. None of the three services documents when a role
-  was posted, so the long-listed pattern stays unknown for all of them.*
+  was posted, so the long-listed pattern is never met for them: it stays unknown for a family
+  with open roles.*
 - A hiring tab in the workbook. *Built.*
 - The research shell: `auggie shell` for questions across accounts and the whole flow, with
   each question also a single command that prints JSON for a coding agent
