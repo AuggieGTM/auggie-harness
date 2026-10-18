@@ -95,9 +95,11 @@ reproduce what was learned, land here.
 ## M5: Delivery and learning (Later)
 
 - Delivery adapters behind delivery approval, one per sending platform: the seller's own
-  mailbox, Gmail and then Microsoft 365 ([ADR 0020](docs/adr/0020-one-delivery-adapter-per-sending-platform.md)).
+  mailbox, Gmail and then Microsoft 365
+  ([ADR 0020](docs/adr/0020-one-delivery-adapter-per-sending-platform.md)).
   First, how the seller obtains, stores and renews the mailbox credential, since the harness
   never writes secrets ([ADR 0016](docs/adr/0016-credentials-and-spend-limits.md)).
+  [ADR 0021](docs/adr/0021-the-sellers-gmail-credential.md) (Proposed) answers it for Gmail.
 - Outcome intake and strategy-revision proposals that people review in Git.
 
 ## Public release readiness (Later)
