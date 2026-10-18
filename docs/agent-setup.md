@@ -114,5 +114,8 @@ Ground rules:
   it is.
 - To answer my questions about the records, run auggie accounts, brief, find, stack, hiring
   and proofs with --json, and quote what they return. The shell is mine to use.
+- For a list of prospects, run auggie import without --write and show me its preview; add
+  --write only once I say so. research-list makes paid calls, so give me its spending limit and
+  wait for my yes. review --next is mine, like review.
 - Push nothing without asking me.
 ```

@@ -133,7 +133,9 @@ person still approves each draft.
 
 ## M6: Many accounts (In progress)
 
-*Decided: [ADR 0027](docs/adr/0027-many-accounts.md).*
+*Decided: [ADR 0027](docs/adr/0027-many-accounts.md). Built: `auggie import`, `auggie
+research-list` and `auggie review --next`, tested on the security seller's synthetic list, with
+recorded responses and a fake Treg only. No list has been researched live.*
 
 - A prospect list imported from CSV, previewed before anything is written.
 - Research over the whole list in one foreground run, within a spending cap for the batch.

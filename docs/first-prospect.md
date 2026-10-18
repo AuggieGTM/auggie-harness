@@ -292,6 +292,39 @@ each with `--json`. They only read, so an agent can run them and answer you by q
 records. `auggie hiring --account <id> --read` and `auggie proofs --read` read first and record
 what they read, so they print no JSON.
 
+## Many prospects: a list in one run
+
+Once one prospect works, you can bring in a list
+([ADR 0027](adr/0027-many-accounts.md)). Rehearse it first with the security seller's
+synthetic list, with the `M` from Part 1:
+
+```bash
+K=examples/synthetic/kestrel-security
+S="--strategy-repo . --strategy-path $K/inputs/strategy/security.toml"
+uv run auggie import $K/scope.json $K/prospects.csv --prospects ~/auggie-prospects $S
+uv run auggie import $K/scope.json $K/prospects.csv --prospects ~/auggie-prospects $S --write
+uv run auggie research-list $K/scope.json --prospects ~/auggie-prospects $S \
+  --operator "your name" --replay $K/list-replay.json $M
+uv run auggie review $K/scope.json --next --reviewer "your name" $M
+```
+
+- `import` reads a CSV with a header row and shows what each row becomes, or why it cannot be
+  one. The columns are `name` and `first_name` (required), `key`, `person_id` and `email`, one
+  column per source kind your strategy names, and `listing_service`, `listing_board` and
+  `listing_url` together. Any other column refuses the whole list, since it is probably a typo.
+  Only `--write` writes, and only new files: a file that already exists is never replaced. The
+  files hold your recipients' names and addresses, so keep the folder outside the clone; the
+  harness makes it readable by you alone.
+- `research-list` researches every prospect file in the folder, in file-name order, in one run.
+  The whole list shares one spending limit: your scope's per-run limit, or a lower
+  `--limit`. An account starts only when its worst case, at most $0.002 for each page it
+  names, fits what is left; the rest wait for your next run. Accounts already researched are
+  skipped unless you add `--again`, so an interrupted list resumes without paying twice. An
+  error stops the list, and its report says what was researched, skipped and waiting, and what
+  each account spent.
+- `review --next` shows the oldest draft waiting for you, then asks whether to go on. Each draft
+  is still reviewed and approved on its own.
+
 ## Part 3: sending from your Gmail
 
 The harness can send an approved draft from your own Gmail, one message per approval, with a

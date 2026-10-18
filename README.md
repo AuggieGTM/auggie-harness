@@ -70,6 +70,10 @@ product.
   quoted in a draft only while a read of its page holds the claim word for word. Drafts pair
   the account's evidence with a pain, a proof and an offer
   ([ADR 0026](docs/adr/0026-the-sellers-point-of-view.md)). Tested on synthetic pages only.
+- `src/auggie/prospect_list.py` turns a CSV list of accounts into prospect files after a
+  preview. `auggie research-list` researches a folder of them in one run within one spending
+  cap, and `auggie review --next` steps through the drafts waiting for a person
+  ([ADR 0027](docs/adr/0027-many-accounts.md)). Tested on a synthetic list only.
 - `src/auggie/pipeline.py` runs the first vertical slice as plain sequential calls: research,
   validate evidence, qualify, draft, human approval, simulated delivery, record outcome.
 - `examples/synthetic/northstar-msp/` holds one fully synthetic scenario: its inputs, and the
