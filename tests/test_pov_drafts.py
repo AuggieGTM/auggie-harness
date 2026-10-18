@@ -380,3 +380,30 @@ def test_a_template_with_windows_line_endings_binds_its_proof_too() -> None:
     proof = result.draft.point_of_view.proof
     assert proof is not None and proof.held_by(result.draft.content)
     assert not proof.held_by(result.draft.content.replace("twenty minutes", "one minute"))
+
+
+def test_each_bound_line_needs_its_own_unchanged_copy(backend: Backend) -> None:
+    from auggie.operate import revise_draft
+
+    rules = strategy()
+    data = rules.strategy.model_dump(mode="json")
+    (proof_play,) = [p for p in data["plays"] if p["pain"] is not None]
+    quote = 'From our case study with {proof_customer}: "{proof_claim}"\n'
+    proof_play["template"] = proof_play["template"].replace(quote, f"{quote}\n{quote}")
+    twice = LoadedStrategy(type(rules.strategy).model_validate(data), rules.ref)
+    store = backend.open(INPUTS.scope)
+    read_proof(store)
+    draft = research(store, rules=twice).draft
+    proof = draft.point_of_view.proof
+    assert len(proof.passages) == 2 and proof.passages[0] == proof.passages[1]
+    printed: list[str] = []
+    revised = revise_draft(
+        store,
+        draft_id=draft.ref.artifact_id,
+        author="demo-seller",
+        edit=lambda text: text.replace("twenty minutes", "one minute", 1),
+        out=printed.append,
+    )
+    assert revised is not None and revised.point_of_view is not None
+    assert revised.point_of_view.proof is None
+    assert any("no longer quotes proof harborview-triage" in line for line in printed)
