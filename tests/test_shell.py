@@ -312,13 +312,20 @@ def test_an_empty_account_filter_is_refused_and_people_are_not_accounts() -> Non
     assert all(row["account_id"] == "acc-northstar" for row in find_view(store, "IT"))
 
 
-def test_json_never_carries_an_email_address() -> None:
-    view = {
-        "quote": "Contact jordan.avery@northstar.example today",
-        "rows": [{"by": "a@b.example"}],
-    }
-    text = shell.as_json(view)
-    assert "@" not in text and text.count("[email address removed]") == 2
+def test_no_view_exports_the_recipients_address_and_quotes_keep_the_pages_words() -> None:
+    from auggie.queries import brief_view, find_view
+
+    store, session = northstar()
+    ask, _ = script(store, "research acc-northstar", "review {draft}", "y", "", "y")
+    shell.run(session(ask, lambda _: None))
+    brief = brief_view(store, "acc-northstar")
+    text = shell.as_json(accounts_view(store)) + shell.as_json(brief)
+    assert "jordan.avery@northstar.example" not in text
+    approvals = brief["drafts"][0]["approvals"]
+    assert all(a["approval_id"].startswith("apr-") for a in approvals)
+    (hit,) = find_view(store, "IT Operations Manager")
+    excerpt = store.get_evidence(hit["evidence_id"]).excerpt or ""
+    assert hit["quote"].split()[0] in excerpt  # the page's own words, not a rewritten version
 
 
 def test_questions_print_only_json_on_stdout(

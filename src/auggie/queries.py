@@ -121,7 +121,12 @@ def _drafts(store: Store, account_id: str) -> list[View]:
                 "composed_at": latest.composed_at,
                 "recipient_id": latest.recipient_id,
                 "approvals": [
-                    {"scope": a.scope, "decision": a.decision, "by": a.reviewer.id}
+                    {
+                        "approval_id": a.approval_id,
+                        "scope": a.scope,
+                        "decision": a.decision,
+                        "by": a.reviewer.id,
+                    }
                     for a in approvals
                 ],
                 "delivery": delivery,

@@ -9,7 +9,6 @@ edits are the person's own, made here at their terminal.
 from __future__ import annotations
 
 import json
-import re
 import shlex
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -369,26 +368,15 @@ def render_stack(row: Mapping[str, Any]) -> str:
     )
 
 
-EMAIL = re.compile(r"[^\s@<>()\[\]\"',;:]+@[^\s@<>()\[\]\"',;:]+\.[A-Za-z]{2,}")
-EMAIL_REMOVED = "[email address removed]"
-
-
-def _without_email(value: Any) -> Any:
-    if isinstance(value, str):
-        return EMAIL.sub(EMAIL_REMOVED, value)
-    if isinstance(value, dict):
-        return {key: _without_email(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_without_email(item) for item in value]
-    return value
-
-
 def as_json(view: Any) -> str:
-    """A view as JSON for a coding agent. Dates become ISO 8601 text, and every email address,
-    in quotes and rationales too, is replaced with a marker, so a quote that held one is no
-    longer verbatim."""
+    """A view as JSON for a coding agent. Dates become ISO 8601 text.
+
+    No view exports a recipient's person record or its email address, which review shows.
+    Quotes are page text with whitespace collapsed, and rationales are as stored; neither is
+    filtered, so either may hold an address the page itself contains.
+    """
     return json.dumps(
-        _without_email(view),
+        view,
         indent=2,
         default=lambda v: v.isoformat() if isinstance(v, datetime) else str(v),
     )
