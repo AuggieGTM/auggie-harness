@@ -23,7 +23,9 @@ evidence-to-action-to-learning loop:
 | Learn | Outcomes are recorded and inform the next strategy revision, after human review. |
 
 The goal is reliable account intelligence, thoughtful outreach and knowledge that accumulates over
-time. Auggie is **not** an autonomous mass-outreach tool and not a hosted SaaS product.
+time. Auggie is for a seller prospecting for the company they work at, not for an agency running
+outreach for clients. It is **not** an autonomous mass-outreach tool and not a hosted SaaS
+product.
 
 ## What exists today
 
@@ -45,8 +47,8 @@ time. Auggie is **not** an autonomous mass-outreach tool and not a hosted SaaS p
   [ADR 0016](docs/adr/0016-credentials-and-spend-limits.md)). Tests replay synthetic replies from
   `examples/synthetic/treg/`.
 - `src/auggie/projections/` turns the Store into read-only tabs (accounts, findings, evidence,
-  drafts) without page text, written as CSV, by your agent's Google connector, or by a customer's
-  service account ([ADR 0019](docs/adr/0019-projection-writers-and-agent-connectors.md)).
+  drafts) without page text, written as CSV, by your agent's Google connector, or by a service
+  account ([ADR 0019](docs/adr/0019-projection-writers-and-agent-connectors.md)).
 - `src/auggie/pipeline.py` runs the first vertical slice as plain sequential calls: research,
   validate evidence, qualify, draft, human approval, simulated delivery, record outcome.
 - `examples/synthetic/northstar-msp/` holds one fully synthetic scenario: its inputs, and the
@@ -91,7 +93,7 @@ keeps a demo apart from other data on the same server. Outside development, inst
 
 `uv run auggie run examples/synthetic/northstar-msp --csv out/` also writes the run's projection
 as CSV. For a deployment's Store, `auggie project <scope.json> --mongodb URI --csv DIR` does the
-same, and `--spreadsheet ID` writes the managed tabs of the customer's Google Sheet instead (with
+same, and `--spreadsheet ID` writes the managed tabs of the scope's Google Sheet instead (with
 the `auggie-harness[google]` extra and the scope's service account key).
 
 ### Writing a projection with your agent
@@ -118,9 +120,10 @@ views: evidence and approvals always go through the harness itself.
 ## Documentation
 
 - [Your first prospect](docs/first-prospect.md): rehearse the whole loop offline, then run it
-  for one real prospect of one customer.
+  for one of your real prospects.
 - [Set up with your coding agent](docs/agent-setup.md): prompts that have an agent do the
-  setup, the rehearsal and a first customer, leaving review, credentials and spending to you.
+  setup, the rehearsal and your first real prospect, leaving review, credentials and spending
+  to you.
 - [Architecture](docs/architecture.md): the loop, systems of record, isolation, proposed layout.
 - [Decision records](docs/adr/README.md): what is decided, what is proposed, what is open.
 - [Roadmap](ROADMAP.md): milestones and their gates. No dates.

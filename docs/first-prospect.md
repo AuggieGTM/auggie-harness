@@ -1,8 +1,9 @@
 # Your first prospect
 
-This guide takes a GTM engineer from a fresh clone to one prospect researched, drafted,
-reviewed and (simulated) delivered for one customer. Part 1 rehearses the whole loop offline on
-the synthetic Northstar prospect, at no cost and with no accounts. Part 2 does it for real.
+This guide is for a seller prospecting for the company they work at. It takes you from a fresh
+clone to one of your prospects researched, drafted, reviewed and (simulated) delivered. Part 1
+rehearses the whole loop offline on the synthetic Northstar prospect, at no cost and with no
+accounts. Part 2 does it for real.
 
 Each step is a separate command that you run when you are ready. Nothing runs in the background,
 and nothing is sent: delivery stays simulated until the delivery adapters exist.
@@ -16,10 +17,12 @@ and nothing is sent: delivery stays simulated until the delivery adapters exist.
 
 ## Part 1: rehearse offline
 
-Start a local MongoDB for the records:
+Start a local MongoDB for the records. Set `P` to a free local port; 27017 is MongoDB's usual
+one. If you already started `auggie-mongo` from the README, use its port and skip `podman run`.
 
 ```sh
-podman run -d --rm --name auggie-mongo -p 127.0.0.1:27017:27017 docker.io/library/mongo:8
+P=27017
+podman run -d --rm --name auggie-mongo -p 127.0.0.1:$P:27017 docker.io/library/mongo:8
 ```
 
 All the files come from `examples/synthetic/northstar-msp/`: a synthetic customer scope, a
@@ -27,7 +30,7 @@ synthetic prospect, the strategy, and recorded source responses.
 
 ```sh
 E=examples/synthetic/northstar-msp
-M="--mongodb mongodb://127.0.0.1:27017 --database-prefix rehearsal_"
+M="--mongodb mongodb://127.0.0.1:$P --database-prefix rehearsal_"
 
 uv run auggie research $E/scope.json $E/prospect.json \
   --strategy-repo . --strategy-path $E/inputs/strategy/msp.toml \
@@ -70,14 +73,16 @@ Try the refusals too, each on a fresh `research` run:
 
 ## Part 2: your first real prospect
 
-Everything in this part stays **outside this repository**: the customer's scope, strategy,
-credentials, prospects and records ([ADR 0010](adr/0010-public-repository-boundary.md)).
+Everything in this part stays **outside this repository**: your scope, strategy, credentials,
+prospects and records ([ADR 0010](adr/0010-public-repository-boundary.md)). In the harness's
+terms, the company you sell for is the *customer*: `customer_id` and the scope name it.
 
-### 1. The customer's scope
+### 1. Your scope
 
 Copy `examples/synthetic/northstar-msp/scope.json` somewhere private and change it:
 
-- `customer_id` and the three namespaces: unique to this customer
+- `customer_id`: a short ID, such as your company's name. The three namespaces: names used by
+  no other scope on the same MongoDB or credentials folder
   ([ADR 0004](adr/0004-customer-isolation.md)).
 - `"synthetic": false`.
 - `"execution"`: `"delivery": "simulated"`, `"external_providers": true`, and
@@ -85,23 +90,24 @@ Copy `examples/synthetic/northstar-msp/scope.json` somewhere private and change 
   2,000 (the $0.002 per-call ceiling), so 20,000 allows ten fetches
   ([ADR 0016](adr/0016-credentials-and-spend-limits.md)).
 
-### 2. The customer's strategy
+### 2. Your strategy
 
-The strategy is a TOML file in the customer's own private Git repository
+The strategy is a TOML file in a private Git repository of your own (a local one is enough)
 ([ADR 0013](adr/0013-strategy-files.md)). Start from
 `examples/synthetic/northstar-msp/inputs/strategy/msp.toml`. Set `customer_id`, give the
-revision a new `strategy_id`, and adapt the sources, criteria and play to the customer's ideal
-prospect and approved copy. Have the customer review it, then commit. `research` reads the file
-exactly as committed, so uncommitted edits never reach a run.
+revision a new `strategy_id`, and adapt the sources, criteria and play to your ideal prospect
+and the wording you use. If your company approves outreach wording, have it reviewed, then
+commit. `research` reads the file exactly as committed, so uncommitted edits never reach a run.
 
-### 3. The customer's Treg team and token
+### 3. A Treg team and token for the harness
 
-One Treg team per customer ([ADR 0017](adr/0017-first-treg-route.md)). Run these **in your own
-terminal, not inside an agent session that is recorded or shared**: `treg` prints tokens.
+Give the harness a Treg team of its own ([ADR 0017](adr/0017-first-treg-route.md)), so its
+spending and its token stay apart from your other Treg use. Run these **in your own terminal,
+not inside an agent session that is recorded or shared**: `treg` prints tokens.
 
 ```sh
-treg org create <customer>
-treg org use <customer>
+treg org create <team name>
+treg org use <team name>
 treg org agent-new auggie-harness --cap 50 --pin customer=<customer_id>
 ```
 
@@ -117,23 +123,24 @@ symlink included, so old permissions or a link cannot leak it:
   { rm -f "$T"; false; } )
 ```
 
-Then add funds to the team (`treg topup 10`; $10 is the minimum) and switch back with
-`treg org use <your team>`. Check that the token works with
+Then add funds to the team (`treg topup 10`; $10 is the minimum) and switch back to the team
+you usually use with `treg org use`. Check that the token works with
 `uv run auggie treg-fetch <scope.json> https://example.com/`.
 
-Before researching real prospects, confirm that Treg's and Exa's terms allow keeping the
-excerpts the harness stores ([ADR 0017](adr/0017-first-treg-route.md)).
+Before researching real prospects, confirm two things. Treg's and Exa's terms must allow
+keeping the excerpts the harness stores ([ADR 0017](adr/0017-first-treg-route.md)). Your
+company's policies must allow sending prospect page URLs to them.
 
 ### 4. The prospect
 
 Write a `prospect.json` like the synthetic one:
 
 - `account_id`, `customer_id` (the scope's), and a short `key` used in record IDs.
-- The company's `name`.
+- The prospect company's `name`.
 - `sources`: one URL for each source kind the strategy names (`careers`, `technology`, ...).
-- `recipient`: the person's ID in the customer's records and their first name.
+- `recipient`: the person's ID in your CRM and their first name.
 
-Keep it to what the customer is allowed to hold about the prospect.
+Keep it to what your company is allowed to hold about the prospect.
 
 ### 5. Run it
 
@@ -154,8 +161,8 @@ uv run auggie project <scope.json> --mongodb <uri> --workbook <file>
 
 - A source that fails is recorded with its reason and leaves its criteria **unknown**. It never
   counts against the prospect.
-- Every finding cites the evidence it rests on. A draft uses only admitted evidence, and its
-  fixed wording is the customer's approved copy.
+- Every finding cites the evidence it rests on. A draft uses only admitted evidence, and the
+  rest of its text is your strategy's play.
 - Nothing is sent. `deliver` records a simulated hand-off, and only after both approvals.
 - Research the same prospect again later and you get a new run with new records. Earlier runs
   are kept.
