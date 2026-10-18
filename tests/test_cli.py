@@ -10,6 +10,7 @@ import pytest
 
 from auggie import cli
 from auggie.cli import main
+from auggie.contracts import CustomerScope
 from auggie.projections.exchange import load_workbook
 from auggie.synthetic import run_scenario
 from tests.conftest import MONGODB_URI, NORTHSTAR, mongo_backend
@@ -345,3 +346,69 @@ def test_the_editor_file_is_private_to_the_person(
     monkeypatch.setenv("VISUAL", _editor(tmp_path, record))
     cli.edit_in_editor("Thanks, Sam\n")
     assert mode.read_text() == "0o600"
+
+
+def test_a_live_gmail_scope_sends_once_and_stops_on_an_unknown_send(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from tests.test_gmail import FakeGoogle, credentials
+
+    scope_data = json.loads((NORTHSTAR / "scope.json").read_text(encoding="utf-8"))
+    scope_data["synthetic"] = False
+    scope_data["execution"] = {"delivery": "live", "platform": "gmail", "external_providers": True}
+    scope_file = tmp_path / "scope.json"
+    scope_file.write_text(json.dumps(scope_data), encoding="utf-8")
+    (tmp_path / "credentials").mkdir(mode=0o700)
+    secrets = credentials(tmp_path / "credentials", CustomerScope.model_validate(scope_data))
+    google = FakeGoogle()
+    monkeypatch.setattr(cli, "google_transport", lambda: google)
+    monkeypatch.setattr(cli, "interactive", lambda: True)  # stands in for a person at a terminal
+    with mongo_backend() as backend:
+        store = ["--mongodb", os.environ[MONGODB_URI], "--database-prefix", backend.database_prefix]
+        scope = str(scope_file)
+
+        def researched() -> str:
+            research = [
+                "research",
+                scope,
+                str(NORTHSTAR / "prospect.json"),
+                "--strategy-repo",
+                str(Path(__file__).resolve().parent.parent),
+                "--strategy-path",
+                "examples/synthetic/northstar-msp/inputs/strategy/msp.toml",
+                "--operator",
+                "demo-seller",
+                "--replay",
+                str(NORTHSTAR / "inputs" / "inputs.json"),
+            ]
+            assert main([*research, *store]) == 0
+            draft = capsys.readouterr().out.split("--draft ")[1].split()[0]
+            answers = iter(["y", "", "y"])
+            monkeypatch.setattr("builtins.input", lambda prompt="": next(answers))
+            assert (
+                main(["review", scope, "--draft", draft, "--reviewer", "demo-seller", *store]) == 0
+            )
+            assert "to Jordan <jordan.avery@northstar.example>" in capsys.readouterr().out
+            return draft
+
+        deliver = ["--credentials", str(secrets.root), *store]
+        first = researched()
+        assert main(["deliver", scope, "--draft", first, *deliver]) == 0
+        assert "sent, receipt msg-synthetic-1" in capsys.readouterr().out
+        assert main(["deliver", scope, "--draft", first, *deliver]) == 0
+        assert "already delivered" in capsys.readouterr().out
+        assert (
+            len([r for r in google.requests if r.url != "https://oauth2.googleapis.com/token"]) == 1
+        )
+
+        second = researched()
+        google.answer = TimeoutError("the read timed out")
+        assert main(["deliver", scope, "--draft", second, *deliver]) == 1
+        assert "check your Sent folder" in capsys.readouterr().out
+        assert main(["deliver", scope, "--draft", second, *deliver]) == 1
+        assert "unknown: check your Sent folder" in capsys.readouterr().out
+        resolve = ["--resolve", "not-sent", "--reporter", "demo-seller"]
+        assert main(["deliver", scope, "--draft", second, *resolve, *store]) == 0
+        assert "recorded as not-sent; it is never sent again" in capsys.readouterr().out
+        assert main(["deliver", scope, "--draft", second, *deliver]) == 1
+        assert "never retries it" in capsys.readouterr().out

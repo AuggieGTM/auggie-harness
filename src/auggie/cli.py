@@ -34,7 +34,7 @@ from auggie.contracts import (
 from auggie.contracts.events import OutcomeKind
 from auggie.contracts.qualification import CitationError
 from auggie.credentials import CredentialFiles
-from auggie.delivery import DeliveryBlocked
+from auggie.delivery import DeliveryBlocked, SendUnknown
 from auggie.pipeline import RunResult, deliver
 from auggie.projections import project
 from auggie.projections.csv import write_csv
@@ -401,6 +401,9 @@ def _add_prospect_commands(commands: Any) -> None:
         help="record what you found in your Sent folder for an unknown send",
     )
     deliver_.add_argument("--reporter", help="your name, recorded with --resolve")
+    deliver_.add_argument(
+        "--credentials", type=Path, help="credentials root (default: $AUGGIE_CREDENTIALS_DIR)"
+    )
 
     outcome = common("outcome", "record what happened after a delivery")
     outcome.add_argument("--draft", required=True)
@@ -482,6 +485,13 @@ def prospect_command(args: argparse.Namespace, out: Print, ask: Callable[[str], 
             backend.open_existing(scope)  # a mistyped name stops here instead of starting afresh
         store = backend.open(scope)
         return _prospect_step(args, store, out, ask)
+    except SendUnknown as error:
+        out(f"stopped   {error}")
+        out(
+            "          check your Sent folder, then record what you found with "
+            "auggie deliver ... --resolve sent|not-sent"
+        )
+        return 1
     except stops as error:
         out(f"stopped   {type(error).__name__}: {error}")
         return 1
@@ -569,7 +579,16 @@ def _prospect_step(
         out(f"deliver   {args.draft} recorded as {args.resolve}; it is never sent again")
         return 0
     if args.command == "deliver":
-        delivered = operate.deliver_draft(store, draft_id=args.draft)
+        sender = None
+        if store.scope.execution.platform == "gmail":
+            from auggie.delivery.gmail import GmailSender
+
+            sender = GmailSender(
+                scope=store.scope,
+                credentials=CredentialFiles(args.credentials),
+                transport=google_transport(),
+            )
+        delivered = operate.deliver_draft(store, draft_id=args.draft, sender=sender)
         again = "" if delivered.created else " (already delivered; nothing sent again)"
         if delivered.event.type == "delivery.simulated":
             out(f"deliver   simulated hand-off of {args.draft}{again}")
@@ -729,6 +748,13 @@ def treg_transport() -> Transport:
     from auggie.acquisition.treg import HttpsTransport
 
     return HttpsTransport()
+
+
+def google_transport() -> Transport:
+    """The transport the Gmail adapter uses; tests replace it."""
+    from auggie.delivery.gmail import GoogleTransport
+
+    return GoogleTransport()
 
 
 if __name__ == "__main__":

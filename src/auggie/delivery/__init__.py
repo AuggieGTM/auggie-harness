@@ -42,11 +42,16 @@ class SendRefused(Exception):
         self.reason = reason
 
 
+class SendUnknown(Exception):
+    """The message may have gone out without the platform confirming it. Never retried."""
+
+
 class Sender(Protocol):
     """One platform's delivery adapter.
 
     ``send`` returns the platform's receipt. It raises ``SendRefused`` only when
-    it knows nothing went out; any other exception leaves the send unknown.
+    it knows nothing went out. ``SendUnknown``, or any other exception, leaves
+    the send unknown.
     """
 
     @property
