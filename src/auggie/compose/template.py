@@ -13,10 +13,16 @@ from auggie.contracts import (
     Artifact,
     ArtifactRef,
     Play,
+    PointOfView,
     QualificationDecision,
+    QuotedProof,
     ScopeViolation,
     sha256_digest,
 )
+from auggie.contracts.strategy import FamilyOpenings, Strategy
+from auggie.judgment import ListingReadings
+from auggie.proofs import ProofCheck
+from auggie.signals.tally import in_family
 from auggie.strategy import LoadedStrategy
 
 COMPOSER = Actor(kind="service", id="fixture-composer", version="0")
@@ -32,9 +38,54 @@ def applies(play: Play, decision: QualificationDecision) -> bool:
     return decision.outcome == "qualified" and set(play.requires) <= met
 
 
-def select_play(strategy: LoadedStrategy, decision: QualificationDecision) -> Play | None:
-    """The first play in the strategy that applies to ``decision``."""
-    return next((play for play in strategy.strategy.plays if applies(play, decision)), None)
+def proof_for(
+    play: Play, strategy: Strategy, proofs: Mapping[str, ProofCheck]
+) -> ProofCheck | None:
+    """The first usable proof of the play's pain, in the pain's order (ADR 0026)."""
+    if play.pain is None:
+        return None
+    usable = (proofs.get(p) for p in strategy.pains[play.pain].proofs)
+    return next((check for check in usable if check is not None and check.usable), None)
+
+
+def select_play(
+    strategy: LoadedStrategy,
+    decision: QualificationDecision,
+    proofs: Mapping[str, ProofCheck] = {},
+) -> Play | None:
+    """The first play in the strategy that applies to ``decision`` and, if it quotes a proof,
+    has a usable one."""
+    rules = strategy.strategy
+    return next(
+        (
+            play
+            for play in rules.plays
+            if applies(play, decision)
+            and (not play.uses_proof or proof_for(play, rules, proofs) is not None)
+        ),
+        None,
+    )
+
+
+def _hiring_values(
+    play: Play, strategy: Strategy, listing: ListingReadings | None
+) -> dict[str, str]:
+    """The tally of this run's read of the listing, for a play that names a hiring criterion:
+    the count, the family's label and the read date. Never a role's title or link."""
+    if play.hiring is None:
+        return {}
+    criterion = strategy.criterion(play.hiring)
+    hiring = strategy.signals.hiring
+    if listing is None or hiring is None or not isinstance(criterion, FamilyOpenings):
+        raise ComposeBlocked(f"play {play.id!r} needs this run's read of the careers listing")
+    current, _ = listing.readings()
+    count = len(in_family(current, criterion.family, hiring))
+    read = listing.current
+    return {
+        "hiring_count": f"at least {count}" if read.status == "partial" else str(count),
+        "hiring_family": hiring.families[criterion.family].label,
+        "hiring_date": f"{read.read_at.day} {read.read_at:%B %Y}",
+    }
 
 
 def compose_draft(
@@ -46,8 +97,11 @@ def compose_draft(
     account: Account,
     sources: Mapping[str, Verdict],
     at: datetime,
+    listing: ListingReadings | None = None,
+    proofs: Mapping[str, ProofCheck] = {},
 ) -> Artifact:
-    """Render ``play`` for ``account``. Every field must come from admitted evidence."""
+    """Render ``play`` for ``account``. Every field must come from admitted evidence, the
+    run's tally, or the strategy's approved copy and a proof whose page read holds it."""
     for owner in (account.customer_id, strategy.strategy.customer_id):
         if owner != decision.customer_id:
             raise ScopeViolation(f"input belongs to {owner!r}, not {decision.customer_id!r}")
@@ -57,6 +111,38 @@ def compose_draft(
     used = {eid for name in play.requires for eid in findings[name].evidence_ids}
     snapshots = [sid for name in play.requires for sid in findings[name].snapshot_ids]
     values = {"first_name": account.recipient.first_name, "account_name": account.name}
+    rules = strategy.strategy
+    values.update(_hiring_values(play, rules, listing))
+    point_of_view = None
+    if play.pain is not None:
+        pain = rules.pains[play.pain]
+        values.update(pain=pain.statement, offer=pain.offer)
+        quoted = None
+        check = proof_for(play, rules, proofs)
+        if play.uses_proof:
+            if check is None or check.read is None:
+                raise ComposeBlocked(f"play {play.id!r} quotes a proof, and none is usable")
+            proof = check.proof
+            values.update(proof_claim=proof.claim, proof_customer=proof.customer)
+            quoted = QuotedProof(
+                proof_id=check.proof_id,
+                customer=proof.customer,
+                claim=proof.claim,
+                url=proof.url,
+                kind=proof.kind,
+                caveat=proof.caveat,
+                evidence_id=check.read.evidence_id,
+            )
+        point_of_view = PointOfView(
+            play=play.id,
+            pain=play.pain,
+            fit=pain.fit,
+            limits=pain.limits,
+            metric=pain.metric,
+            threshold=pain.threshold,
+            consequence=pain.consequence,
+            proof=quoted,
+        )
     for name, field in play.fields.items():
         label = strategy.strategy.sources[field.source].label
         verdict = sources.get(field.source)
@@ -74,6 +160,8 @@ def compose_draft(
     in_source_order = [
         v.evidence.evidence_id for v in sources.values() if v.evidence.evidence_id in used
     ]
+    if point_of_view is not None and point_of_view.proof is not None:
+        in_source_order.append(point_of_view.proof.evidence_id)
     return Artifact(
         customer_id=decision.customer_id,
         ref=ArtifactRef(artifact_id=artifact_id, kind="draft", content_hash=sha256_digest(content)),
@@ -86,4 +174,5 @@ def compose_draft(
         strategy=strategy.ref,
         composed_by=COMPOSER,
         composed_at=at,
+        point_of_view=point_of_view,
     )

@@ -5,7 +5,7 @@ They have no I/O and no dependency on storage, providers or scheduling.
 """
 
 from auggie.contracts.approval import ArtifactRef, DeliveryTarget, HumanApproval
-from auggie.contracts.artifact import Artifact
+from auggie.contracts.artifact import Artifact, PointOfView, QuotedProof
 from auggie.contracts.careers import CareersListing, CareersSnapshot, OpenRole, roles_digest
 from auggie.contracts.common import Actor, Contract, StrategyRef, sha256_digest
 from auggie.contracts.events import (
@@ -79,9 +79,11 @@ __all__ = [
     "Pain",
     "Person",
     "Play",
+    "PointOfView",
     "Proof",
     "Proofs",
     "QualificationDecision",
+    "QuotedProof",
     "RecordRef",
     "ScopeViolation",
     "Signals",

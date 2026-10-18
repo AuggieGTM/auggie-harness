@@ -12,7 +12,7 @@ writes nothing new.
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal
@@ -24,7 +24,7 @@ from auggie.acquisition import Acquisition
 from auggie.acquisition.careers import ListingReader
 from auggie.acquisition.validation import VALIDATOR, Verdict, check_evidence
 from auggie.approval import ReviewDecision, approval_for
-from auggie.compose.template import COMPOSER, compose_draft, select_play
+from auggie.compose.template import COMPOSER, applies, compose_draft, select_play
 from auggie.contracts import (
     Actor,
     Artifact,
@@ -58,7 +58,7 @@ from auggie.delivery import (
 from auggie.external import require_external_calls
 from auggie.judgment import ListingReadings, Qualifier
 from auggie.judgment.rules import hiring_finding, outcome_of
-from auggie.proofs import seller
+from auggie.proofs import ProofCheck, check_proofs, seller
 from auggie.store import Appended, RecordConflict, RecordNotFound, Store
 from auggie.strategy import LoadedStrategy
 
@@ -440,6 +440,19 @@ def _check_outcome(decision: QualificationDecision, strategy: LoadedStrategy) ->
         )
 
 
+def _no_play(
+    strategy: LoadedStrategy, decision: QualificationDecision, proofs: Mapping[str, ProofCheck]
+) -> str:
+    """Why no play applies: its criteria, or the first applicable play's unusable proofs."""
+    rules = strategy.strategy
+    waiting = next((p for p in rules.plays if applies(p, decision) and p.pain is not None), None)
+    if waiting is None or waiting.pain is None:
+        return "no play's criteria are all met"
+    problems = [check.problem for p in rules.pains[waiting.pain].proofs if (check := proofs.get(p))]
+    why = f": {problems[0]}" if problems else ""
+    return f"play {waiting.id!r} quotes a proof, and none of its pain's proofs is usable{why}"
+
+
 def research_run(
     store: Store,
     *,
@@ -527,10 +540,11 @@ def research_run(
     read = listing.current if listing is not None else None
     if decision.outcome != "qualified":
         return RunResult(verdicts, decision, None, f"the account is {decision.outcome}", read)
-    play = select_play(strategy, decision)
-    if play is None:
-        return RunResult(verdicts, decision, None, "no play's criteria are all met", read)
     composed_at = at(times.composed_at)
+    proofs = check_proofs(store, strategy.strategy, composed_at)
+    play = select_play(strategy, decision, proofs)
+    if play is None:
+        return RunResult(verdicts, decision, None, _no_play(strategy, decision, proofs), read)
     draft = compose_draft(
         artifact_id=f"draft-{account.key}{suffix or '-001'}",
         play=play,
@@ -539,6 +553,8 @@ def research_run(
         account=account,
         sources=sources,
         at=composed_at,
+        listing=listing,
+        proofs=proofs,
     )
     store.put_artifact(draft)
     _append(
@@ -594,6 +610,7 @@ def record_revision(
         evidence_ids=edited.evidence_ids,
         snapshot_ids=edited.snapshot_ids,
         strategy=edited.strategy,
+        point_of_view=edited.point_of_view,
         composed_by=by,
         composed_at=at,
         supersedes=previous.content_hash,

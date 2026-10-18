@@ -84,7 +84,9 @@ def test_a_second_seller_qualifies_and_drafts_from_the_listing(backend: Backend)
 
     draft = run.result.draft
     assert draft is not None
-    assert (draft.evidence_ids, draft.snapshot_ids) == ((), ("snap-fernhollow-001",))
+    # It rests on the listing and on the read of the proof it quotes (ADR 0026).
+    assert draft.evidence_ids == ("ev-proof-harborview-triage",)
+    assert draft.snapshot_ids == ("snap-fernhollow-001",)
     assert run.delivery is not None and run.outcome is not None
 
     store = run.store

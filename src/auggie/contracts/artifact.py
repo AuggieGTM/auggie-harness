@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import StringConstraints, model_validator
+from pydantic import HttpUrl, StringConstraints, model_validator
 
 from auggie.contracts.approval import ArtifactRef
 from auggie.contracts.common import (
@@ -14,12 +14,42 @@ from auggie.contracts.common import (
     RecordId,
     Slug,
     StrategyRef,
+    Text,
     UtcDatetime,
     sha256_digest,
 )
+from auggie.contracts.strategy import Claim, Copy, Label
 
 Content = Annotated[str, StringConstraints(min_length=1, max_length=50_000)]
 """Exact artifact text. Never stripped or normalized: its bytes are what approvals bind to."""
+
+
+class QuotedProof(Contract):
+    """The proof a draft quotes: a vendor claim, and the read of its page that holds it."""
+
+    proof_id: Slug
+    customer: Label
+    claim: Claim
+    url: HttpUrl
+    kind: Literal["result", "scale"]
+    caveat: Text | None = None
+    evidence_id: RecordId
+    """The read of the proof's page, about the seller, that holds the claim word for word."""
+
+
+class PointOfView(Contract):
+    """The play and pain a draft was composed from, with what review shows beside the draft:
+    where the seller fits and stops, and the optional metric (ADR 0026). Kept on the draft,
+    since review reads the Store and not the strategy."""
+
+    play: Slug
+    pain: Slug
+    fit: Copy
+    limits: Copy
+    metric: Copy | None = None
+    threshold: Copy | None = None
+    consequence: Copy | None = None
+    proof: QuotedProof | None = None
 
 
 class Artifact(Contract):
@@ -47,6 +77,7 @@ class Artifact(Contract):
     composed_by: Actor
     composed_at: UtcDatetime
     supersedes: Digest | None = None
+    point_of_view: PointOfView | None = None
 
     @model_validator(mode="after")
     def _check_consistency(self) -> Artifact:
@@ -61,4 +92,7 @@ class Artifact(Contract):
                 raise ValueError(f"{name} must not repeat")
         if self.supersedes == self.ref.content_hash:
             raise ValueError("a version cannot supersede itself")
+        proof = self.point_of_view.proof if self.point_of_view else None
+        if proof is not None and proof.evidence_id not in self.evidence_ids:
+            raise ValueError("a draft cites the read of the proof it quotes")
         return self

@@ -95,6 +95,9 @@ def test_a_play_with_a_pain_and_a_hiring_criterion_may_use_their_fields() -> Non
 def test_older_strategies_without_a_point_of_view_still_load() -> None:
     data = security_strategy().model_dump(mode="json")
     del data["proofs"], data["pains"]
+    data["plays"] = [p for p in data["plays"] if p["pain"] is None]
+    for play in data["plays"]:
+        del play["pain"], play["hiring"]
     strategy = Strategy.model_validate(data)
     assert strategy.proofs.by_id == {} and strategy.pains == {}
     assert strategy.proofs.max_age_days == 180

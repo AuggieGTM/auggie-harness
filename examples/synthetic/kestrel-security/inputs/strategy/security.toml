@@ -34,6 +34,26 @@ source = "security"
 term = "beaconlog"
 
 [[plays]]
+id = "detection-triage"
+requires = ["detection-hiring"]
+pain = "alert-triage"
+hiring = "detection-hiring"
+template = '''Subject: Alert triage while the detection team forms
+
+Hi {first_name},
+
+{account_name} listed {hiring_count} {hiring_family} roles on {hiring_date}. {pain}
+
+From our case study with {proof_customer}: "{proof_claim}"
+
+Would {offer} be useful?
+
+Riley
+Lanternwatch (synthetic example seller)
+'''
+
+# Used when no proof of the pain above is usable.
+[[plays]]
 id = "detection-build-out"
 requires = ["detection-hiring"]
 template = '''Subject: Detection coverage while the team is still forming

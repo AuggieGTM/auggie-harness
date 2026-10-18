@@ -155,6 +155,30 @@ def describe_draft(store: Store, draft: Artifact, out: Print) -> None:
             f"          {snapshot_id}: {snapshot.listing.url} "
             f"(read {snapshot.read_at}, {snapshot.status}, {len(snapshot.roles)} roles)"
         )
+    view = draft.point_of_view
+    if view is None:
+        return
+    # The pain is the seller's angle; the proof is the seller's own claim (ADR 0026).
+    out(f"pain      {view.pain}, from play {view.play}: an angle, never a fact about the account")
+    out(f"          fit: {view.fit}")
+    out(f"          limits: {view.limits}")
+    for name, value in (
+        ("metric", view.metric),
+        ("threshold", view.threshold),
+        ("consequence", view.consequence),
+    ):
+        if value is not None:
+            out(f"          {name}: {value}")
+    proof = view.proof
+    if proof is not None:
+        read = store.get_evidence(proof.evidence_id)
+        out(f'proof     "{proof.claim}"')
+        out(
+            f"          a vendor claim: {proof.customer} ({proof.kind}), {proof.url}, read "
+            f"{read.observed_at} ({proof.evidence_id})"
+        )
+        if proof.caveat is not None:
+            out(f"          caveat: {proof.caveat}")
 
 
 def _next_id(store: Store, artifact_id: str, scope: str) -> str:
