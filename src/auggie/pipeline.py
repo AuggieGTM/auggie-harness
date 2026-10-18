@@ -118,8 +118,14 @@ def research_run(
     acquisition: Acquisition,
     qualifier: Qualifier,
     times: RunTimes,
+    per_run_ids: bool = False,
 ) -> RunResult:
     """Observe, validate, judge and compose for one account, then stop for review.
+
+    Record IDs are readable and derived from the account (``ev-northstar-careers``),
+    so re-running the same inputs writes nothing new. With ``per_run_ids`` they
+    also carry the run ID, so researching the same prospect again later makes
+    new records rather than conflicting with the old ones.
 
     The strategy and the account must belong to the store's customer; nothing
     is acquired or written otherwise.
@@ -129,6 +135,7 @@ def research_run(
     customer_id = store.scope.customer_id
     subject = SubjectRef(kind="account", id=account.account_id)
     run_id = times.run_id
+    suffix = f"-{run_id}" if per_run_ids else ""
 
     sources: dict[str, Verdict] = {}
     for kind in strategy.strategy.sources:
@@ -136,7 +143,7 @@ def research_run(
         if url is None:
             continue
         evidence, details = acquisition.acquire(
-            evidence_id=f"ev-{account.key}-{kind}",
+            evidence_id=f"ev-{account.key}-{kind}{suffix}",
             customer_id=customer_id,
             subject=subject,
             url=url,
@@ -169,7 +176,7 @@ def research_run(
         )
 
     decision = qualifier.qualify(
-        decision_id=f"qual-{account.key}-001",
+        decision_id=f"qual-{account.key}{suffix or '-001'}",
         customer_id=customer_id,
         account_id=account.account_id,
         strategy=strategy,
@@ -198,7 +205,7 @@ def research_run(
     if play is None:
         return RunResult(verdicts, decision, None, "no play's criteria are all met")
     draft = compose_draft(
-        artifact_id=f"draft-{account.key}-001",
+        artifact_id=f"draft-{account.key}{suffix or '-001'}",
         play=play,
         strategy=strategy,
         decision=decision,

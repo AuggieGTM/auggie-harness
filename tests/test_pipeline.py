@@ -4,8 +4,12 @@ from __future__ import annotations
 
 import pytest
 
+from auggie.acquisition.fixture import FixtureAcquisition
+from auggie.judgment.rules import RulesQualifier
+from auggie.pipeline import research_run
 from auggie.store.memory import InMemoryBackend
-from auggie.synthetic import ScenarioRun, run_scenario
+from auggie.strategy import load_strategy
+from auggie.synthetic import ScenarioRun, load_inputs, run_scenario
 from tests.conftest import NORTHSTAR, Scenario, mongo_backend
 
 
@@ -61,3 +65,33 @@ def test_the_workflow_reproduces_the_scenario_on_mongodb(scenario: Scenario) -> 
         assert run.store.list_events() == scenario.events
         again = run_scenario(NORTHSTAR, backend=backend)
         assert again.store.list_events() == scenario.events
+
+
+def test_per_run_ids_let_a_prospect_be_researched_again(scenario: Scenario) -> None:
+    inputs = load_inputs(NORTHSTAR)
+    backend = InMemoryBackend()
+    store = backend.open(inputs.scope)
+    strategy = load_strategy(
+        NORTHSTAR / "inputs",
+        inputs.strategy.path,
+        commit=inputs.strategy.commit,
+        scope=inputs.scope,
+    )
+    results = []
+    for run_id in ("run-a", "run-b"):
+        times = inputs.run.model_copy(update={"run_id": run_id})
+        results.append(
+            research_run(
+                store,
+                strategy=strategy,
+                account=inputs.account,
+                acquisition=FixtureAcquisition(inputs.responses),
+                qualifier=RulesQualifier(),
+                times=times,
+                per_run_ids=True,
+            )
+        )
+    first, second = results
+    assert first.decision.decision_id == "qual-northstar-run-a"
+    assert second.draft is not None and second.draft.ref.artifact_id == "draft-northstar-run-b"
+    assert len(store.list_evidence()) == 6
