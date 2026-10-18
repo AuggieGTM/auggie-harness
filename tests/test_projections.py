@@ -59,6 +59,18 @@ HEADERS = (
         "delivered_at",
         "outcome",
     ),
+    (
+        "account_id",
+        "snapshot_id",
+        "read_at",
+        "listing",
+        "status",
+        "roles",
+        "relevant_roles",
+        "roles_per_family",
+        "patterns",
+        "links",
+    ),
 )
 CAREERS = "https://northstar.example/careers/it-operations-manager"
 NEWS = "https://news.example/2026/northstar-works-opens-second-office"
@@ -278,7 +290,13 @@ def test_csv_files_round_trip_in_tab_order_without_writing_elsewhere(
     directory = tmp_path / "export"
     workbook = project(run.store)
     paths = write_csv(workbook, directory)
-    assert [p.name for p in paths] == ["accounts.csv", "findings.csv", "evidence.csv", "drafts.csv"]
+    assert [p.name for p in paths] == [
+        "accounts.csv",
+        "findings.csv",
+        "evidence.csv",
+        "drafts.csv",
+        "hiring.csv",
+    ]
     assert list(tmp_path.iterdir()) == [directory]
     assert set(directory.iterdir()) == set(paths)
     assert [read_csv(path) for path in paths] == list(workbook.values())
@@ -317,5 +335,46 @@ def test_extra_tab_names_cannot_create_files_outside_the_directory(tmp_path: Pat
     workbook = {tab: (("header",),) for tab in TABS}
     workbook["auggie: ../escape"] = (("not exported",),)
     paths = write_csv(workbook, tmp_path / "export")
-    assert len(paths) == 4
+    assert len(paths) == len(TABS)
     assert not (tmp_path / "escape.csv").exists()
+
+
+def test_the_hiring_tab_counts_each_accounts_newest_read_by_the_sellers_families() -> None:
+    from auggie.contracts import CareersSnapshot, roles_digest
+
+    kestrel = run_scenario(NORTHSTAR.parent / "kestrel-security")
+    strategy = kestrel.strategy.strategy
+    _, row = project(kestrel.store, strategy)[TABS[4]]
+    assert row == (
+        "acc-fernhollow",
+        "snap-fernhollow-001",
+        "2026-10-15T09:00:03+00:00",
+        "https://jobs.lever.example/fernhollow",
+        "complete",
+        "4",
+        "3",
+        "detection engineering 2 (senior 1, unlevelled 1); security operations 1 (unlevelled 1)",
+        "new detection openings in detection engineering: None before; 2 open now. "
+        "[snap-fernhollow-001, snap-fernhollow-before-1]",
+        "https://jobs.lever.example/fernhollow/6a1f0c2e-0000-4000-8000-000000000001; "
+        "https://jobs.lever.example/fernhollow/6a1f0c2e-0000-4000-8000-000000000002",
+    )
+    # Without the strategy there are no families to count by: only what the read was.
+    _, bare = project(kestrel.store)[TABS[4]]
+    assert bare[:6] == row[:6] and bare[6:] == ("", "", "", "")
+    # A newer read that failed is shown as failed; the older one never stands in for it.
+    failed = CareersSnapshot.model_validate(
+        {
+            **kestrel.store.get_careers_snapshot("snap-fernhollow-001").model_dump(mode="json"),
+            "snapshot_id": "snap-fernhollow-002",
+            "read_at": "2026-10-16T09:00:00Z",
+            "status": "failed",
+            "failure_reason": "The listing service answered HTTP 503.",
+            "roles": [],
+            "content_hash": roles_digest(()),
+        }
+    )
+    kestrel.store.put_careers_snapshot(failed)
+    _, newest = project(kestrel.store, strategy)[TABS[4]]
+    assert newest[1] == "snap-fernhollow-002"
+    assert newest[4:] == ("failed: The listing service answered HTTP 503.", "", "", "", "", "")

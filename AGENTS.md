@@ -11,7 +11,9 @@ Early and synthetic only. Contracts, the Store (in-memory and MongoDB) and the f
 slice run end to end on the synthetic Northstar fixture. One Treg acquisition route is built and
 tested against synthetic replies; it calls Treg only for a scope that allows external providers
 and sets a run budget, and no test does. A Gmail delivery adapter is built and tested against
-a fake Google; it sends only for a live scope, and no test sends email.
+a fake Google; it sends only for a live scope, and no test sends email. Careers listing readers
+for Lever, Greenhouse and Ashby are built and tested against synthetic replies; they call a
+listing service only for a scope that allows external providers, and no test does.
 Never describe planned or proposed work as built, supported or tested.
 
 ## Commands

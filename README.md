@@ -53,7 +53,7 @@ product.
   each attempt and what came of it ([ADR 0022](docs/adr/0022-live-delivery-records.md)).
   `scripts/gmail_sign_in.py` saves its token. Tests use a fake Google.
 - `src/auggie/projections/` turns the Store into read-only tabs (accounts, findings, evidence,
-  drafts) without page text, written as CSV, by your agent's Google connector, or by a service
+  drafts, hiring) without page text, written as CSV, by your agent's Google connector, or by a service
   account ([ADR 0019](docs/adr/0019-projection-writers-and-agent-connectors.md)).
 - `src/auggie/shell.py` is the research shell: questions across a scope's accounts, one more page
   read, and the flow, at a terminal. `src/auggie/queries.py` gives the same answers as read-only
@@ -61,12 +61,17 @@ product.
   ([ADR 0025](docs/adr/0025-the-research-shell.md)).
 - `src/auggie/signals/` matches the seller's own vocabulary and counts hiring tallies by rule
   ([ADR 0023](docs/adr/0023-signal-vocabulary-in-the-strategy.md),
-  [ADR 0024](docs/adr/0024-careers-snapshots-and-hiring-tallies.md)). Careers snapshots and the
-  listing readers that feed them are not built yet.
+  [ADR 0024](docs/adr/0024-careers-snapshots-and-hiring-tallies.md)).
+  `src/auggie/acquisition/careers.py` reads a prospect's whole careers listing from Lever,
+  Greenhouse or Ashby, free, into a careers snapshot. Research counts hiring from it, and
+  `auggie hiring` shows each account's tally. Tested on synthetic replies only, in
+  `examples/synthetic/listings/`.
 - `src/auggie/pipeline.py` runs the first vertical slice as plain sequential calls: research,
   validate evidence, qualify, draft, human approval, simulated delivery, record outcome.
 - `examples/synthetic/northstar-msp/` holds one fully synthetic scenario: its inputs, and the
   records the workflow must produce from them.
+- `examples/synthetic/kestrel-security/` is a second synthetic seller, a security vendor. Its
+  scenario qualifies and drafts from detection hiring on a replayed listing.
 - `tests/` checks the contracts, the Store contract, the slice and the paths it must refuse.
 
 ## Development

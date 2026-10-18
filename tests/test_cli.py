@@ -214,7 +214,7 @@ def test_an_agent_written_sheet_is_verified_against_its_workbook(
     readback = tmp_path / "readback.json"
     readback.write_text(json.dumps(reply), encoding="utf-8")
     assert main(["verify-sheet", str(workbook), str(readback)]) == 0
-    assert "match     the sheet holds exactly the projection: 4 tabs" in capsys.readouterr().out
+    assert "match     the sheet holds exactly the projection: 5 tabs" in capsys.readouterr().out
 
     reply["sheets"][0]["data"][0]["rowData"][1]["values"][1] = {
         "userEnteredValue": {"stringValue": "disqualified"}

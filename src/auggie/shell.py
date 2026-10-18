@@ -23,8 +23,17 @@ from auggie.acquisition.treg import CEILING_MICRO_USD
 from auggie.contracts import sha256_digest
 from auggie.contracts.events import OutcomeKind
 from auggie.delivery import Sender
-from auggie.pipeline import reads_listing, record_page
-from auggie.queries import account_ids, accounts_view, brief_view, find_view, stack_view
+from auggie.external import require_external_calls
+from auggie.judgment.rules import SERVICES
+from auggie.pipeline import reads_listing, record_page, record_snapshot
+from auggie.queries import (
+    account_ids,
+    accounts_view,
+    brief_view,
+    find_view,
+    hiring_view,
+    stack_view,
+)
 from auggie.store import Store
 from auggie.strategy import LoadedStrategy
 
@@ -40,8 +49,10 @@ questions (answers from the records; nothing is read or spent)
   brief <account>               the judgment, its findings and citations, evidence, drafts
   find [<account>] <words>      stored excerpts that hold these words
   stack [<account>]             where admitted pages name the strategy's technologies
-reading (asks before any paid call)
+  hiring [<account>]            each account's newest listing read, counted by your families
+reading (asks before any paid or external call)
   fetch <account> <url>         read one page and record it as evidence
+  hiring <account> --read       read the account's careers listing now, free
   research <account>            research from the account's prospect file
 the flow (yours alone)
   review <draft>   revise <draft>   deliver <draft>
@@ -159,6 +170,47 @@ def _stack(session: Session, args: list[str]) -> None:
         session.out("no admitted page names the strategy's technologies")
     for row in rows:
         session.out(render_stack(row))
+
+
+def _hiring(session: Session, args: list[str]) -> None:
+    if session.strategy is None:
+        raise ValueError("start the shell with --strategy-repo and --strategy-path to use hiring")
+    read = "--read" in args
+    rest = [arg for arg in args if arg != "--read"]
+    if len(rest) > 1 or (read and not rest):
+        raise ValueError("usage: hiring [<account>] [--read]")
+    account_id = rest[0] if rest else None
+    if read and account_id is not None and not _read_listing(session, account_id):
+        return
+    rows = hiring_view(session.store, session.strategy.strategy, account_id, session.prospects)
+    for line in [line for row in rows for line in render_hiring(row)] or ["no listing read yet"]:
+        session.out(line)
+
+
+def _read_listing(session: Session, account_id: str) -> bool:
+    """Read one account's careers listing now and record the snapshot, after asking if live."""
+    prospect = session.prospects.get(account_id)
+    listing = prospect.careers_listing if prospect else None
+    if prospect is None or listing is None:
+        raise ValueError(f"no prospect file names a careers listing for {account_id!r}")
+    reader = session.listings()
+    if reader is None:
+        raise ValueError("this session has no way to read listings")
+    if session.live:
+        require_external_calls(session.store.scope)  # refused before asking
+        if not _yes(session, f"the careers listing on {listing.service}, free; go ahead?"):
+            session.out("nothing read")
+            return False
+    run_id = operate.new_run_id(operate.utc_now())
+    snapshot = record_snapshot(
+        session.store,
+        reader=reader,
+        account=prospect,
+        snapshot_id=f"snap-{prospect.key}-{run_id}",
+        run_id=run_id,
+    )
+    session.out(f"recorded  {snapshot.snapshot_id} {snapshot.status} {listing.url}")
+    return True
 
 
 # Reading
@@ -305,6 +357,7 @@ COMMANDS: dict[str, Callable[[Session, list[str]], None]] = {
     "brief": _brief,
     "find": _find,
     "stack": _stack,
+    "hiring": _hiring,
     "fetch": _fetch,
     "research": _research,
     "review": _review,
@@ -374,6 +427,31 @@ def render_stack(row: Mapping[str, Any]) -> str:
         f"{row['label']} named{near} on {row['source_url']} ({row['evidence_id']}, read "
         f'{_date(row["observed_at"])}): "{row["quote"]}"'
     )
+
+
+def render_hiring(row: Mapping[str, Any]) -> list[str]:
+    head = (
+        f"{row['account_id']}: {SERVICES[row['service']]} listing read {_date(row['read_at'])} "
+        f"({row['snapshot_id']}), {row['status']}"
+    )
+    if row["status"] == "failed":
+        return [f"{head}: {row['failure_reason']} Nothing is counted."]
+    if row["status"] == "inconsistent":
+        return [f"{head}: its replies did not agree, so nothing is counted."]
+    bound = "at least " if row["status"] == "partial" else ""
+    if row["relevant"] is None:
+        return [f"{head}: {bound}{row['roles']} roles; the strategy defines no hiring families"]
+    lines = [f"{head}: {bound}{row['roles']} roles, {row['relevant']} of them in your families"]
+    for family in row["families"]:
+        levels = ", ".join(f"{level} {n}" for level, n in family["levels"].items())
+        lines.append(f"    {family['label']}: {family['roles']} ({levels})")
+    for pattern in row["patterns"]:
+        lines.append(
+            f"    holds (inference): {pattern['label']} in {pattern['family_label']}: "
+            f"{pattern['reason']} [{', '.join(pattern['snapshots'])}]"
+        )
+        lines.extend(f"      {e['title']} {e['url']}" for e in pattern["examples"])
+    return lines
 
 
 def as_json(view: Any) -> str:

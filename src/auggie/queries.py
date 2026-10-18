@@ -7,9 +7,10 @@ back into the Store.
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, get_args
 
 from pydantic import ValidationError
 
@@ -22,9 +23,11 @@ from auggie.contracts import (
     SubjectRef,
     ensure_in_scope,
 )
-from auggie.contracts.strategy import Strategy
+from auggie.contracts.strategy import LADDER, Hiring, PatternName, Strategy
+from auggie.judgment import ListingReadings
 from auggie.pipeline import delivery_state
-from auggie.signals import phrase_pattern, quote, stack_matches
+from auggie.signals import level_of, phrase_pattern, quote, stack_matches
+from auggie.signals.tally import ILLUSTRATIONS, Role, in_family, listing_pattern
 from auggie.store import RecordNotFound, Store
 
 View = dict[str, Any]
@@ -282,4 +285,91 @@ def stack_view(store: Store, strategy: Strategy, account_id: str | None = None) 
                         "quote": match.quote,
                     }
                 )
+    return rows
+
+
+PATTERNS: tuple[PatternName, ...] = get_args(PatternName)
+
+
+def _examples(roles: tuple[Role, ...]) -> list[View]:
+    return [{"title": r.title, "url": r.url} for r in roles[:ILLUSTRATIONS]]
+
+
+def hiring_row(account_id: str, listing: ListingReadings, hiring: Hiring | None) -> View:
+    """What one account's newest listing read shows under the seller's vocabulary: roles per
+    family with their levels, and the listing patterns that hold (ADR 0024). Inference from
+    the snapshots it names. A failed or inconsistent read settles nothing, so it shows none,
+    and without a vocabulary only the read itself is shown."""
+    read = listing.current
+    row: View = {
+        "account_id": account_id,
+        "snapshot_id": read.snapshot_id,
+        "listing": str(read.listing.url),
+        "service": read.listing.service,
+        "read_at": read.read_at,
+        "status": read.status,
+        "failure_reason": read.failure_reason,
+        "roles": len(read.roles),
+        "basis": "inference",
+        "relevant": None,
+        "families": [],
+        "patterns": [],
+    }
+    if hiring is None or not read.usable:
+        return row
+    current, earlier = listing.readings()
+    families: list[View] = []
+    for family_id, family in hiring.families.items():
+        roles = in_family(current, family_id, hiring)
+        if not roles:
+            continue
+        levels: Counter[str] = Counter(level_of(r.title, hiring) or "unlevelled" for r in roles)
+        families.append(
+            {
+                "family": family_id,
+                "label": family.label,
+                "roles": len(roles),
+                "levels": {lv: levels[lv] for lv in (*LADDER, "unlevelled") if levels[lv]},
+                "examples": _examples(roles),
+            }
+        )
+    patterns = []
+    for family_id, family in hiring.families.items():
+        for pattern in PATTERNS:
+            outcome = listing_pattern(pattern, current, earlier, family_id, hiring)
+            if outcome.answer == "met":
+                patterns.append(
+                    {
+                        "family": family_id,
+                        "family_label": family.label,
+                        "pattern": pattern,
+                        "label": getattr(hiring.patterns, pattern).label
+                        or pattern.replace("_", " "),
+                        "reason": outcome.reason,
+                        "snapshots": list(outcome.readings),
+                        "examples": _examples(outcome.roles),
+                    }
+                )
+    row.update(relevant=sum(f["roles"] for f in families), families=families, patterns=patterns)
+    return row
+
+
+def hiring_view(
+    store: Store,
+    strategy: Strategy | None,
+    account_id: str | None = None,
+    prospects: Mapping[str, Account] = {},
+) -> list[View]:
+    """Each account's newest careers listing read, tallied with the strategy's vocabulary if
+    it has one. An older read never stands in for a newer one that failed. Reads nothing new."""
+    if strategy is not None:
+        ensure_in_scope(store.scope, strategy)
+    _check_account(account_id)
+    hiring = strategy.signals.hiring if strategy is not None else None
+    rows = []
+    for known in [account_id] if account_id is not None else account_ids(store, prospects):
+        snapshots = store.list_careers_snapshots(known)
+        if snapshots:
+            *earlier, current = snapshots
+            rows.append(hiring_row(known, ListingReadings(current, tuple(earlier)), hiring))
     return rows

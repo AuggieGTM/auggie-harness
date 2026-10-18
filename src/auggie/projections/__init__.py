@@ -3,15 +3,23 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import Any
 
 from auggie.contracts import HumanApproval
+from auggie.contracts.strategy import Strategy
 from auggie.store import Store
 
 Row = tuple[str, ...]
 Tab = tuple[Row, ...]
 Workbook = Mapping[str, Tab]
 
-TABS = ("auggie: accounts", "auggie: findings", "auggie: evidence", "auggie: drafts")
+TABS = (
+    "auggie: accounts",
+    "auggie: findings",
+    "auggie: evidence",
+    "auggie: drafts",
+    "auggie: hiring",
+)
 
 HEADERS: tuple[Row, ...] = (
     (
@@ -58,6 +66,18 @@ HEADERS: tuple[Row, ...] = (
         "delivered_at",
         "outcome",
     ),
+    (
+        "account_id",
+        "snapshot_id",
+        "read_at",
+        "listing",
+        "status",
+        "roles",
+        "relevant_roles",
+        "roles_per_family",
+        "patterns",
+        "links",
+    ),
 )
 
 
@@ -71,9 +91,45 @@ def _approval(approval: HumanApproval) -> str:
     return text
 
 
-def project(store: Store) -> Workbook:
-    """Project records in write order, without copying page text or draft wording."""
-    accounts, findings, evidence, drafts = ([header] for header in HEADERS)
+def _hiring(row: Mapping[str, Any], counted: bool) -> Row:
+    """One account's newest listing read. Without the strategy, only what the read was."""
+    status = row["status"]
+    if status == "failed":
+        status = f"failed: {row['failure_reason']}"
+    bound = "at least " if row["status"] == "partial" else ""
+    usable = row["status"] in ("complete", "partial")
+    families = "; ".join(
+        f"{f['label']} {f['roles']} ({', '.join(f'{lv} {n}' for lv, n in f['levels'].items())})"
+        for f in row["families"]
+    )
+    patterns = "; ".join(
+        f"{p['label']} in {p['family_label']}: {p['reason']} [{', '.join(p['snapshots'])}]"
+        for p in row["patterns"]
+    )
+    links = "; ".join(e["url"] for p in row["patterns"] for e in p["examples"])
+    return (
+        row["account_id"],
+        row["snapshot_id"],
+        row["read_at"].isoformat(),
+        row["listing"],
+        status,
+        f"{bound}{row['roles']}" if usable else "",
+        str(row["relevant"]) if counted and usable else "",
+        families,
+        patterns,
+        links,
+    )
+
+
+def project(store: Store, strategy: Strategy | None = None) -> Workbook:
+    """Project records in write order, without copying page text or draft wording.
+
+    The hiring tab counts roles with ``strategy``'s vocabulary (ADR 0024); without it, the tab
+    shows only what each read was.
+    """
+    from auggie.queries import hiring_view
+
+    accounts, findings, evidence, drafts, hiring = ([header] for header in HEADERS)
     decisions: dict[str, None] = {}
     artifacts: dict[str, None] = {}
     validations: dict[str, str] = {}
@@ -170,6 +226,12 @@ def project(store: Store) -> Workbook:
                 outcomes.get(artifact_id, ""),
             )
         )
+    counted = strategy is not None and strategy.signals.hiring is not None
+    hiring.extend(_hiring(row, counted) for row in hiring_view(store, strategy))
     return dict(
-        zip(TABS, (tuple(accounts), tuple(findings), tuple(evidence), tuple(drafts)), strict=True)
+        zip(
+            TABS,
+            (tuple(accounts), tuple(findings), tuple(evidence), tuple(drafts), tuple(hiring)),
+            strict=True,
+        )
     )

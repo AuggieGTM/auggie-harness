@@ -309,6 +309,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     project_.add_argument(
         "--credentials", type=Path, help="credentials root (default: $AUGGIE_CREDENTIALS_DIR)"
     )
+    project_.add_argument(
+        "--strategy-repo", type=Path, help="your strategy repository, to count hiring by family"
+    )
+    project_.add_argument("--strategy-path", help="the strategy file in it")
+    project_.add_argument("--revision", default="HEAD", help="the approved commit (default HEAD)")
     fetch = commands.add_parser(
         "treg-fetch", help="make one live, paid Treg call for a scope and print what came back"
     )
@@ -368,10 +373,10 @@ def run_scenario_command(args: argparse.Namespace, out: Print) -> int:
     if mongo is not None:
         out(f"Stored in MongoDB database {mongo.database_name(result.store.scope)}.")
     if args.csv is not None:
-        files = write_csv(project(result.store), args.csv)
+        files = write_csv(project(result.store, result.strategy.strategy), args.csv)
         out(f"Projected to {args.csv}: {', '.join(path.name for path in files)}.")
     if args.workbook is not None:
-        digest = dump_workbook(project(result.store), args.workbook)
+        digest = dump_workbook(project(result.store, result.strategy.strategy), args.workbook)
         out(f"Workbook for an agent: {args.workbook} (sha256 {_short(digest)}).")
     if args.negative:
         out("")
@@ -443,7 +448,7 @@ def _add_prospect_commands(commands: Any) -> None:
     outcome.add_argument("--reporter", required=True, help="your name, recorded on the outcome")
 
 
-QUERY_COMMANDS = ("accounts", "brief", "find", "stack")
+QUERY_COMMANDS = ("accounts", "brief", "find", "stack", "hiring")
 
 
 def _add_shell_commands(commands: Any) -> None:
@@ -480,17 +485,26 @@ def _add_shell_commands(commands: Any) -> None:
         ("brief", "one account: its judgment, findings, evidence and drafts"),
         ("find", "stored excerpts that hold some words"),
         ("stack", "where admitted pages name the strategy's technologies"),
+        ("hiring", "each account's newest careers listing read, counted by your families"),
     ):
-        command = common(name, help + " (read-only)")
+        command = common(
+            name, help + (" (read-only unless --read)" if name == "hiring" else " (read-only)")
+        )
         command.add_argument("--json", action="store_true", help="print JSON, for a coding agent")
         if name == "brief":
             command.add_argument("account", help="the account's ID")
         if name == "find":
             command.add_argument("words", nargs="+", help="the words to look for")
             command.add_argument("--account", help="only this account")
-        if name == "stack":
+        if name in ("stack", "hiring"):
             strategy(command)
             command.add_argument("--account", help="only this account")
+        if name == "hiring":
+            command.add_argument(
+                "--read",
+                action="store_true",
+                help="first read the account's careers listing (free) and record it",
+            )
 
 
 def shell_command(args: argparse.Namespace, out: Print, ask: Callable[[str], str]) -> int:
@@ -499,6 +513,7 @@ def shell_command(args: argparse.Namespace, out: Print, ask: Callable[[str], str
 
     from auggie import queries
     from auggie import shell as research_shell
+    from auggie.external import ExternalCallRefused
 
     if args.command == "shell" and not interactive():
         out(
@@ -536,12 +551,22 @@ def shell_command(args: argparse.Namespace, out: Print, ask: Callable[[str], str
             loaded = load_strategy_at(
                 args.strategy_repo, args.strategy_path, revision=args.revision, scope=scope
             )
+        if args.command == "hiring" and args.read:
+            return _read_and_answer(args, backend.open(scope), prospects, loaded, out)
         if args.command != "shell":
             store = backend.open_existing(scope)  # questions only read
             return _answer(args, store, prospects, loaded, out)
         store = backend.open(scope)
         return research_shell.run(_session(args, store, prospects, loaded, out, ask))
-    except (*BLOCKING, PyMongoError, StoreError, StrategyError, ValueError, OSError) as error:
+    except (
+        *BLOCKING,
+        ExternalCallRefused,
+        PyMongoError,
+        StoreError,
+        StrategyError,
+        ValueError,
+        OSError,
+    ) as error:
         out(f"stopped   {type(error).__name__}: {error}")
         return 1
     finally:
@@ -568,10 +593,13 @@ def _answer(
     elif args.command == "find":
         view = queries.find_view(store, " ".join(args.words), args.account)
         lines = [research_shell.render_find(row) for row in view]
+    elif loaded is None:
+        out(f"stopped   {args.command} needs --strategy-repo and --strategy-path")
+        return 1
+    elif args.command == "hiring":
+        view = queries.hiring_view(store, loaded.strategy, args.account, prospects)
+        lines = [line for row in view for line in research_shell.render_hiring(row)]
     else:
-        if loaded is None:
-            out("stopped   stack needs --strategy-repo and --strategy-path")
-            return 1
         view = queries.stack_view(store, loaded.strategy, args.account)
         lines = [research_shell.render_stack(row) for row in view]
     if args.json:
@@ -580,6 +608,39 @@ def _answer(
         for line in lines or ["nothing found"]:
             out(line)
     return 0
+
+
+def _read_and_answer(
+    args: argparse.Namespace,
+    store: Store,
+    prospects: dict[str, Account],
+    loaded: LoadedStrategy | None,
+    out: Print,
+) -> int:
+    """``hiring --read``: read one account's careers listing now, then show its tally. It
+    records a snapshot, so it never prints JSON: JSON commands only read (ADR 0025)."""
+    from auggie import operate
+
+    if args.json:
+        out("stopped   --read records a snapshot, and JSON commands only read; drop --json")
+        return 1
+    if args.account is None:
+        out("stopped   --read needs --account, and --prospects with that account's file")
+        return 1
+    prospect = prospects.get(args.account)
+    if prospect is None or prospect.careers_listing is None:
+        out(f"stopped   no prospect file names a careers listing for {args.account!r}")
+        return 1
+    run_id = operate.new_run_id(operate.utc_now())
+    snapshot = record_snapshot(
+        store,
+        reader=CareersReader(scope=store.scope, transport=listing_transport()),
+        account=prospect,
+        snapshot_id=f"snap-{prospect.key}-{run_id}",
+        run_id=run_id,
+    )
+    out(f"recorded  {snapshot.snapshot_id} {snapshot.status} {prospect.careers_listing.url}")
+    return _answer(args, store, prospects, loaded, out)
 
 
 def _session(
@@ -877,8 +938,13 @@ def project_command(args: argparse.Namespace, out: Print) -> int:
     try:
         backend = MongoBackend(client, database_prefix=args.database_prefix)
         store = backend.open_existing(scope)
-        workbook = project(store)
-    except (PyMongoError, ScopeViolation, StoreError) as error:
+        strategy = None
+        if args.strategy_repo is not None and args.strategy_path is not None:
+            strategy = load_strategy_at(
+                args.strategy_repo, args.strategy_path, revision=args.revision, scope=scope
+            ).strategy
+        workbook = project(store, strategy)
+    except (PyMongoError, ScopeViolation, StoreError, StrategyError) as error:
         out(f"stopped   {type(error).__name__}: {error}")
         return 1
     finally:

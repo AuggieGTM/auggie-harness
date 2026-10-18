@@ -3,26 +3,32 @@ synthetic scenario: the strategy's own vocabulary, replayed listing replies, no 
 
 from __future__ import annotations
 
+import json
+import os
 from collections.abc import Iterator, Mapping
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import pytest
 
-from auggie import shell
+from auggie import cli, shell
 from auggie.acquisition.fixture import FixtureAcquisition, RecordedListing, RecordedListings
+from auggie.cli import main
 from auggie.contracts import CareersSnapshot, CitationError, OpenRole, roles_digest
+from auggie.https import HttpResponse
 from auggie.judgment import ListingReadings
 from auggie.judgment.rules import RulesQualifier, assess
 from auggie.operate import describe_draft
 from auggie.pipeline import record_revision, record_snapshot, research_run
 from auggie.projections import TABS, project
-from auggie.queries import brief_view
+from auggie.queries import brief_view, hiring_view
 from auggie.store import Backend, Store
 from auggie.store.memory import InMemoryBackend
 from auggie.strategy import LoadedStrategy, load_strategy
 from auggie.synthetic import SyntheticInputs, load_inputs, run_scenario
-from tests.conftest import EXAMPLES, mongo_backend
+from tests.conftest import EXAMPLES, MONGODB_URI, mongo_backend
+from tests.test_careers_reader import Replay
 
 KESTREL = EXAMPLES / "kestrel-security"
 INPUTS = load_inputs(KESTREL)
@@ -345,3 +351,129 @@ def test_a_replay_reads_each_listings_newest_recorded_reply() -> None:
     twice = RecordedListing.model_validate(INPUTS.listings[1].model_dump(mode="json"))
     with pytest.raises(ValueError, match="at one time"):
         RecordedListings([INPUTS.listings[1], twice])
+
+
+# Asking who is hiring
+
+
+def kestrel_session(
+    store: Store, answers: list[str], *, live: bool = False
+) -> tuple[shell.Session, list[str], list[str]]:
+    asked: list[str] = []
+    printed: list[str] = []
+    pending = iter(answers)
+
+    def ask(prompt: str) -> str:
+        asked.append(prompt)
+        try:
+            return next(pending)
+        except StopIteration:
+            raise EOFError from None
+
+    session = shell.Session(
+        store=store,
+        me="demo-seller",
+        ask=ask,
+        out=printed.append,
+        acquisition=lambda: FixtureAcquisition(INPUTS.responses),
+        listings=lambda: RecordedListings([INPUTS.listings[1]]),
+        live=live,
+        prospects={INPUTS.account.account_id: INPUTS.account},
+        strategy=strategy(),
+    )
+    return session, asked, printed
+
+
+def test_hiring_shows_each_accounts_newest_read_counted_by_family() -> None:
+    run = run_scenario(KESTREL)
+    session, _, printed = kestrel_session(run.store, ["hiring", "hiring acc-elsewhere"])
+    shell.run(session)
+    assert printed[1:-1] == [
+        "acc-fernhollow: Lever listing read 2026-10-15 (snap-fernhollow-001), complete: "
+        "4 roles, 3 of them in your families",
+        "    detection engineering: 2 (senior 1, unlevelled 1)",
+        "    security operations: 1 (unlevelled 1)",
+        "    holds (inference): new detection openings in detection engineering: None before; "
+        "2 open now. [snap-fernhollow-001, snap-fernhollow-before-1]",
+        "      Senior Detection Engineer "
+        "https://jobs.lever.example/fernhollow/6a1f0c2e-0000-4000-8000-000000000001",
+        "      Detection Engineer "
+        "https://jobs.lever.example/fernhollow/6a1f0c2e-0000-4000-8000-000000000002",
+        "no listing read yet",
+    ]
+    (row,) = json.loads(shell.as_json(hiring_view(run.store, strategy().strategy)))
+    assert row["basis"] == "inference" and row["read_at"] == "2026-10-15T09:00:03+00:00"
+
+
+def external(allowed: bool) -> Any:
+    execution = INPUTS.scope.execution.model_copy(update={"external_providers": allowed})
+    return INPUTS.scope.model_copy(update={"execution": execution})
+
+
+def test_reading_a_listing_from_the_shell_asks_first_when_live() -> None:
+    store = InMemoryBackend().open(external(True))
+    commands = ["hiring acc-fernhollow --read", "n", "hiring acc-fernhollow --read", "y"]
+    session, asked, printed = kestrel_session(store, commands, live=True)
+    shell.run(session)
+    assert asked.count("the careers listing on lever, free; go ahead? [y/N] ") == 2
+    assert "nothing read" in printed
+    (read,) = store.list_careers_snapshots("acc-fernhollow")
+    assert read.snapshot_id.startswith("snap-fernhollow-run-") and read.status == "complete"
+    assert any(line.startswith(f"recorded  {read.snapshot_id} complete") for line in printed)
+    assert any("4 roles, 3 of them in your families" in line for line in printed)
+
+
+def test_a_scope_without_external_calls_is_refused_before_asking() -> None:
+    store = InMemoryBackend().open(external(False))
+    session, asked, printed = kestrel_session(store, ["hiring acc-fernhollow --read"], live=True)
+    shell.run(session)
+    assert [q for q in asked if "go ahead" in q] == []
+    assert any("ExternalCallRefused" in line for line in printed)
+    assert store.list_careers_snapshots("acc-fernhollow") == ()
+
+
+def test_hiring_from_the_command_line_reads_on_request_and_prints_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    prospects = tmp_path / "prospects"
+    prospects.mkdir()
+    (prospects / "fernhollow.json").write_text((KESTREL / "prospect.json").read_text())
+    scope = json.loads((KESTREL / "scope.json").read_text(encoding="utf-8"))
+    scope["execution"]["external_providers"] = True
+    scope_file = tmp_path / "scope.json"
+    scope_file.write_text(json.dumps(scope), encoding="utf-8")
+    body = json.dumps(INPUTS.listings[1].body).encode()
+    listing = Replay(HttpResponse(200, {}, body))
+    monkeypatch.setattr(cli, "listing_transport", lambda: listing)
+    monkeypatch.setattr(cli, "interactive", lambda: False)
+    with mongo_backend() as backend:
+        common = [
+            str(scope_file),
+            "--mongodb",
+            os.environ[MONGODB_URI],
+            "--database-prefix",
+            backend.database_prefix,
+            "--prospects",
+            str(prospects),
+            "--strategy-repo",
+            str(Path(__file__).resolve().parent.parent),
+            "--strategy-path",
+            "examples/synthetic/kestrel-security/inputs/strategy/security.toml",
+        ]
+        reading = ["hiring", *common, "--account", "acc-fernhollow", "--read"]
+        assert main([*reading, "--json"]) == 1
+        assert "JSON commands only read" in capsys.readouterr().out
+        assert listing.requests == []
+        assert main(reading) == 0
+        out = capsys.readouterr().out
+        assert "recorded  snap-fernhollow-run-" in out and "3 of them in your families" in out
+        assert main(["hiring", *common, "--json"]) == 0
+        (row,) = json.loads(capsys.readouterr().out)
+        assert (row["account_id"], row["status"], row["relevant"]) == (
+            "acc-fernhollow",
+            "complete",
+            3,
+        )
+        assert row["patterns"] == []  # one read, so no baseline yet
+    [request] = listing.requests
+    assert request.url.startswith("https://api.lever.co/v0/postings/fernhollow?")

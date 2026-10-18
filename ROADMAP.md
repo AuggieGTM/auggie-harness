@@ -86,7 +86,7 @@ checks are done: one paid Treg page fetch, and one Gmail send from the maintaine
 if any work must run in the background. *M3 runs stay operator-triggered from the CLI, so ADR 0007
 can stay open.*
 
-## M4: Signals (Next)
+## M4: Signals (In progress)
 
 Who is hiring for what, which technologies an account runs, and what changed, in the seller's
 own vocabulary.
@@ -96,13 +96,17 @@ own vocabulary.
   format, the matching and tally engine for ADR 0024's table, and stack terms judged from stored
   pages, with a second synthetic seller, a security vendor.*
 - Careers snapshots, read whole from listing services' public feeds, and hiring tallies counted
-  by rules ([ADR 0024](docs/adr/0024-careers-snapshots-and-hiring-tallies.md)).
-- A hiring tab in the workbook.
+  by rules ([ADR 0024](docs/adr/0024-careers-snapshots-and-hiring-tallies.md)). *Built: readers
+  for Lever, Greenhouse and Ashby, tested on synthetic replies only; research counts hiring from
+  the run's read, and findings and drafts cite their snapshots. The second seller's scenario
+  qualifies and drafts from a replayed listing. Not built: a play field that quotes a hiring
+  rationale, and Lever's EU-hosted boards. None of the three services documents when a role
+  was posted, so the long-listed pattern stays unknown for all of them.*
+- A hiring tab in the workbook. *Built.*
 - The research shell: `auggie shell` for questions across accounts and the whole flow, with
   each question also a single command that prints JSON for a coding agent
   ([ADR 0025](docs/adr/0025-the-research-shell.md)). *Built: `accounts`, `brief`, `find`,
-  `stack`, `fetch`, `research` and the flow, tested with scripted answers; `hiring` waits for
-  careers snapshots.*
+  `stack`, `hiring`, `fetch`, `research` and the flow, tested with scripted answers.*
 
 **Gate:** two synthetic sellers in different domains qualify and draft from their own
 vocabulary, with no domain words in the code; every tally line cites a dated snapshot and its

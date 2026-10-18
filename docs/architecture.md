@@ -99,7 +99,7 @@ flowchart LR
 | Store API | The only path to operational data; typed operations; scope-bound | **Exists**: in-memory and MongoDB |
 | MongoDB Community | Per-customer operational database behind the Store | **Exists** for synthetic runs ([0015](adr/0015-mongodb-store-layout.md)) |
 | Acquisition (Treg) | Data acquisition, recorded as `SourceEvidence` | First route built, tested on synthetic replies ([0024](adr/0024-careers-snapshots-and-hiring-tallies.md), [0017](adr/0017-first-treg-route.md)) |
-| Careers snapshots | Whole job listings from listing services' public feeds, recorded as `CareersSnapshot`; hiring tallies counted by rules | Decided, not built ([0023](adr/0023-signal-vocabulary-in-the-strategy.md), [0024](adr/0024-careers-snapshots-and-hiring-tallies.md)) |
+| Careers snapshots | Whole job listings from listing services' public feeds, recorded as `CareersSnapshot`; hiring tallies counted by rules | Readers for Lever, Greenhouse and Ashby built, tested on synthetic replies ([0023](adr/0023-signal-vocabulary-in-the-strategy.md), [0024](adr/0024-careers-snapshots-and-hiring-tallies.md)) |
 | Judgment and synthesis | Deterministic rules and play templates; model engines only after evaluation | **Exists** ([0009](adr/0009-judgment-and-synthesis-engines.md)) |
 | Task scheduler | Exactly one; Herdr or Foreman | **Open** ([0007](adr/0007-single-task-scheduler.md)) |
 | Delivery adapter | One thin adapter per sending platform, the seller's mailbox first; simulated first | Gmail adapter exists, tested against a fake Google only ([0020](adr/0020-one-delivery-adapter-per-sending-platform.md), [0022](adr/0022-live-delivery-records.md)) |

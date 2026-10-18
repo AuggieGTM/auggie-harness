@@ -64,8 +64,8 @@ uv run auggie outcome $E/scope.json --draft <draft id> --outcome positive_reply 
 uv run auggie project $E/scope.json $M --workbook ~/auggie-rehearsal.json
 ```
 
-The workbook holds the four tabs a sheet would show (accounts, findings, evidence and drafts),
-without page text. Write it outside the clone, so it never sits in this repository's working
+The workbook holds the five tabs a sheet would show (accounts, findings, evidence, drafts and
+hiring), without page text. Write it outside the clone, so it never sits in this repository's working
 tree. To see it in a sheet, follow
 [Writing a projection with your agent](../README.md#writing-a-projection-with-your-agent).
 
@@ -86,6 +86,11 @@ Try the refusals too, each on a fresh `research` run:
 - Approve the content but not delivery, and `deliver` is refused until a delivery approval
   exists.
 - Deliver twice, and nothing is sent the second time.
+
+A second synthetic seller, a security vendor, counts hiring from a careers listing instead of
+reading a careers page. `uv run auggie run examples/synthetic/kestrel-security` runs its whole
+scenario in memory: it qualifies an account from detection engineering roles on a replayed
+listing, and compares that listing with one read 35 days earlier.
 
 When you are done, `podman stop auggie-mongo` stops MongoDB. It was started with `--rm`, so
 stopping it also deletes the rehearsal records.
@@ -163,6 +168,20 @@ Write a `prospect.json` like the synthetic one:
 - `recipient`: the person's ID in your CRM, their first name and, to send from Gmail, their
   `email`. Research records each person once, exactly as given, so a new address needs a new
   person ID.
+- `careers_listing`, if your strategy counts hiring: the listing's `service` (`lever`,
+  `greenhouse` or `ashby`), the company's `board` name as the service spells it in the
+  listing's address (jobs.lever.co/*board*, boards.greenhouse.io/*board*,
+  jobs.ashbyhq.com/*board*), and the `url` of that page. Check that it is the company's own
+  listing: the harness reads only the listing you name, and never looks for another when it
+  fails.
+
+Research reads a named listing whole, for free, from the service's public job-board API, and
+records what it showed as a careers snapshot. A read that fails is recorded too, and the
+hiring criteria it would have settled stay unknown. Before the first live read, check that
+service's terms of use and your company's policy, as you did for Treg
+([ADR 0024](adr/0024-careers-snapshots-and-hiring-tallies.md)). None of the three services says
+when a role was posted, so the long-listed pattern always stays unknown. Lever's EU-hosted
+boards are not supported yet.
 
 Keep it to what your company is allowed to hold about the prospect.
 
@@ -211,12 +230,15 @@ uv run auggie shell <scope.json> --mongodb <uri> --me "your name" --prospects <f
 `--prospects` is a folder of prospect files, one per account. Add `--replay <file>` to rehearse
 with recorded responses. At the `auggie>` prompt:
 
-- `accounts`, `brief <account>`, `find [<account>] <words>` and `stack [<account>]` answer from
-  the records. Each answer names its records and when their sources were read, and reads or
-  spends nothing.
+- `accounts`, `brief <account>`, `find [<account>] <words>`, `stack [<account>]` and `hiring
+  [<account>]` answer from the records. Each answer names its records and when their sources
+  were read, and reads or spends nothing. `hiring` shows each account's newest listing read:
+  its roles per family of your strategy, with their levels, and the listing patterns that hold.
+  A newer read that failed is shown as failed; an older one never stands in for it.
 - `fetch <account> <url>` reads one page you name and records it as evidence. `research
   <account>` researches from the account's prospect file. When they read live, each says what it
-  will call and the most it can spend, and waits for your yes. With `--replay` nothing is
+  will call and the most it can spend, and waits for your yes. `hiring <account> --read` reads
+  the account's careers listing now, free, and asks the same way. With `--replay` nothing is
   called, so nothing is asked.
 - `find` searches every stored account page and labels any that were not admitted, so you can
   tell rejected or unchecked text from evidence. A quote is the page's own words, with its
@@ -228,8 +250,10 @@ with recorded responses. At the `auggie>` prompt:
   The shell runs only at your own terminal, because approvals and edits happen in it.
 
 The questions also work as single commands that print JSON, for your coding agent: `auggie
-accounts`, `auggie brief`, `auggie find` and `auggie stack`, each with `--json`. They only read,
-so an agent can run them and answer you by quoting the records.
+accounts`, `auggie brief`, `auggie find`, `auggie stack` and `auggie hiring`, each with
+`--json`. They only read, so an agent can run them and answer you by quoting the records.
+`auggie hiring --account <id> --read` reads that account's listing first and records it, so it
+prints no JSON.
 
 ## Part 3: sending from your Gmail
 
