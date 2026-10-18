@@ -342,3 +342,26 @@ def test_a_proof_is_bound_to_the_exact_lines_that_render_it(backend: Backend) ->
     assert revised is not None and revised.point_of_view is not None
     assert revised.point_of_view.proof is None
     assert any("no longer quotes proof harborview-triage" in line for line in printed)
+
+
+def test_approved_copy_that_spans_lines_still_binds_its_proof() -> None:
+    rules = strategy()
+    data = rules.strategy.model_dump(mode="json")
+    pain = data["pains"]["alert-triage"]
+    pain["statement"] = "Teams often triage alerts by hand.\nThat can delay new detections."
+    (proof_play,) = [p for p in data["plays"] if p["pain"] is not None]
+    proof_play["template"] = (
+        'Hi {first_name}.\n{pain} From our case study with {proof_customer}: "{proof_claim}"\n'
+        "Would {offer} help?\n"
+    )
+    multiline = LoadedStrategy(type(rules.strategy).model_validate(data), rules.ref)
+    store = InMemoryBackend().open(INPUTS.scope)
+    read_proof(store)
+    result = research(store, rules=multiline)
+    proof = result.draft.point_of_view.proof
+    assert proof.passages == (
+        "Teams often triage alerts by hand.\nThat can delay new detections. From our case study "
+        f'with Harborview Freight: "{CLAIM}"',
+    )
+    assert proof.held_by(result.draft.content)
+    assert not proof.held_by(result.draft.content.replace("by hand.\n", "by hand. "))

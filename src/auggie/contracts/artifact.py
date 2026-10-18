@@ -20,7 +20,8 @@ from auggie.contracts.common import (
 )
 from auggie.contracts.strategy import Claim, Copy, Label
 
-Passage = Annotated[str, StringConstraints(min_length=1, max_length=5000, pattern=r"^[^\n\r]*$")]
+Passage = Annotated[str, StringConstraints(min_length=1, max_length=20_000)]
+"""One template line as rendered. Approved copy filled into it may add line breaks."""
 
 Content = Annotated[str, StringConstraints(min_length=1, max_length=50_000)]
 """Exact artifact text. Never stripped or normalized: its bytes are what approvals bind to."""
@@ -38,8 +39,8 @@ class QuotedProof(Contract):
     evidence_id: RecordId
     """The read of the proof's page, about the seller, that holds the claim word for word."""
     passages: Annotated[tuple[Passage, ...], Field(min_length=1)]
-    """Each line of the draft that renders the claim or the customer, exactly as rendered. The
-    proof is bound to these lines: an edit to any of them unbinds it."""
+    """Each template line that renders the claim or the customer, exactly as rendered, and so
+    whole lines of the draft. The proof is bound to them: an edit to any of them unbinds it."""
 
     @model_validator(mode="after")
     def _passages_render_it(self) -> QuotedProof:
@@ -48,8 +49,9 @@ class QuotedProof(Contract):
         return self
 
     def held_by(self, content: str) -> bool:
-        lines = set(content.splitlines())
-        return all(passage in lines for passage in self.passages)
+        """Whether every passage is in ``content`` unchanged, as whole lines."""
+        text = f"\n{content}\n"
+        return all(f"\n{passage}\n" in text for passage in self.passages)
 
 
 class PointOfView(Contract):
