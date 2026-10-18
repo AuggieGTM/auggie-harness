@@ -1,0 +1,11 @@
+{
+  "customer_id": "demo-security",
+  "synthetic": true,
+  "data_namespace": "auggie_demo_security",
+  "credential_namespace": "demo-security",
+  "knowledge_namespace": "demo-security-strategy",
+  "execution": {
+    "delivery": "simulated",
+    "external_providers": false
+  }
+}

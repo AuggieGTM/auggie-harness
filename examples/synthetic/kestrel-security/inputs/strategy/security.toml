@@ -1,0 +1,73 @@
+# SYNTHETIC strategy for the demo-security scope: a second seller, in another domain, so the
+# tests show the harness holds no domain vocabulary of its own (ADR 0023). The seller, its
+# products, the technology names, the accounts and the people are all invented.
+
+schema_version = 1
+strategy_id = "strategy-security-r1"
+customer_id = "demo-security"
+
+# An account qualifies only when every required criterion is met.
+required = ["detection-hiring"]
+
+[sources.security]
+label = "security page"
+
+[[criteria]]
+id = "detection-hiring"
+question = "Is the account listing at least two detection engineering roles?"
+rule = "hiring_family"
+family = "detection"
+min_roles = 2
+
+[[criteria]]
+id = "detection-openings-new"
+question = "Did detection openings appear since the last reading of the listing?"
+rule = "hiring_pattern"
+family = "detection"
+pattern = "new_openings"
+
+[[criteria]]
+id = "names-beaconlog"
+question = "Does the account's security page name Beaconlog as its log platform?"
+rule = "stack_term"
+source = "security"
+term = "beaconlog"
+
+[[plays]]
+id = "detection-build-out"
+requires = ["detection-hiring"]
+template = '''Subject: Detection coverage while the team is still forming
+
+Hi {first_name},
+
+{account_name} is listing several detection engineering roles. Teams at that stage often
+decide early which alerts the new hires will own first.
+
+If it would help, I can send the short coverage checklist we use with teams like yours.
+
+Would that be useful?
+
+Riley
+Lanternwatch (synthetic example seller)
+'''
+
+[signals.hiring.families.detection]
+label = "detection engineering"
+titles = ["detection engineer", "threat detection", "detection and response"]
+
+[signals.hiring.families.secops]
+label = "security operations"
+titles = ["soc analyst", "security operations", "incident responder"]
+
+[signals.hiring.families.identity]
+label = "identity and access"
+titles = ["identity engineer", "iam engineer", "access management"]
+
+[signals.hiring.patterns.new_openings]
+label = "new detection openings"
+min_roles = 2
+
+[signals.stack.terms.beaconlog]
+label = "Beaconlog"
+phrases = ["Beaconlog"]
+near = ["SIEM", "log platform"]

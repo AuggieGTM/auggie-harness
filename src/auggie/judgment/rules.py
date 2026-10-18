@@ -9,15 +9,19 @@ from datetime import datetime, timedelta
 from auggie.acquisition.validation import Verdict
 from auggie.contracts import (
     Actor,
+    FamilyOpenings,
     Finding,
     HeadcountRange,
     JobPosting,
+    ListingPattern,
     Mentions,
     QualificationDecision,
     ScopeViolation,
+    StackMention,
     Strategy,
 )
 from auggie.contracts.qualification import QualificationOutcome
+from auggie.contracts.strategy import AnyCriterion
 from auggie.strategy import LoadedStrategy
 
 HEADCOUNT = re.compile(r"\b(\d{1,3}(?:,\d{3})+|\d+) (?:staff|employees|people)\b")
@@ -106,11 +110,15 @@ def _mentions(criterion: Mentions, label: str, verdict: Verdict, at: datetime) -
 
 
 def assess(
-    criterion: HeadcountRange | JobPosting | Mentions,
+    criterion: AnyCriterion,
     strategy: Strategy,
     sources: Mapping[str, Verdict],
     at: datetime,
 ) -> Finding:
+    if isinstance(criterion, FamilyOpenings | ListingPattern):
+        return _unknown(criterion.id, "No careers listing was read for this account.")
+    if isinstance(criterion, StackMention):
+        return _unknown(criterion.id, "Stack terms are not judged yet.")
     label = strategy.sources[criterion.source].label
     verdict = sources.get(criterion.source)
     if verdict is None or not verdict.admitted:
