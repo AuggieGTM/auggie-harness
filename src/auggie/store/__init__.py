@@ -13,6 +13,7 @@ from typing import NamedTuple, Protocol
 from auggie.contracts import (
     Artifact,
     ArtifactRef,
+    CareersSnapshot,
     CustomerScope,
     HumanApproval,
     OperationalEvent,
@@ -63,6 +64,16 @@ class Store(Protocol):
         ...
 
     def get_person(self, person_id: str) -> Person: ...
+
+    def put_careers_snapshot(self, snapshot: CareersSnapshot) -> None:
+        """Store one read attempt of an account's listing, failed ones included (ADR 0024)."""
+        ...
+
+    def get_careers_snapshot(self, snapshot_id: str) -> CareersSnapshot: ...
+
+    def list_careers_snapshots(self, account_id: str) -> tuple[CareersSnapshot, ...]:
+        """An account's snapshots, in the order they were written."""
+        ...
 
     def put_evidence(self, record: SourceEvidence) -> None: ...
 

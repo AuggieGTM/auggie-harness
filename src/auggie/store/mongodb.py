@@ -20,6 +20,7 @@ from pymongo.errors import CollectionInvalid, DuplicateKeyError, OperationFailur
 from auggie.contracts import (
     Artifact,
     ArtifactRef,
+    CareersSnapshot,
     CustomerScope,
     HumanApproval,
     OperationalEvent,
@@ -47,11 +48,21 @@ Document = dict[str, Any]
 NAMESPACE_EXISTS = 48
 """MongoDB's error code when a collection is created twice with different options."""
 
-RECORD_COLLECTIONS = ("people", "evidence", "qualifications", "artifacts", "approvals", "events")
+RECORD_COLLECTIONS = (
+    "people",
+    "careers",
+    "evidence",
+    "qualifications",
+    "artifacts",
+    "approvals",
+    "events",
+)
 
 INDEXES: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     # (collection, fields, unique)
     ("people", ("seq",), True),
+    ("careers", ("seq",), True),
+    ("careers", ("account_id", "seq"), False),
     ("evidence", ("seq",), True),
     ("evidence", ("subject.kind", "subject.id"), False),
     ("qualifications", ("seq",), True),
@@ -286,6 +297,25 @@ class MongoStore:
             raise RecordNotFound(f"person {person_id!r}")
         return person
 
+    # Careers snapshots
+
+    def put_careers_snapshot(self, snapshot: CareersSnapshot) -> None:
+        self._writing()
+        ensure_in_scope(self._scope, snapshot)
+        self._insert("careers", snapshot.snapshot_id, snapshot)
+
+    def get_careers_snapshot(self, snapshot_id: str) -> CareersSnapshot:
+        snapshot = self._find_one(
+            "careers", CareersSnapshot, {"_id": literal(snapshot_id, "snapshot_id")}
+        )
+        if snapshot is None:
+            raise RecordNotFound(f"careers snapshot {snapshot_id!r}")
+        return snapshot
+
+    def list_careers_snapshots(self, account_id: str) -> tuple[CareersSnapshot, ...]:
+        query = {"account_id": literal(account_id, "account_id")}
+        return self._find("careers", CareersSnapshot, query)
+
     # Evidence
 
     def put_evidence(self, record: SourceEvidence) -> None:
@@ -407,6 +437,7 @@ class MongoStore:
         """Whether ``ref`` names a stored record of this customer. Refuses a foreign one."""
         lookups: dict[str, tuple[str, type[BaseModel], Document]] = {
             "person": ("people", Person, {"_id": ref.id}),
+            "careers": ("careers", CareersSnapshot, {"_id": ref.id}),
             "evidence": ("evidence", SourceEvidence, {"_id": ref.id}),
             "qualification": ("qualifications", QualificationDecision, {"_id": ref.id}),
             "artifact": ("artifacts", Artifact, {"ref.artifact_id": ref.id}),

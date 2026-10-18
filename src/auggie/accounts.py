@@ -10,7 +10,7 @@ from typing import Annotated
 
 from pydantic import HttpUrl, StringConstraints
 
-from auggie.contracts import Contract, EmailAddress
+from auggie.contracts import CareersListing, Contract, EmailAddress
 from auggie.contracts.common import RecordId, Slug
 
 Name = Annotated[str, StringConstraints(min_length=1, max_length=200)]
@@ -34,3 +34,5 @@ class Account(Contract):
     name: Name
     sources: dict[Slug, HttpUrl]
     recipient: Recipient
+    careers_listing: CareersListing | None = None
+    """The account's job listing, named by the person, never guessed (ADR 0024)."""

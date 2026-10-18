@@ -433,3 +433,53 @@ def test_a_drafts_recipient_must_belong_to_its_account(
     misaddressed = Artifact.model_validate(variant(draft, recipient_id="per-elsewhere"))
     with pytest.raises(IntegrityError, match="recipient belongs to another account"):
         store.put_artifact(misaddressed)
+
+
+def test_careers_snapshots_are_stored_kept_and_scoped(store: Store, scenario: Scenario) -> None:
+    from auggie.contracts import CareersSnapshot
+    from tests.test_careers_contract import snapshot as make
+
+    store.put_person(scenario.person)
+    first = make(customer_id="demo-msp", account_id="acc-northstar", snapshot_id="careers-1")
+    second = make(
+        customer_id="demo-msp",
+        account_id="acc-northstar",
+        snapshot_id="careers-2",
+        status="failed",
+        roles=(),
+        failure_reason="Timed out.",
+    )
+    store.put_careers_snapshot(first)
+    store.put_careers_snapshot(first)  # the same record again changes nothing
+    store.put_careers_snapshot(second)
+    assert store.get_careers_snapshot("careers-1") == first
+    assert store.list_careers_snapshots("acc-northstar") == (first, second)
+    assert store.list_careers_snapshots("acc-elsewhere") == ()
+    with pytest.raises(RecordConflict):
+        store.put_careers_snapshot(
+            CareersSnapshot.model_validate(variant(first, read_at="2026-10-19T00:00:00Z"))
+        )
+    with pytest.raises(ScopeViolation):
+        store.put_careers_snapshot(
+            CareersSnapshot.model_validate(variant(first, customer_id="demo-other"))
+        )
+    with pytest.raises(RecordNotFound):
+        store.get_careers_snapshot("careers-missing")
+    with pytest.raises(TypeError, match="must be a string"):
+        store.list_careers_snapshots({"$ne": None})  # type: ignore[arg-type]
+    event = OperationalEvent.model_validate(
+        {
+            "event_id": "evt-careers",
+            "customer_id": "demo-msp",
+            "type": "careers.recorded",
+            "occurred_at": "2026-10-18T09:00:00Z",
+            "actor": {"kind": "service", "id": "careers-reader", "version": "1"},
+            "refs": [
+                {"kind": "careers", "id": "careers-9"},
+                {"kind": "account", "id": "acc-northstar"},
+            ],
+            "idempotency_key": "careers.recorded:careers-9",
+        }
+    )
+    with pytest.raises(IntegrityError, match="careers:careers-9"):
+        store.append_event(event)

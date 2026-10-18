@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from auggie.contracts import (
     Artifact,
     ArtifactRef,
+    CareersSnapshot,
     CustomerScope,
     HumanApproval,
     OperationalEvent,
@@ -42,6 +43,7 @@ class _Namespace:
     """One scope's data, like one database per customer."""
 
     people: dict[str, str] = field(default_factory=dict)
+    careers: dict[str, str] = field(default_factory=dict)
     evidence: dict[str, str] = field(default_factory=dict)
     qualifications: dict[str, str] = field(default_factory=dict)
     artifacts: dict[str, list[str]] = field(default_factory=dict)
@@ -112,6 +114,23 @@ class InMemoryStore:
     def _stored_person(self, person_id: str | None) -> Person | None:
         stored = self._data.people.get(person_id) if person_id is not None else None
         return _load(Person, stored) if stored is not None else None
+
+    # Careers snapshots
+
+    def put_careers_snapshot(self, snapshot: CareersSnapshot) -> None:
+        ensure_in_scope(self._scope, snapshot)
+        _put(self._data.careers, snapshot.snapshot_id, snapshot)
+
+    def get_careers_snapshot(self, snapshot_id: str) -> CareersSnapshot:
+        stored = self._data.careers.get(literal(snapshot_id, "snapshot_id"))
+        if stored is None:
+            raise RecordNotFound(f"careers snapshot {snapshot_id!r}")
+        return _load(CareersSnapshot, stored)
+
+    def list_careers_snapshots(self, account_id: str) -> tuple[CareersSnapshot, ...]:
+        account_id = literal(account_id, "account_id")
+        snapshots = (_load(CareersSnapshot, data) for data in self._data.careers.values())
+        return tuple(s for s in snapshots if s.account_id == account_id)
 
     # Evidence
 
@@ -211,6 +230,7 @@ class InMemoryStore:
     def _exists(self, ref: RecordRef) -> bool:
         tables: dict[str, Container[str]] = {
             "person": self._data.people,
+            "careers": self._data.careers,
             "evidence": self._data.evidence,
             "qualification": self._data.qualifications,
             "artifact": self._data.artifacts,

@@ -17,6 +17,7 @@ STAGES: tuple[Stage, ...] = get_args(Stage)
 EventType = Literal[
     "strategy.activated",
     "evidence.recorded",
+    "careers.recorded",
     "evidence.validated",
     "evidence.rejected",
     "qualification.decided",
@@ -31,7 +32,14 @@ EventType = Literal[
 ]
 
 RecordKind = Literal[
-    "strategy", "account", "person", "evidence", "qualification", "artifact", "approval"
+    "strategy",
+    "account",
+    "person",
+    "evidence",
+    "careers",
+    "qualification",
+    "artifact",
+    "approval",
 ]
 
 OutcomeKind = Literal[
@@ -43,6 +51,7 @@ EVENT_STAGE: Mapping[EventType, Stage] = MappingProxyType(
     {
         "strategy.activated": "define",
         "evidence.recorded": "observe",
+        "careers.recorded": "observe",
         "person.recorded": "observe",
         "evidence.validated": "validate",
         "evidence.rejected": "validate",
@@ -61,6 +70,7 @@ REQUIRED_REFS: Mapping[EventType, frozenset[RecordKind]] = MappingProxyType(
     {
         "strategy.activated": frozenset({"strategy"}),
         "evidence.recorded": frozenset({"evidence"}),
+        "careers.recorded": frozenset({"careers", "account"}),
         "person.recorded": frozenset({"person", "account"}),
         "evidence.validated": frozenset({"evidence"}),
         "evidence.rejected": frozenset({"evidence"}),
