@@ -17,6 +17,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal
 
+from pydantic import HttpUrl
+
 from auggie.accounts import Account
 from auggie.acquisition import Acquisition
 from auggie.acquisition.validation import VALIDATOR, Verdict, check_evidence
@@ -185,6 +187,68 @@ def record_person(store: Store, *, account: Account, by: Actor, at: datetime) ->
     return person
 
 
+def _observe(
+    store: Store,
+    acquisition: Acquisition,
+    evidence_id: str,
+    subject: SubjectRef,
+    url: HttpUrl | str,
+    run_id: str | None,
+) -> Verdict:
+    """Acquire one page, store it as evidence with its event, and check it."""
+    evidence, details = acquisition.acquire(
+        evidence_id=evidence_id,
+        customer_id=store.scope.customer_id,
+        subject=subject,
+        url=HttpUrl(str(url)),
+    )
+    store.put_evidence(evidence)
+    _append(
+        store,
+        "evidence.recorded",
+        at=evidence.observed_at,
+        actor=acquisition.actor,
+        refs=[RecordRef(kind="evidence", id=evidence.evidence_id)],
+        key=f"evidence.recorded:{evidence.evidence_id}",
+        run_id=run_id,
+        attributes={**details, **({} if evidence.usable else {"status": evidence.status})},
+    )
+    return check_evidence(evidence, scope=store.scope, subject=subject)
+
+
+def _record_verdict(store: Store, verdict: Verdict, at: datetime, run_id: str | None) -> None:
+    evidence_id = verdict.evidence.evidence_id
+    type: EventType = "evidence.validated" if verdict.admitted else "evidence.rejected"
+    _append(
+        store,
+        type,
+        at=at,
+        actor=VALIDATOR,
+        refs=[RecordRef(kind="evidence", id=evidence_id)],
+        key=f"{type}:{evidence_id}",
+        run_id=run_id,
+        attributes={} if verdict.admitted else {"reason": verdict.rejected_for},
+    )
+
+
+def record_page(
+    store: Store,
+    *,
+    acquisition: Acquisition,
+    account_id: str,
+    evidence_id: str,
+    url: str,
+    run_id: str,
+    at: datetime,
+) -> Verdict:
+    """Read one page a person named for an account, and record it as checked evidence
+    (ADR 0025). A failed read is recorded too, with its reason."""
+    subject = SubjectRef(kind="account", id=account_id)
+    verdict = _observe(store, acquisition, evidence_id, subject, url, run_id)
+    _record_verdict(store, verdict, at, run_id)
+    return verdict
+
+
 def research_run(
     store: Store,
     *,
@@ -225,39 +289,13 @@ def research_run(
         url = account.sources.get(kind)
         if url is None:
             continue
-        evidence, details = acquisition.acquire(
-            evidence_id=f"ev-{account.key}-{kind}{suffix}",
-            customer_id=customer_id,
-            subject=subject,
-            url=url,
+        sources[kind] = _observe(
+            store, acquisition, f"ev-{account.key}-{kind}{suffix}", subject, url, run_id
         )
-        store.put_evidence(evidence)
-        _append(
-            store,
-            "evidence.recorded",
-            at=evidence.observed_at,
-            actor=acquisition.actor,
-            refs=[RecordRef(kind="evidence", id=evidence.evidence_id)],
-            key=f"evidence.recorded:{evidence.evidence_id}",
-            run_id=run_id,
-            attributes={**details, **({} if evidence.usable else {"status": evidence.status})},
-        )
-        sources[kind] = check_evidence(evidence, scope=store.scope, subject=subject)
 
     validated_at = at(times.validated_at)
     for verdict in sources.values():
-        evidence_id = verdict.evidence.evidence_id
-        type: EventType = "evidence.validated" if verdict.admitted else "evidence.rejected"
-        _append(
-            store,
-            type,
-            at=validated_at,
-            actor=VALIDATOR,
-            refs=[RecordRef(kind="evidence", id=evidence_id)],
-            key=f"{type}:{evidence_id}",
-            run_id=run_id,
-            attributes={} if verdict.admitted else {"reason": verdict.rejected_for},
-        )
+        _record_verdict(store, verdict, validated_at, run_id)
 
     qualified_at = at(times.qualified_at)
     decision = qualifier.qualify(

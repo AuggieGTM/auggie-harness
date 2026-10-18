@@ -79,7 +79,7 @@ def stack_matches(text: str, term: Technology) -> list[StackMatch]:
     if not term.near:
         for phrase in term.phrases:
             for match in phrase_pattern(phrase).finditer(text):
-                found.append(StackMatch(_quote(text, [match.span()]), phrase, None, match.start()))
+                found.append(StackMatch(quote(text, [match.span()]), phrase, None, match.start()))
         return sorted(found, key=lambda m: m.at)
     offset = 0
     for line in text.splitlines(keepends=True):
@@ -96,8 +96,8 @@ def _line_match(line: str, term: Technology, offset: int) -> StackMatch | None:
             near = _near_word(line, match.span(), term.near, term.near_words)
             if near is not None:
                 word, span = near
-                quote = _quote(line, [match.span(), span])
-                return StackMatch(quote, phrase, word, offset + match.start())
+                quoted = quote(line, [match.span(), span])
+                return StackMatch(quoted, phrase, word, offset + match.start())
     return None
 
 
@@ -117,7 +117,7 @@ def _near_word(
     return None
 
 
-def _quote(text: str, spans: list[tuple[int, int]]) -> str:
+def quote(text: str, spans: list[tuple[int, int]]) -> str:
     """A quote that holds every span, with its whitespace collapsed and its length bounded.
 
     Spans that fit within ``QUOTE_CHARS`` together are quoted as one passage. Spans farther

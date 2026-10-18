@@ -412,3 +412,42 @@ def test_a_live_gmail_scope_sends_once_and_stops_on_an_unknown_send(
         assert "recorded as not-sent; it is never sent again" in capsys.readouterr().out
         assert main(["deliver", scope, "--draft", second, *deliver]) == 1
         assert "never retries it" in capsys.readouterr().out
+
+
+def test_a_coding_agent_can_ask_questions_as_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    prospects = tmp_path / "prospects"
+    prospects.mkdir()
+    (prospects / "northstar.json").write_text((NORTHSTAR / "prospect.json").read_text())
+    with mongo_backend() as backend:
+        store = ["--mongodb", os.environ[MONGODB_URI], "--database-prefix", backend.database_prefix]
+        scope = str(NORTHSTAR / "scope.json")
+        research = [
+            "research",
+            scope,
+            str(NORTHSTAR / "prospect.json"),
+            "--strategy-repo",
+            str(Path(__file__).resolve().parent.parent),
+            "--strategy-path",
+            "examples/synthetic/northstar-msp/inputs/strategy/msp.toml",
+            "--operator",
+            "demo-operator",
+            "--replay",
+            str(NORTHSTAR / "inputs" / "inputs.json"),
+        ]
+        assert main([*research, *store]) == 0
+        capsys.readouterr()
+        monkeypatch.setattr(cli, "interactive", lambda: False)  # questions need no terminal
+        assert main(["accounts", scope, "--prospects", str(prospects), "--json", *store]) == 0
+        (row,) = json.loads(capsys.readouterr().out)
+        assert row["name"] == "Northstar Works" and row["qualification"]["outcome"] == "qualified"
+        assert main(["brief", scope, "acc-northstar", *store]) == 0
+        assert "judged qualified" in capsys.readouterr().out
+        found = ["find", scope, "IT", "Operations", "Manager", "--account", "acc-northstar"]
+        assert main([*found, "--json", *store]) == 0
+        (hit,) = json.loads(capsys.readouterr().out)
+        assert (
+            hit["evidence_id"].startswith("ev-northstar-careers")
+            and "IT Operations" in hit["quote"]
+        )

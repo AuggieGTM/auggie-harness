@@ -4,6 +4,8 @@
 ``auggie project <scope.json> --mongodb URI`` projects a Store into CSV or its Google Sheet.
 ``auggie verify-sheet <workbook> <readback>`` checks a sheet an agent wrote (ADR 0019).
 ``auggie research|review|revise|deliver|outcome`` run the operator's flow for one prospect.
+``auggie shell <scope.json> --mongodb URI --me NAME`` opens the research shell (ADR 0025), and
+``auggie accounts|brief|find|stack`` answer its questions on their own, with ``--json``.
 ``auggie treg-fetch <scope.json> <url>`` makes one live, paid Treg call and stores nothing.
 """
 
@@ -34,7 +36,7 @@ from auggie.contracts import (
 from auggie.contracts.events import OutcomeKind
 from auggie.contracts.qualification import CitationError
 from auggie.credentials import CredentialFiles
-from auggie.delivery import DeliveryBlocked, SendUnknown
+from auggie.delivery import DeliveryBlocked, Sender, SendUnknown
 from auggie.pipeline import RunResult, deliver
 from auggie.projections import project
 from auggie.projections.csv import write_csv
@@ -42,7 +44,7 @@ from auggie.projections.exchange import compare, dump_workbook, load_readback, l
 from auggie.spend import RunBudget
 from auggie.store import Backend, Store, StoreError
 from auggie.store.memory import InMemoryBackend
-from auggie.strategy import LoadedStrategy, load_strategy_at
+from auggie.strategy import LoadedStrategy, StrategyError, load_strategy_at
 from auggie.synthetic import ScenarioRun, load_inputs, run_scenario
 
 if TYPE_CHECKING:
@@ -291,9 +293,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     fetch.add_argument("--show-excerpt", action="store_true", help="print the stored excerpt")
     _add_prospect_commands(commands)
+    _add_shell_commands(commands)
     args = parser.parse_args(argv)
     if args.command in PROSPECT_COMMANDS:
         return prospect_command(args, print, input)
+    if args.command in QUERY_COMMANDS or args.command == "shell":
+        return shell_command(args, print, input)
     if args.command == "treg-fetch":
         return treg_fetch(args, print)
     if args.command == "project":
@@ -409,6 +414,198 @@ def _add_prospect_commands(commands: Any) -> None:
     outcome.add_argument("--draft", required=True)
     outcome.add_argument("--outcome", required=True, choices=get_args(OutcomeKind))
     outcome.add_argument("--reporter", required=True, help="your name, recorded on the outcome")
+
+
+QUERY_COMMANDS = ("accounts", "brief", "find", "stack")
+
+
+def _add_shell_commands(commands: Any) -> None:
+    """The research shell, and its questions as single read-only commands (ADR 0025)."""
+
+    def common(name: str, help: str) -> argparse.ArgumentParser:
+        command: argparse.ArgumentParser = commands.add_parser(name, help=help)
+        command.add_argument("scope", type=Path, help="JSON file holding the CustomerScope")
+        command.add_argument("--mongodb", metavar="URI", required=True, help="the Store's MongoDB")
+        command.add_argument("--database-prefix", default="", metavar="PREFIX")
+        command.add_argument(
+            "--prospects", type=Path, metavar="DIR", help="folder of prospect files, for names"
+        )
+        return command
+
+    def strategy(command: argparse.ArgumentParser) -> None:
+        command.add_argument("--strategy-repo", type=Path, help="your strategy repository")
+        command.add_argument("--strategy-path", help="the strategy file in it")
+        command.add_argument(
+            "--revision", default="HEAD", help="the approved commit (default HEAD)"
+        )
+
+    shell = common("shell", "ask about your accounts and run the flow, at a terminal")
+    shell.add_argument("--me", required=True, help="your name, recorded on what you do here")
+    strategy(shell)
+    shell.add_argument(
+        "--replay", type=Path, metavar="FILE", help="recorded responses instead of live Treg calls"
+    )
+    shell.add_argument(
+        "--credentials", type=Path, help="credentials root (default: $AUGGIE_CREDENTIALS_DIR)"
+    )
+    for name, help in (
+        ("accounts", "every account, its judgment and its drafts"),
+        ("brief", "one account: its judgment, findings, evidence and drafts"),
+        ("find", "stored excerpts that hold some words"),
+        ("stack", "where admitted pages name the strategy's technologies"),
+    ):
+        command = common(name, help + " (read-only)")
+        command.add_argument("--json", action="store_true", help="print JSON, for a coding agent")
+        if name == "brief":
+            command.add_argument("account", help="the account's ID")
+        if name == "find":
+            command.add_argument("words", nargs="+", help="the words to look for")
+            command.add_argument("--account", help="only this account")
+        if name == "stack":
+            strategy(command)
+            command.add_argument("--account", help="only this account")
+
+
+def shell_command(args: argparse.Namespace, out: Print, ask: Callable[[str], str]) -> int:
+    """Open the scope's Store, then run the shell or answer one question."""
+    from pydantic import ValidationError
+
+    from auggie import queries
+    from auggie import shell as research_shell
+
+    if args.command == "shell" and not interactive():
+        out(
+            "stopped   the shell records a person's approvals and edits, so it must be used at "
+            "a terminal: redirected input or output is refused"
+        )
+        return 1
+    try:
+        from pymongo import MongoClient
+        from pymongo.errors import PyMongoError
+
+        from auggie.store.mongodb import MongoBackend
+    except ImportError:
+        out("stopped   the shell needs the extra: auggie-harness[mongodb]")
+        return 1
+    try:
+        scope = CustomerScope.model_validate_json(args.scope.read_text(encoding="utf-8"))
+    except (OSError, ValidationError) as error:
+        out(f"stopped   cannot read the scope: {type(error).__name__}")
+        return 1
+    client: MongoClient[dict[str, Any]] = MongoClient(args.mongodb, serverSelectionTimeoutMS=5000)
+    try:
+        backend = MongoBackend(client, database_prefix=args.database_prefix)
+        prospects: dict[str, Account] = {}
+        if args.prospects is not None:
+            prospects, skipped = queries.load_prospects(args.prospects, scope)
+            for line in skipped:
+                out(f"skipped   {line}")
+        loaded = None
+        if getattr(args, "strategy_repo", None) and getattr(args, "strategy_path", None):
+            loaded = load_strategy_at(
+                args.strategy_repo, args.strategy_path, revision=args.revision, scope=scope
+            )
+        if args.command != "shell":
+            store = backend.open_existing(scope)  # questions only read
+            return _answer(args, store, prospects, loaded, out)
+        store = backend.open(scope)
+        return research_shell.run(_session(args, store, prospects, loaded, out, ask))
+    except (*BLOCKING, PyMongoError, StoreError, StrategyError, ValueError, OSError) as error:
+        out(f"stopped   {type(error).__name__}: {error}")
+        return 1
+    finally:
+        client.close()
+
+
+def _answer(
+    args: argparse.Namespace,
+    store: Store,
+    prospects: dict[str, Account],
+    loaded: LoadedStrategy | None,
+    out: Print,
+) -> int:
+    from auggie import queries
+    from auggie import shell as research_shell
+
+    view: Any
+    if args.command == "accounts":
+        view = queries.accounts_view(store, prospects)
+        lines = [research_shell.render_account(row) for row in view]
+    elif args.command == "brief":
+        view = queries.brief_view(store, args.account, prospects)
+        lines = research_shell.render_brief(view)
+    elif args.command == "find":
+        view = queries.find_view(store, " ".join(args.words), args.account)
+        lines = [research_shell.render_find(row) for row in view]
+    else:
+        if loaded is None:
+            out("stopped   stack needs --strategy-repo and --strategy-path")
+            return 1
+        view = queries.stack_view(store, loaded.strategy, args.account)
+        lines = [research_shell.render_stack(row) for row in view]
+    if args.json:
+        out(research_shell.as_json(view))
+    else:
+        for line in lines or ["nothing found"]:
+            out(line)
+    return 0
+
+
+def _session(
+    args: argparse.Namespace,
+    store: Store,
+    prospects: dict[str, Account],
+    loaded: LoadedStrategy | None,
+    out: Print,
+    ask: Callable[[str], str],
+) -> Any:
+    from auggie import operate
+    from auggie import shell as research_shell
+
+    scope = store.scope
+    research_clock = None
+    if args.replay is not None:
+        recorded = json.loads(args.replay.read_text(encoding="utf-8"))
+        responses = recorded.get("responses") if isinstance(recorded, dict) else recorded
+        if not isinstance(responses, list) or not responses:
+            raise ValueError(f"{args.replay} holds no list of recorded responses")
+        recordings = [RecordedResponse.model_validate(r) for r in responses]
+        research_clock = operate.replay_clock(recordings)
+
+        def acquisition() -> Acquisition:
+            return FixtureAcquisition(recordings)
+    else:
+
+        def acquisition() -> Acquisition:
+            return TregPageText(
+                scope=scope,
+                credentials=CredentialFiles(args.credentials),
+                budget=RunBudget.for_scope(scope),
+                transport=treg_transport(),
+            )
+
+    def sender() -> Sender | None:
+        if scope.execution.platform != "gmail":
+            return None
+        from auggie.delivery.gmail import GmailSender
+
+        return GmailSender(
+            scope=scope, credentials=CredentialFiles(args.credentials), transport=google_transport()
+        )
+
+    return research_shell.Session(
+        store=store,
+        me=args.me,
+        ask=ask,
+        out=out,
+        acquisition=acquisition,
+        live=args.replay is None,
+        prospects=prospects,
+        strategy=loaded,
+        sender=sender,
+        edit=edit_in_editor,
+        research_clock=research_clock,
+    )
 
 
 def interactive() -> bool:
