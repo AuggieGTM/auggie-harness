@@ -1,6 +1,6 @@
 # ADR 0021: The seller's Gmail credential
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-18
 
 ## Context
@@ -44,7 +44,7 @@ The options considered:
 5. **A short-lived access token handed over for each session.** Nothing long-lived on disk, but
    the seller would mint and pass a token every hour of work.
 
-## Decision (proposed)
+## Decision
 
 - Option 1. The Gmail credential is one file, `gmail-token`, in the scope's credential folder:
   Google's authorized-user JSON for the `gmail.send` scope only.

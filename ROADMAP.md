@@ -99,7 +99,8 @@ reproduce what was learned, land here.
   ([ADR 0020](docs/adr/0020-one-delivery-adapter-per-sending-platform.md)).
   First, how the seller obtains, stores and renews the mailbox credential, since the harness
   never writes secrets ([ADR 0016](docs/adr/0016-credentials-and-spend-limits.md)).
-  [ADR 0021](docs/adr/0021-the-sellers-gmail-credential.md) (Proposed) answers it for Gmail.
+  [ADR 0021](docs/adr/0021-the-sellers-gmail-credential.md) answers it for Gmail: a one-time
+  sign-in the seller runs, and a send-only token the harness only reads.
 - Outcome intake and strategy-revision proposals that people review in Git.
 
 ## Public release readiness (Later)

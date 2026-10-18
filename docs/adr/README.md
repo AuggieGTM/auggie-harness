@@ -33,4 +33,4 @@ behavior or the public boundary. The process is described in
 | [0018](0018-sheets-projection.md) | Read-only Google Sheets projection | Superseded by [0019](0019-projection-writers-and-agent-connectors.md) |
 | [0019](0019-projection-writers-and-agent-connectors.md) | Projection writers, and what an agent's connectors may do | Accepted |
 | [0020](0020-one-delivery-adapter-per-sending-platform.md) | One delivery adapter per sending platform, the seller's mailbox first | Accepted |
-| [0021](0021-the-sellers-gmail-credential.md) | The seller's Gmail credential | Proposed |
+| [0021](0021-the-sellers-gmail-credential.md) | The seller's Gmail credential | Accepted |
