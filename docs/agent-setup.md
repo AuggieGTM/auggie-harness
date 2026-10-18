@@ -57,8 +57,8 @@ Ground rules:
 - When the harness refuses something this prompt does not expect, stop and show me the
   refusal. The refusals are its safety checks, so keep the harness code as it is.
 - Report only what you ran and saw, with the output of anything that failed.
-- To answer my questions about the records, run auggie accounts, brief, find, stack and hiring
-  with --json, and quote what they return. The shell is mine to use.
+- To answer my questions about the records, run auggie accounts, brief, find, stack, hiring
+  and proofs with --json, and quote what they return. The shell is mine to use.
 - Commit and push nothing.
 ```
 
@@ -112,7 +112,7 @@ Ground rules:
   and any issue or pull request.
 - When the harness refuses something, stop and show me the refusal. Keep the harness code as
   it is.
-- To answer my questions about the records, run auggie accounts, brief, find, stack and hiring
-  with --json, and quote what they return. The shell is mine to use.
+- To answer my questions about the records, run auggie accounts, brief, find, stack, hiring
+  and proofs with --json, and quote what they return. The shell is mine to use.
 - Push nothing without asking me.
 ```

@@ -116,13 +116,17 @@ role links; a failed listing read leaves its criteria unknown. *Met on synthetic
 2026-10-18: the IT-services and security sellers both qualify and draft, and the tests cover
 each part. No listing has been read live yet.*
 
-## M5: The seller's point of view (Planned)
+## M5: The seller's point of view (In progress)
 
 - Proof points as exact claims from the seller's case studies, each with one source and marked
   as a vendor claim, and pains with where the seller fits, where it stops, and its approved
   offer, all in the seller's private strategy repository.
 - Plays select by signal, and a draft pairs the account's evidence with a proof and an offer.
-  Drafts stay templates. *Decided: [ADR 0026](docs/adr/0026-the-sellers-point-of-view.md).*
+  Drafts stay templates. *Decided: [ADR 0026](docs/adr/0026-the-sellers-point-of-view.md).
+  Built: proofs and pains in the strategy, `auggie proofs` with paid page reads through Treg,
+  plays that quote a usable proof, the offer and the run's hiring tally, and review showing
+  each proof as a vendor claim. Tested on synthetic pages and a fake Treg only; no proof page
+  has been read live.*
 
 **Gate:** every proof in a draft is a vendor claim with exactly one source, quoted exactly; a
 person still approves each draft.

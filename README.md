@@ -53,8 +53,8 @@ product.
   each attempt and what came of it ([ADR 0022](docs/adr/0022-live-delivery-records.md)).
   `scripts/gmail_sign_in.py` saves its token. Tests use a fake Google.
 - `src/auggie/projections/` turns the Store into read-only tabs (accounts, findings, evidence,
-  drafts, hiring) without page text, written as CSV, by your agent's Google connector, or by a service
-  account ([ADR 0019](docs/adr/0019-projection-writers-and-agent-connectors.md)).
+  drafts, hiring) without page text, written as CSV, by your agent's Google connector, or by a
+  service account ([ADR 0019](docs/adr/0019-projection-writers-and-agent-connectors.md)).
 - `src/auggie/shell.py` is the research shell: questions across a scope's accounts, one more page
   read, and the flow, at a terminal. `src/auggie/queries.py` gives the same answers as read-only
   commands that print JSON for a coding agent
@@ -66,12 +66,17 @@ product.
   Greenhouse or Ashby, free, into a careers snapshot. Research counts hiring from it, and
   `auggie hiring` shows each account's tally. Tested on synthetic replies only, in
   `examples/synthetic/listings/`.
+- `src/auggie/proofs.py` checks the seller's proofs: customer stories in the strategy, each
+  quoted in a draft only while a read of its page holds the claim word for word. Drafts pair
+  the account's evidence with a pain, a proof and an offer
+  ([ADR 0026](docs/adr/0026-the-sellers-point-of-view.md)). Tested on synthetic pages only.
 - `src/auggie/pipeline.py` runs the first vertical slice as plain sequential calls: research,
   validate evidence, qualify, draft, human approval, simulated delivery, record outcome.
 - `examples/synthetic/northstar-msp/` holds one fully synthetic scenario: its inputs, and the
   records the workflow must produce from them.
 - `examples/synthetic/kestrel-security/` is a second synthetic seller, a security vendor. Its
-  scenario qualifies and drafts from detection hiring on a replayed listing.
+  scenario qualifies from detection hiring on a replayed listing, and drafts from its pain and
+  a proof quoted from its own case-study page.
 - `tests/` checks the contracts, the Store contract, the slice and the paths it must refuse.
 
 ## Development

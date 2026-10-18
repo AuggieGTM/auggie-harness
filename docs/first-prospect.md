@@ -65,8 +65,8 @@ uv run auggie project $E/scope.json $M --workbook ~/auggie-rehearsal.json
 ```
 
 The workbook holds the five tabs a sheet would show (accounts, findings, evidence, drafts and
-hiring), without page text. Write it outside the clone, so it never sits in this repository's working
-tree. To see it in a sheet, follow
+hiring), without page text. Write it outside the clone, so it never sits in this repository's
+working tree. To see it in a sheet, follow
 [Writing a projection with your agent](../README.md#writing-a-projection-with-your-agent).
 
 Try the refusals too, each on a fresh `research` run:
@@ -122,6 +122,38 @@ The strategy is a TOML file in a private Git repository of your own (a local one
 revision a new `strategy_id`, and adapt the sources, criteria and play to your ideal prospect
 and the wording you use. If your company approves outreach wording, have it reviewed, then
 commit. `research` reads the file exactly as committed, so uncommitted edits never reach a run.
+
+To give a draft your point of view ([ADR 0026](adr/0026-the-sellers-point-of-view.md)), the
+security seller's `examples/synthetic/kestrel-security/inputs/strategy/security.toml` shows
+the shape:
+
+- `[proofs.<id>]` is one customer story: the customer, the one public page of yours that tells
+  it, the exact sentence a draft may quote from that page, `result` or `scale`, and an optional
+  caveat that review shows. `[proofs]` sets `max_age_days`, how old a read of the page may be
+  (default 180).
+- `[pains.<id>]` is an angle: a problem teams like your prospects often have, where you fit,
+  where you stop, the one offer a draft closes on, and its proofs, best first. An optional
+  metric, threshold and consequence are shown at review only. Write the statement as an angle,
+  never as a fact about one account.
+- A play that names a `pain` may use `{pain}`, `{offer}`, `{proof_claim}` and
+  `{proof_customer}`. One that names a `hiring` criterion it requires may use
+  `{hiring_count}`, `{hiring_family}` and `{hiring_date}`. A play that quotes a proof is used
+  only while one of its pain's proofs is usable, so put a play without a proof after it.
+
+A proof is usable only while the newest read of its page holds the claim word for word, case
+included, and is no older than `max_age_days`. After each change to your proofs, read their
+pages, a paid Treg call of at most $0.002 a page:
+
+```bash
+uv run auggie proofs <scope.json> --mongodb <uri> --read \
+  --strategy-repo <your strategy repo> --strategy-path <path in it>
+```
+
+`auggie proofs` without `--read` lists each proof and why it is or is not usable. Research reads
+no proof pages: it uses the reads already recorded. A read keeps the first 4,000 characters of
+the page's text, so a claim further down cannot be checked; quote one near the top. Your case
+studies are your company's claims, so `review` shows each quoted proof as a vendor claim, with
+its page, when it was read and its caveat, beside the pain's fit and limits.
 
 ### 3. A Treg team and token for the harness
 
@@ -231,16 +263,18 @@ uv run auggie shell <scope.json> --mongodb <uri> --me "your name" --prospects <f
 `--prospects` is a folder of prospect files, one per account. Add `--replay <file>` to rehearse
 with recorded responses. At the `auggie>` prompt:
 
-- `accounts`, `brief <account>`, `find [<account>] <words>`, `stack [<account>]` and `hiring
-  [<account>]` answer from the records. Each answer names its records and when their sources
-  were read, and reads or spends nothing. `hiring` shows each account's newest listing read:
-  its roles per family of your strategy, with their levels, and the listing patterns that hold.
-  A newer read that failed is shown as failed; an older one never stands in for it.
+- `accounts`, `brief <account>`, `find [<account>] <words>`, `stack [<account>]`, `hiring
+  [<account>]` and `proofs` answer from the records. Each answer names its records and when
+  their sources were read, and reads or spends nothing. `hiring` shows each account's newest
+  listing read: its roles per family of your strategy, with their levels, and the listing
+  patterns that hold. A newer read that failed is shown as failed; an older one never stands in
+  for it. `proofs` shows each of your proofs, and whether a draft may quote it.
 - `fetch <account> <url>` reads one page you name and records it as evidence. `research
   <account>` researches from the account's prospect file. When they read live, each says what it
   will call and the most it can spend, and waits for your yes. `hiring <account> --read` reads
-  the account's careers listing now, free, and asks the same way. With `--replay` nothing is
-  called, so nothing is asked.
+  the account's careers listing now, free, and asks the same way, as does `proofs --read`,
+  which reads your proof pages through Treg. With `--replay` nothing is called, so nothing is
+  asked.
 - `find` searches every stored account page and labels any that were not admitted, so you can
   tell rejected or unchecked text from evidence. A quote is the page's own words, with its
   whitespace collapsed and, when its matches are far apart, an ellipsis between two passages.
@@ -251,10 +285,10 @@ with recorded responses. At the `auggie>` prompt:
   The shell runs only at your own terminal, because approvals and edits happen in it.
 
 The questions also work as single commands that print JSON, for your coding agent: `auggie
-accounts`, `auggie brief`, `auggie find`, `auggie stack` and `auggie hiring`, each with
-`--json`. They only read, so an agent can run them and answer you by quoting the records.
-`auggie hiring --account <id> --read` reads that account's listing first and records it, so it
-prints no JSON.
+accounts`, `auggie brief`, `auggie find`, `auggie stack`, `auggie hiring` and `auggie proofs`,
+each with `--json`. They only read, so an agent can run them and answer you by quoting the
+records. `auggie hiring --account <id> --read` and `auggie proofs --read` read first and record
+what they read, so they print no JSON.
 
 ## Part 3: sending from your Gmail
 
