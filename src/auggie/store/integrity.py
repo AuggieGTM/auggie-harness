@@ -9,6 +9,7 @@ from auggie.contracts import (
     CustomerScope,
     HumanApproval,
     OperationalEvent,
+    Person,
     QualificationDecision,
     RecordRef,
     SourceEvidence,
@@ -47,9 +48,15 @@ def check_artifact(
     previous: Artifact | None,
     qualification: QualificationDecision | None,
     cited: Iterable[SourceEvidence],
+    recipient: Person | None = None,
 ) -> None:
-    """Check lineage, and that ``artifact`` is the next version after ``previous``."""
+    """Check lineage, and that ``artifact`` is the next version after ``previous``.
+
+    ``recipient`` is the stored person the draft is for, if one is stored.
+    """
     ensure_in_scope(scope, artifact)
+    if recipient is not None and recipient.account_id != artifact.account_id:
+        raise IntegrityError("the draft's recipient belongs to another account")
     if qualification is None:
         raise IntegrityError(f"qualification {artifact.qualification_id!r} is not stored")
     if qualification.account_id != artifact.account_id:

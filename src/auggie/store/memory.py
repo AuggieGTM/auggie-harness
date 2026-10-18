@@ -109,6 +109,10 @@ class InMemoryStore:
             raise RecordNotFound(f"person {person_id!r}")
         return _load(Person, stored)
 
+    def _stored_person(self, person_id: str | None) -> Person | None:
+        stored = self._data.people.get(person_id) if person_id is not None else None
+        return _load(Person, stored) if stored is not None else None
+
     # Evidence
 
     def put_evidence(self, record: SourceEvidence) -> None:
@@ -162,6 +166,7 @@ class InMemoryStore:
             previous=_load(Artifact, versions[-1]) if versions else None,
             qualification=_load(QualificationDecision, qualification) if qualification else None,
             cited=self._find_evidence(artifact.evidence_ids),
+            recipient=self._stored_person(artifact.recipient_id),
         )
         self._data.artifacts.setdefault(artifact.ref.artifact_id, []).append(
             artifact.model_dump_json()

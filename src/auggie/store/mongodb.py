@@ -342,6 +342,11 @@ class MongoStore:
                 "qualifications", QualificationDecision, {"_id": artifact.qualification_id}
             ),
             cited=self._find_evidence(artifact.evidence_ids),
+            recipient=(
+                self._find_one("people", Person, {"_id": artifact.recipient_id})
+                if artifact.recipient_id is not None
+                else None
+            ),
         )
         try:
             self._insert("artifacts", key, artifact)

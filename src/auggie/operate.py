@@ -164,6 +164,11 @@ def review_draft(
     """
     _finish_last_revision(store, draft_id, out)
     draft = store.latest_artifact(draft_id)
+    if (
+        draft.recipient_id is not None
+        and store.get_person(draft.recipient_id).account_id != draft.account_id
+    ):
+        raise ValueError("the draft's recipient belongs to another account")
     describe_draft(store, draft, out)
     person = Actor(kind="human", id=reviewer)
     answer = ask("Approve this version's content? [y]es / [n]o / [c]hanges: ").strip().lower()

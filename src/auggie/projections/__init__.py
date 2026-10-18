@@ -89,7 +89,7 @@ def project(store: Store) -> Workbook:
                 validations[ref.id] = "admitted"
             elif event.type == "evidence.rejected" and ref.kind == "evidence":
                 validations[ref.id] = f"rejected: {event.attributes.get('reason') or ''}"
-            elif event.type == "delivery.simulated" and ref.kind == "artifact":
+            elif event.type in ("delivery.simulated", "delivery.sent") and ref.kind == "artifact":
                 deliveries[ref.id] = event.occurred_at.isoformat()
             elif event.type == "outcome.recorded" and ref.kind == "artifact":
                 outcomes[ref.id] = str(event.attributes.get("outcome") or "")

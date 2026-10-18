@@ -36,17 +36,15 @@ def test_real_scope_may_enable_live_delivery() -> None:
     assert (scope.execution.delivery, scope.execution.platform) == ("live", "gmail")
 
 
-@pytest.mark.parametrize(
-    ("execution", "refused"),
-    [
-        ({"delivery": "live"}, "live delivery needs a real platform"),
-        ({"delivery": "simulated", "platform": "gmail"}, "simulated delivery uses the simulated"),
-    ],
-    ids=["live-without-platform", "simulated-on-gmail"],
-)
-def test_the_platform_fits_the_delivery_mode(execution: dict[str, str], refused: str) -> None:
-    with pytest.raises(ValidationError, match=refused):
+def test_simulated_delivery_uses_the_simulated_platform() -> None:
+    execution = {"delivery": "simulated", "platform": "gmail"}
+    with pytest.raises(ValidationError, match="simulated delivery uses the simulated"):
         make_scope("customer-a", synthetic=False, execution=execution)
+
+
+def test_a_live_scope_from_before_platforms_still_loads() -> None:
+    scope = make_scope("customer-a", synthetic=False, execution={"delivery": "live"})
+    assert scope.execution.platform == "simulated"  # and delivery refuses it
 
 
 def test_unknown_fields_are_rejected(scenario: Scenario) -> None:

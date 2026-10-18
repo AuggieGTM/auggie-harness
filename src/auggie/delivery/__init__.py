@@ -24,7 +24,7 @@ from auggie.contracts.approval import DeliveryPlatform
 SIMULATED_DELIVERY = Actor(kind="service", id="simulated-delivery", version="0")
 
 LIVE_PLATFORMS = frozenset({"gmail"})
-"""Platforms with a delivery adapter."""
+"""Platforms the gate lets a live scope deliver on: those with an adapter."""
 
 
 class DeliveryBlocked(Exception):
@@ -69,6 +69,8 @@ def split_message(content: str) -> tuple[str, str]:
     Raises ``DeliveryBlocked`` for any other shape, so a draft is sent exactly
     as it was approved or not at all.
     """
+    if "\r" in content:
+        raise DeliveryBlocked("the draft has CR line endings; revise it to plain line breaks")
     first, separator, body = content.partition("\n\n")
     if not separator or not first.startswith("Subject: ") or "\n" in first:
         raise DeliveryBlocked("the draft does not start with a Subject line and a blank line")
@@ -105,6 +107,10 @@ def authorize_delivery(
     mode, platform = scope.execution.delivery, scope.execution.platform
     if mode == "disabled":
         raise DeliveryBlocked(f"scope {scope.customer_id!r} allows 'disabled' delivery")
+    if mode == "live" and platform == "simulated":
+        raise DeliveryBlocked(
+            f"scope {scope.customer_id!r} is live but names no platform: set execution.platform"
+        )
     if target.platform != platform:
         raise DeliveryBlocked(
             f"scope {scope.customer_id!r} delivers on {platform!r}, not {target.platform!r}"

@@ -34,8 +34,7 @@ class ExecutionBoundary(Contract):
 
     @model_validator(mode="after")
     def _platform_fits_delivery(self) -> ExecutionBoundary:
-        if self.delivery == "live" and self.platform == "simulated":
-            raise ValueError("live delivery needs a real platform")
+        # A live scope from before ``platform`` existed still loads; delivery refuses it.
         if self.delivery == "simulated" and self.platform != "simulated":
             raise ValueError("simulated delivery uses the simulated platform")
         return self

@@ -417,3 +417,19 @@ def test_event_filters_take_literal_values_only(
     query_object: dict[str, Any] = {name: {"$ne": None}}  # what an unchecked caller might pass
     with pytest.raises(TypeError, match="must be a string"):
         store.list_events(**query_object)
+
+
+def test_a_drafts_recipient_must_belong_to_its_account(
+    store: Store, scenario: Scenario, draft: Artifact
+) -> None:
+    store.put_person(scenario.person)
+    for evidence in scenario.evidence:
+        store.put_evidence(evidence)
+    store.put_qualification(scenario.qualification)
+    elsewhere = Person.model_validate(
+        variant(scenario.person, person_id="per-elsewhere", account_id="acc-elsewhere")
+    )
+    store.put_person(elsewhere)
+    misaddressed = Artifact.model_validate(variant(draft, recipient_id="per-elsewhere"))
+    with pytest.raises(IntegrityError, match="recipient belongs to another account"):
+        store.put_artifact(misaddressed)
