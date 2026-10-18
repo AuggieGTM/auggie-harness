@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +20,7 @@ from auggie.contracts import (
     SubjectRef,
     sha256_digest,
 )
-from auggie.strategy import StrategyError, load_strategy
+from auggie.strategy import StrategyError, load_strategy, load_strategy_at
 from tests.conftest import NORTHSTAR, Scenario, variant
 
 INPUTS = NORTHSTAR / "inputs"
@@ -143,3 +144,45 @@ def test_synthetic_scopes_admit_only_reserved_domains(
     assert verdict.rejected_for == "non_reserved_domain"
     live = CustomerScope.model_validate(variant(scenario.scope, synthetic=False))
     assert check_evidence(real, scope=live, subject=subject).admitted
+
+
+def git(cwd: Path, *args: str) -> str:
+    return subprocess.run(
+        ["git", "-C", str(cwd), *args], check=True, capture_output=True, text=True
+    ).stdout.strip()
+
+
+def strategy_repo(tmp_path: Path) -> Path:
+    repo = tmp_path / "knowledge"
+    (repo / "strategy").mkdir(parents=True)
+    git(repo, "init", "-q")
+    git(repo, "config", "user.name", "Synthetic Operator")
+    git(repo, "config", "user.email", "operator@example.com")
+    (repo / "strategy/msp.toml").write_bytes((INPUTS / "strategy/msp.toml").read_bytes())
+    git(repo, "add", ".")
+    git(repo, "commit", "-q", "-m", "Approve the MSP strategy")
+    return repo
+
+
+def test_a_strategy_is_read_as_committed_not_as_edited(tmp_path: Path, scenario: Scenario) -> None:
+    repo = strategy_repo(tmp_path)
+    head = git(repo, "rev-parse", "HEAD")
+    (repo / "strategy/msp.toml").write_text("not even TOML", encoding="utf-8")
+    loaded = load_strategy_at(repo, "strategy/msp.toml", revision="HEAD", scope=scenario.scope)
+    assert loaded.ref.commit == head
+    assert loaded.ref.digest == sha256_digest((INPUTS / "strategy/msp.toml").read_bytes())
+
+
+@pytest.mark.parametrize("revision", ["no-such-branch", "--output=/tmp/x", "HEAD~5"])
+def test_an_unknown_revision_is_refused(revision: str, tmp_path: Path, scenario: Scenario) -> None:
+    repo = strategy_repo(tmp_path)
+    with pytest.raises(StrategyError, match="cannot read"):
+        load_strategy_at(repo, "strategy/msp.toml", revision=revision, scope=scenario.scope)
+
+
+def test_a_path_missing_at_that_commit_is_refused(tmp_path: Path, scenario: Scenario) -> None:
+    repo = strategy_repo(tmp_path)
+    with pytest.raises(StrategyError, match="cannot read"):
+        load_strategy_at(repo, "strategy/other.toml", revision="HEAD", scope=scenario.scope)
+    with pytest.raises(StrategyError, match="inside the knowledge root"):
+        load_strategy_at(repo, "../msp.toml", revision="HEAD", scope=scenario.scope)

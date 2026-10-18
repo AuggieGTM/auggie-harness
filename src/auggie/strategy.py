@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -19,17 +20,14 @@ class LoadedStrategy:
     ref: StrategyRef
 
 
-def load_strategy(root: Path, path: str, *, commit: str, scope: CustomerScope) -> LoadedStrategy:
-    """Read ``path`` under the knowledge root ``root`` as it is at ``commit``.
-
-    The digest covers the file's exact bytes. Reading from a Git object at
-    ``commit`` comes with the first real strategy repository; until then the
-    caller vouches that ``root`` holds that revision.
-    """
+def _checked(path: str) -> PurePosixPath:
     relative = PurePosixPath(path)
     if relative.is_absolute() or ".." in relative.parts:
         raise StrategyError(f"strategy path {path!r} must stay inside the knowledge root")
-    data = (root / relative).read_bytes()
+    return relative
+
+
+def _parse(data: bytes, path: str, commit: str, scope: CustomerScope) -> LoadedStrategy:
     try:
         parsed = tomllib.loads(data.decode("utf-8"))
     except (UnicodeDecodeError, tomllib.TOMLDecodeError) as error:
@@ -42,3 +40,36 @@ def load_strategy(root: Path, path: str, *, commit: str, scope: CustomerScope) -
     return LoadedStrategy(
         strategy, StrategyRef(commit=commit, path=path, digest=sha256_digest(data))
     )
+
+
+def load_strategy(root: Path, path: str, *, commit: str, scope: CustomerScope) -> LoadedStrategy:
+    """Read ``path`` under the knowledge root ``root``, vouched for as ``commit``.
+
+    For synthetic fixtures, which have no strategy repository. Real runs use
+    ``load_strategy_at``, which reads the committed file itself.
+    """
+    return _parse((root / _checked(path)).read_bytes(), path, commit, scope)
+
+
+def load_strategy_at(
+    repository: Path, path: str, *, revision: str, scope: CustomerScope
+) -> LoadedStrategy:
+    """Read ``path`` exactly as it is committed at ``revision`` in a Git repository.
+
+    The working tree is never read, so uncommitted edits cannot slip into a
+    run. The ``StrategyRef`` names the full commit hash.
+    """
+    _checked(path)
+
+    def git(*args: str) -> bytes:
+        try:
+            return subprocess.run(
+                ["git", "-C", str(repository), *args], check=True, capture_output=True
+            ).stdout
+        except (OSError, subprocess.CalledProcessError) as error:
+            raise StrategyError(f"cannot read {path!r} at {revision!r} in {repository}") from error
+
+    commit = (
+        git("rev-parse", "--verify", "--end-of-options", f"{revision}^{{commit}}").decode().strip()
+    )
+    return _parse(git("show", f"{commit}:{path}"), path, commit, scope)
