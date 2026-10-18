@@ -15,6 +15,7 @@ from auggie.contracts.events import (
     RecordRef,
 )
 from auggie.contracts.evidence import SourceEvidence, SubjectRef
+from auggie.contracts.person import EmailAddress, Person
 from auggie.contracts.qualification import (
     CitationError,
     Finding,
@@ -52,6 +53,7 @@ __all__ = [
     "Contract",
     "CustomerScope",
     "DeliveryTarget",
+    "EmailAddress",
     "ExecutionBoundary",
     "Finding",
     "HeadcountRange",
@@ -60,6 +62,7 @@ __all__ = [
     "Mentions",
     "MergeField",
     "OperationalEvent",
+    "Person",
     "Play",
     "QualificationDecision",
     "RecordRef",

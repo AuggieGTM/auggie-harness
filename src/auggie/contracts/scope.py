@@ -7,6 +7,7 @@ from typing import Annotated, Literal, Protocol
 
 from pydantic import Field, StringConstraints, model_validator
 
+from auggie.contracts.approval import DeliveryPlatform
 from auggie.contracts.common import Contract, Slug
 
 Namespace = Annotated[str, StringConstraints(pattern=r"^[a-z0-9][a-z0-9_.-]{0,62}$")]
@@ -23,11 +24,21 @@ class ExecutionBoundary(Contract):
 
     ``max_run_spend_micro_usd`` caps what one run may spend on paid calls, in
     millionths of a US dollar (ADR 0016). Zero allows no paid calls.
+    ``platform`` is where a live scope sends from (ADR 0022).
     """
 
     delivery: DeliveryMode = "disabled"
+    platform: DeliveryPlatform = "simulated"
     external_providers: bool = False
     max_run_spend_micro_usd: Annotated[int, Field(ge=0)] = 0
+
+    @model_validator(mode="after")
+    def _platform_fits_delivery(self) -> ExecutionBoundary:
+        if self.delivery == "live" and self.platform == "simulated":
+            raise ValueError("live delivery needs a real platform")
+        if self.delivery == "simulated" and self.platform != "simulated":
+            raise ValueError("simulated delivery uses the simulated platform")
+        return self
 
 
 class CustomerScope(Contract):

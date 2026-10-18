@@ -12,7 +12,7 @@ from auggie.contracts.common import Actor, Contract, Digest, RecordId, Slug, Tex
 ArtifactKind = Literal["brief", "draft"]
 ApprovalScope = Literal["content", "delivery"]
 ApprovalDecision = Literal["approved", "rejected", "changes_requested"]
-DeliveryPlatform = Literal["emailbison", "instantly", "simulated"]
+DeliveryPlatform = Literal["emailbison", "instantly", "gmail", "simulated"]
 
 
 class ArtifactRef(Contract):

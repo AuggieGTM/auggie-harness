@@ -10,15 +10,18 @@ from typing import Annotated
 
 from pydantic import HttpUrl, StringConstraints
 
-from auggie.contracts import Contract
+from auggie.contracts import Contract, EmailAddress
 from auggie.contracts.common import RecordId, Slug
 
 Name = Annotated[str, StringConstraints(min_length=1, max_length=200)]
 
 
 class Recipient(Contract):
+    """Who the draft is for. Research stores it as a ``Person`` record (ADR 0022)."""
+
     person_id: RecordId
     first_name: Name
+    email: EmailAddress | None = None
 
 
 class Account(Contract):

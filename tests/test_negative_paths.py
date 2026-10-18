@@ -222,7 +222,11 @@ def test_live_delivery_is_not_built() -> None:
     run = until_review(review("content"), review("delivery"))
     draft = draft_of(run)
     live = CustomerScope.model_validate(
-        variant(run.store.scope, synthetic=False, execution={"delivery": "live"})
+        variant(
+            run.store.scope,
+            synthetic=False,
+            execution={"delivery": "live", "platform": "instantly"},
+        )
     )
     with pytest.raises(DeliveryBlocked, match="only simulated delivery exists"):
         authorize_delivery(

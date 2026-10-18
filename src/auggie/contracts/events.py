@@ -20,9 +20,13 @@ EventType = Literal[
     "evidence.validated",
     "evidence.rejected",
     "qualification.decided",
+    "person.recorded",
     "draft.composed",
     "approval.recorded",
     "delivery.simulated",
+    "delivery.attempted",
+    "delivery.sent",
+    "delivery.failed",
     "outcome.recorded",
 ]
 
@@ -39,12 +43,16 @@ EVENT_STAGE: Mapping[EventType, Stage] = MappingProxyType(
     {
         "strategy.activated": "define",
         "evidence.recorded": "observe",
+        "person.recorded": "observe",
         "evidence.validated": "validate",
         "evidence.rejected": "validate",
         "qualification.decided": "judge",
         "draft.composed": "compose",
         "approval.recorded": "approve",
         "delivery.simulated": "deliver",
+        "delivery.attempted": "deliver",
+        "delivery.sent": "deliver",
+        "delivery.failed": "deliver",
         "outcome.recorded": "learn",
     }
 )
@@ -53,12 +61,16 @@ REQUIRED_REFS: Mapping[EventType, frozenset[RecordKind]] = MappingProxyType(
     {
         "strategy.activated": frozenset({"strategy"}),
         "evidence.recorded": frozenset({"evidence"}),
+        "person.recorded": frozenset({"person", "account"}),
         "evidence.validated": frozenset({"evidence"}),
         "evidence.rejected": frozenset({"evidence"}),
         "qualification.decided": frozenset({"qualification", "account"}),
         "draft.composed": frozenset({"artifact", "qualification"}),
         "approval.recorded": frozenset({"approval", "artifact"}),
         "delivery.simulated": frozenset({"approval", "artifact", "person"}),
+        "delivery.attempted": frozenset({"approval", "artifact", "person"}),
+        "delivery.sent": frozenset({"approval", "artifact", "person"}),
+        "delivery.failed": frozenset({"approval", "artifact", "person"}),
         "outcome.recorded": frozenset({"artifact", "person"}),
     }
 )
