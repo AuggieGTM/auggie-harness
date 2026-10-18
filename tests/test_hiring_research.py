@@ -808,7 +808,7 @@ def test_research_keeps_an_outcome_to_its_strategys_rules(backend: Backend) -> N
     )
     for qualifier, problem in (
         (without_hiring, "detection-hiring: not assessed"),
-        (Decides(outcome="qualified"), "detection-hiring: required, but unknown"),
+        (Decides(outcome="qualified"), "the strategy's rules give needs_review"),
     ):
         store = backend.open(failed_now.scope)
         with pytest.raises(CitationError, match=f"qualified does not follow .*{problem}"):
@@ -845,7 +845,7 @@ def test_only_a_criterion_the_strategy_marks_disqualifying_can_disqualify() -> N
         outcome="disqualified", findings=denied, disqualifiers=["active-it-hiring"]
     )
     store = InMemoryBackend().open(northstar.scope)
-    with pytest.raises(CitationError, match="active-it-hiring: the strategy does not let it"):
+    with pytest.raises(CitationError, match=r"disqualified does not follow .* give needs_review"):
         research_run(
             store,
             strategy=rules,
@@ -854,3 +854,45 @@ def test_only_a_criterion_the_strategy_marks_disqualifying_can_disqualify() -> N
             qualifier=disqualifies,
             times=northstar.run,
         )
+
+
+def test_a_disqualifier_that_applies_cannot_be_left_out(tmp_path: Path, backend: Backend) -> None:
+    from tests.conftest import NORTHSTAR
+
+    northstar = load_inputs(NORTHSTAR)
+    # Headcount still disqualifies, but is no longer required, and the account is too large.
+    source = (NORTHSTAR / "inputs" / northstar.strategy.path).read_text(encoding="utf-8")
+    narrowed = source.replace(
+        'required = ["headcount-50-to-500", "active-it-hiring"]', 'required = ["active-it-hiring"]'
+    )
+    assert narrowed != source
+    (tmp_path / "strategy").mkdir()
+    (tmp_path / northstar.strategy.path).write_text(narrowed, encoding="utf-8")
+    rules = load_strategy(
+        tmp_path, northstar.strategy.path, commit=northstar.strategy.commit, scope=northstar.scope
+    )
+    larger = tuple(
+        r.model_copy(update={"excerpt": r.excerpt.replace("140 staff", "1,400 staff")})
+        if r.excerpt
+        else r
+        for r in northstar.responses
+    )
+    assert any("1,400 staff" in (r.excerpt or "") for r in larger)
+
+    def research(qualifier: Any, store: Store) -> Any:
+        return research_run(
+            store,
+            strategy=rules,
+            account=northstar.account,
+            acquisition=FixtureAcquisition(larger),
+            qualifier=qualifier,
+            times=northstar.run,
+        )
+
+    normal = research(RulesQualifier(), InMemoryBackend().open(northstar.scope))
+    assert normal.decision.outcome == "disqualified"
+    store = backend.open(northstar.scope)
+    hides = Decides(outcome="qualified", disqualifiers=[])
+    with pytest.raises(CitationError, match="give disqualified by headcount-50-to-500"):
+        research(hides, store)
+    assert store.list_events(type="draft.composed") == ()

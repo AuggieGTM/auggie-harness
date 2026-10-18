@@ -207,6 +207,27 @@ def assess(
             return _mentions(criterion, label, verdict, at)
 
 
+def outcome_of(
+    rules: Strategy, findings: tuple[Finding, ...]
+) -> tuple[QualificationOutcome, tuple[str, ...]]:
+    """The outcome the strategy's rules give these findings, and the criteria that disqualify:
+    a disqualifying criterion assessed as does_not_meet disqualifies, and an unknown or missing
+    one never does; otherwise every required criterion must be met to qualify."""
+    assessed = {finding.criterion: finding.assessment for finding in findings}
+    disqualifiers = tuple(
+        criterion.id
+        for criterion in rules.criteria
+        if isinstance(criterion, HeadcountRange)
+        and criterion.disqualifying
+        and assessed.get(criterion.id) == "does_not_meet"
+    )
+    if disqualifiers:
+        return "disqualified", disqualifiers
+    if all(assessed.get(name) == "meets" for name in rules.required):
+        return "qualified", ()
+    return "needs_review", ()
+
+
 class RulesQualifier:
     """Qualifies with the strategy's own rules. Same inputs, same decision."""
 
@@ -229,21 +250,7 @@ class RulesQualifier:
         findings = tuple(
             assess(criterion, rules, sources, at, listing) for criterion in rules.criteria
         )
-        assessed = {finding.criterion: finding.assessment for finding in findings}
-        disqualifiers = tuple(
-            criterion.id
-            for criterion in rules.criteria
-            if isinstance(criterion, HeadcountRange)
-            and criterion.disqualifying
-            and assessed[criterion.id] == "does_not_meet"
-        )
-        outcome: QualificationOutcome
-        if disqualifiers:
-            outcome = "disqualified"
-        elif all(assessed[name] == "meets" for name in rules.required):
-            outcome = "qualified"
-        else:
-            outcome = "needs_review"
+        outcome, disqualifiers = outcome_of(rules, findings)
         return QualificationDecision(
             decision_id=decision_id,
             customer_id=customer_id,

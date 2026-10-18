@@ -57,7 +57,7 @@ from auggie.delivery import (
 )
 from auggie.external import require_external_calls
 from auggie.judgment import ListingReadings, Qualifier
-from auggie.judgment.rules import hiring_finding
+from auggie.judgment.rules import hiring_finding, outcome_of
 from auggie.store import Appended, RecordConflict, RecordNotFound, Store
 from auggie.strategy import LoadedStrategy
 
@@ -387,23 +387,18 @@ def _check_hiring_findings(
 
 
 def _check_outcome(decision: QualificationDecision, strategy: LoadedStrategy) -> None:
-    """Whatever the qualifier, the decision assesses every criterion of its strategy, and its
-    outcome follows the strategy's rules: qualified only when every required criterion is met,
-    and disqualified only by a criterion the strategy marks as disqualifying."""
+    """Whatever the qualifier, the decision assesses every criterion of the run's strategy
+    revision, and its outcome and disqualifiers are the ones the strategy's rules give its
+    findings."""
     rules = strategy.strategy
     if decision.strategy != strategy.ref:
         raise CitationError("the decision names another strategy revision than the run's")
-    assessed = {f.criterion: f.assessment for f in decision.findings}
+    assessed = {f.criterion for f in decision.findings}
     problems = [f"{c.id}: not assessed" for c in rules.criteria if c.id not in assessed]
-    if decision.outcome == "qualified":
-        problems += [
-            f"{name}: required, but {assessed[name]}"
-            for name in rules.required
-            if name in assessed and assessed[name] != "meets"
-        ]
-    for name in decision.disqualifiers:
-        if not getattr(rules.criterion(name), "disqualifying", False):
-            problems.append(f"{name}: the strategy does not let it disqualify")
+    outcome, disqualifiers = outcome_of(rules, decision.findings)
+    if (decision.outcome, decision.disqualifiers) != (outcome, disqualifiers):
+        by = f" by {', '.join(disqualifiers)}" if disqualifiers else ""
+        problems.append(f"the strategy's rules give {outcome}{by}")
     if problems:
         raise CitationError(
             f"{decision.outcome} does not follow {rules.strategy_id}: " + "; ".join(problems)
