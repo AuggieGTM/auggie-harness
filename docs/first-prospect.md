@@ -1,0 +1,153 @@
+# Your first prospect
+
+This guide takes a GTM engineer from a fresh clone to one prospect researched, drafted,
+reviewed and (simulated) delivered for one customer. Part 1 rehearses the whole loop offline on
+the synthetic Northstar prospect, at no cost and with no accounts. Part 2 does it for real.
+
+Each step is a separate command that you run when you are ready. Nothing runs in the background,
+and nothing is sent: delivery stays simulated until the delivery adapters exist.
+
+## Before you start
+
+- Python 3.12+ and [uv](https://docs.astral.sh/uv/), Git, and Podman or Docker.
+- In the clone: `uv sync`. It installs the MongoDB and Google extras too.
+- For Part 2: the [Treg](https://treg.to) CLI, and optionally an agent (Claude, ChatGPT) with a
+  Google Sheets connector.
+
+## Part 1: rehearse offline
+
+Start a local MongoDB for the records:
+
+```sh
+podman run -d --rm --name auggie-mongo -p 127.0.0.1:27017:27017 docker.io/library/mongo:8
+```
+
+All the files come from `examples/synthetic/northstar-msp/`: a synthetic customer scope, a
+synthetic prospect, the strategy, and recorded source responses.
+
+```sh
+E=examples/synthetic/northstar-msp
+M="--mongodb mongodb://127.0.0.1:27017 --database-prefix rehearsal_"
+
+uv run auggie research $E/scope.json $E/prospect.json \
+  --strategy-repo . --strategy-path $E/inputs/strategy/msp.toml \
+  --operator "your name" --replay $E/inputs/inputs.json $M
+```
+
+`research` prints each stage: the strategy and the exact commit it was read at, every source it
+fetched (the news source fails on purpose), which evidence it admitted, the qualification with
+the evidence behind each finding, and the draft. It stops there and prints the draft's ID.
+
+```sh
+uv run auggie review $E/scope.json --draft <draft id> --reviewer "your name" $M
+```
+
+`review` shows the exact draft, how the prospect was judged, and the pages it rests on. Approve
+the content, then delivery to the named recipient. Then:
+
+```sh
+uv run auggie deliver $E/scope.json --draft <draft id> $M
+uv run auggie outcome $E/scope.json --draft <draft id> --outcome positive_reply \
+  --reporter "your name" $M
+uv run auggie project $E/scope.json $M --workbook rehearsal.json
+```
+
+To see the projection in a sheet, follow
+[Writing a projection with your agent](../README.md#writing-a-projection-with-your-agent).
+
+Try the refusals too, each on a fresh `research` run:
+
+- Answer `c` (changes) at review, and `deliver` is refused. Once a reviewer asks for changes,
+  that version can never be delivered, even if it is approved later. There is no command to edit
+  a draft yet, so research again for a new one.
+- Approve the content but not delivery, and `deliver` is refused until a delivery approval
+  exists.
+- Deliver twice, and nothing is sent the second time.
+
+## Part 2: your first real prospect
+
+Everything in this part stays **outside this repository**: the customer's scope, strategy,
+credentials, prospects and records ([ADR 0010](adr/0010-public-repository-boundary.md)).
+
+### 1. The customer's scope
+
+Copy `examples/synthetic/northstar-msp/scope.json` somewhere private and change it:
+
+- `customer_id` and the three namespaces: unique to this customer
+  ([ADR 0004](adr/0004-customer-isolation.md)).
+- `"synthetic": false`.
+- `"execution"`: `"delivery": "simulated"`, `"external_providers": true`, and
+  `"max_run_spend_micro_usd"`, the most one run may spend on paid calls. Each page fetch reserves
+  2,000 (the $0.002 per-call ceiling), so 20,000 allows ten fetches
+  ([ADR 0016](adr/0016-credentials-and-spend-limits.md)).
+
+### 2. The customer's strategy
+
+The strategy is a TOML file in the customer's own private Git repository
+([ADR 0013](adr/0013-strategy-files.md)). Start from
+`examples/synthetic/northstar-msp/inputs/strategy/msp.toml`. Set `customer_id`, give the
+revision a new `strategy_id`, and adapt the sources, criteria and play to the customer's ideal
+prospect and approved copy. Have the customer review it, then commit. `research` reads the file
+exactly as committed, so uncommitted edits never reach a run.
+
+### 3. The customer's Treg team and token
+
+One Treg team per customer ([ADR 0017](adr/0017-first-treg-route.md)). Run these **in your own
+terminal, not inside an agent session that is recorded or shared**: `treg` prints tokens.
+
+```sh
+treg org create <customer>
+treg org use <customer>
+treg org agent-new auggie-harness --cap 50 --pin customer=<customer_id>
+```
+
+Save the agent token where the harness looks for it, readable only by you:
+
+```sh
+mkdir -p -m 700 ~/.config/auggie/credentials/<credential_namespace>
+read -rs TOKEN && (umask 077; printf '%s\n' "$TOKEN" \
+  > ~/.config/auggie/credentials/<credential_namespace>/treg-token); unset TOKEN
+```
+
+Then add funds to the team (`treg topup 10`; $10 is the minimum) and switch back with
+`treg org use <your team>`. Check that the token works with
+`uv run auggie treg-fetch <scope.json> https://example.com/`.
+
+Before researching real prospects, confirm that Treg's and Exa's terms allow keeping the
+excerpts the harness stores ([ADR 0017](adr/0017-first-treg-route.md)).
+
+### 4. The prospect
+
+Write a `prospect.json` like the synthetic one:
+
+- `account_id`, `customer_id` (the scope's), and a short `key` used in record IDs.
+- The company's `name`.
+- `sources`: one URL for each source kind the strategy names (`careers`, `technology`, ...).
+- `recipient`: the person's ID in the customer's records and their first name.
+
+Keep it to what the customer is allowed to hold about the prospect.
+
+### 5. Run it
+
+The same commands as Part 1, with your files, your MongoDB, and no `--replay`:
+
+```sh
+uv run auggie research <scope.json> <prospect.json> \
+  --strategy-repo <customer strategy repo> --strategy-path <path in it> \
+  --operator "your name" --mongodb <uri>
+uv run auggie review <scope.json> --draft <draft id> --reviewer "your name" --mongodb <uri>
+uv run auggie deliver <scope.json> --draft <draft id> --mongodb <uri>
+uv run auggie outcome <scope.json> --draft <draft id> --outcome <what happened> \
+  --reporter "your name" --mongodb <uri>
+uv run auggie project <scope.json> --mongodb <uri> --workbook <file>
+```
+
+### What to check
+
+- A source that fails is recorded with its reason and leaves its criteria **unknown**. It never
+  counts against the prospect.
+- Every finding cites the evidence it rests on. A draft uses only admitted evidence, and its
+  fixed wording is the customer's approved copy.
+- Nothing is sent. `deliver` records a simulated hand-off, and only after both approvals.
+- Research the same prospect again later and you get a new run with new records. Earlier runs
+  are kept.
