@@ -18,7 +18,7 @@ from auggie.operate import (
     review_draft,
 )
 from auggie.pipeline import RunResult
-from auggie.store import Store
+from auggie.store import Store, StoreError
 from auggie.store.memory import InMemoryBackend
 from auggie.strategy import load_strategy
 from auggie.synthetic import load_inputs
@@ -181,3 +181,23 @@ def test_each_stage_is_stamped_when_it_happens(store: Store) -> None:
         < times["qualification.decided"]
         < times["draft.composed"]
     )
+
+
+def test_a_new_research_never_reuses_an_existing_run_id(
+    store: Store, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ids = iter(["run-fixed", "run-fixed", "run-other"])
+    monkeypatch.setattr("auggie.operate.new_run_id", lambda at: next(ids))
+    first, second = research(store), research(store)
+    assert first.draft is not None and second.draft is not None
+    assert first.draft.ref.artifact_id == "draft-northstar-run-fixed"
+    assert second.draft.ref.artifact_id == "draft-northstar-run-other"
+
+
+def test_research_stops_rather_than_reuse_a_run(
+    store: Store, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("auggie.operate.new_run_id", lambda at: "run-fixed")
+    research(store)
+    with pytest.raises(StoreError, match="unused run ID"):
+        research(store)

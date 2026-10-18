@@ -36,7 +36,7 @@ from auggie.pipeline import (
     record_review,
     research_run,
 )
-from auggie.store import Appended, Store
+from auggie.store import Appended, Store, StoreError
 from auggie.strategy import LoadedStrategy
 
 Clock = Callable[[], datetime]
@@ -49,7 +49,20 @@ def utc_now() -> datetime:
 
 
 def new_run_id(at: datetime) -> str:
-    return f"run-{at:%Y%m%dT%H%M%SZ}-{secrets.token_hex(2)}"
+    return f"run-{at:%Y%m%dT%H%M%SZ}-{secrets.token_hex(4)}"
+
+
+def _fresh_run_id(store: Store) -> str:
+    """A run ID no event in this store carries yet, stamped with the real time.
+
+    The real time, not the run's clock: a replay is judged as of its
+    recordings, but each replay is still a new run.
+    """
+    for _ in range(5):
+        run_id = new_run_id(utc_now())
+        if not store.list_events(run_id=run_id):
+            return run_id
+    raise StoreError("could not find an unused run ID")
 
 
 def research_prospect(
@@ -71,7 +84,7 @@ def research_prospect(
     activate_strategy(store, strategy, by=Actor(kind="human", id=operator), at=now())
     started = now()
     times = RunTimes(
-        run_id=new_run_id(started),
+        run_id=_fresh_run_id(store),
         validated_at=started,
         qualified_at=started,
         composed_at=started,

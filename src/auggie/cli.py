@@ -399,7 +399,7 @@ def prospect_command(args: argparse.Namespace, out: Print, ask: Callable[[str], 
     if args.command == "review" and not interactive():
         out(
             "stopped   review records a person's approval, so it must be answered at a "
-            "terminal: input and output cannot be redirected or scripted"
+            "terminal: redirected input or output is refused"
         )
         return 1
     from pydantic import ValidationError
