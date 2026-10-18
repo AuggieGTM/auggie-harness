@@ -18,6 +18,8 @@ Google's documentation sets the constraints:
 - A program on the seller's own computer uses an OAuth client of type **Desktop app**, signs in
   through a loopback redirect with PKCE, and always receives a refresh token. Desktop clients
   are public clients: their client secret is not confidential, but the refresh token is.
+- Google documents a `scope` field in its token responses, "the scopes of access granted by the
+  `access_token`", and tells apps to check which scopes were actually granted.
 - A refresh token stops working when the person revokes the app's access, when it goes unused
   for six months, when the person changes their password (for tokens with Gmail scopes), when
   an administrator restricts the service or a session-length policy ends it, or when the
@@ -45,29 +47,44 @@ The options considered:
 ## Decision (proposed)
 
 - Option 1. The Gmail credential is one file, `gmail-token`, in the scope's credential folder:
-  Google's authorized-user JSON for the `gmail.send` scope only. The seller creates it with a
-  one-time sign-in that the guide documents and that runs in their own terminal, outside any
-  agent session. Like the Treg token, it is written to a new private file that then replaces
-  whatever was at the path.
-- The harness reads the file, renews access tokens in memory, and never writes the file back.
-  Renewing an expired or revoked credential means signing in again, which replaces the file.
-- The adapter refuses a token that Google reports with any scope beyond `gmail.send`.
-- When Google refuses to renew the token, nothing is sent. Delivery stops with a reason that
-  tells the seller to sign in again. Since nothing was sent, this is a known failure, not an
-  unknown send under ADR 0020, and delivery can be tried again after signing in.
+  Google's authorized-user JSON for the `gmail.send` scope only.
+- The seller creates it with a one-time sign-in that the guide documents. The sign-in is a
+  deployment step, like installing the Treg token, and not part of the harness: the person runs
+  it in their own terminal, outside any agent session, and the harness never runs it. It prints
+  no token, and writes a new private file only after Google returns a refresh token, which then
+  replaces whatever was at the path. Signing in again is how an expired or revoked credential
+  is renewed.
+- The harness reads the file and renews access tokens itself, in memory and for that scope only,
+  sending the refresh token in the request body, never in a URL. It never writes the file back.
+  If renewal ever needed a new refresh token stored, delivery would stop for the seller to sign
+  in again.
+- The adapter asks for no particular scope when renewing, and uses an access token only when
+  Google's list of its granted scopes is exactly `gmail.send`. A missing or different list is
+  refused, and nothing is sent. The check reads Google's token response itself: google-auth's
+  `granted_scopes` is filled in only when scopes are requested, and the file's own list of
+  scopes is not evidence of the grant.
+- When Google refuses to renew the token, nothing is sent, and delivery stops with a reason that
+  tells the seller to sign in again. That attempt is a known failure, so the approved message
+  can be tried again after signing in, unless an earlier attempt to send it was accepted or left
+  unknown. Signing in again never clears an unknown send (ADR 0020).
 - The supported OAuth client is a Desktop app client in the seller's company's Google Cloud
   organization, with the **Internal** user type: it needs no verification, and its tokens are
-  not limited to 7 days. An External client in Testing status is enough to try it out, with
-  tokens that last 7 days. Publishing a verified External app is not covered.
+  not limited to 7 days. Where company policy allows it, an External client in Testing status is
+  enough to try it out; its tokens expire after at most 7 days. Publishing a verified External
+  app is not covered.
 - Microsoft 365's credential is decided with its adapter.
 
 ## Consequences
 
 - A seller needs their company's Google Workspace administrators to allow an internal OAuth
-  client, or to create one for them. Without it, the 7-day Testing path or simulated delivery
-  remains.
-- The file can send email as the seller. It is never printed or recorded (ADR 0016). If it
-  leaks, the seller removes the app's access in their Google Account, which revokes it.
+  client, or to create one for them. Without it, delivery stays simulated, or uses the Testing
+  path where policy allows.
+- The file can send email as the seller. Neither it nor an access token is ever printed or
+  recorded, OAuth errors included (ADR 0016). If it leaks, the seller removes the app's access
+  in their Google Account, which revokes the app's grant.
+- This design does not verify which account the token sends from. The person confirms the
+  account on Google's consent screen when signing in, and no extra scope is asked for to check
+  it.
 - The sign-in needs Google's OAuth library only for that one command. The adapter itself uses
   `google-auth`, which the `google` extra already installs.
 - The agent prompts leave the sign-in to the person, as they do for Treg tokens.
