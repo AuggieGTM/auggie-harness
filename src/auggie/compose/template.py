@@ -19,9 +19,14 @@ from auggie.contracts import (
     ScopeViolation,
     sha256_digest,
 )
-from auggie.contracts.strategy import FamilyOpenings, Strategy
+from auggie.contracts.strategy import (
+    PROOF_FIELD_NAMES,
+    FamilyOpenings,
+    Strategy,
+    template_fields,
+)
 from auggie.judgment import ListingReadings
-from auggie.proofs import ProofCheck
+from auggie.proofs import ProofCheck, page_problem
 from auggie.signals.tally import in_family
 from auggie.strategy import LoadedStrategy
 
@@ -68,19 +73,34 @@ def select_play(
 
 
 def _hiring_values(
-    play: Play, strategy: Strategy, listing: ListingReadings | None
+    play: Play,
+    strategy: Strategy,
+    decision: QualificationDecision,
+    account: Account,
+    listing: ListingReadings | None,
 ) -> dict[str, str]:
     """The tally of this run's read of the listing, for a play that names a hiring criterion:
-    the count, the family's label and the read date. Never a role's title or link."""
+    the count, the family's label and the read date. Never a role's title or link. The read
+    must be the account's, and the one the decision's finding for that criterion cites."""
     if play.hiring is None:
         return {}
     criterion = strategy.criterion(play.hiring)
     hiring = strategy.signals.hiring
     if listing is None or hiring is None or not isinstance(criterion, FamilyOpenings):
         raise ComposeBlocked(f"play {play.id!r} needs this run's read of the careers listing")
+    read = listing.current
+    finding = next(f for f in decision.findings if f.criterion == play.hiring)
+    if (
+        read.customer_id != decision.customer_id
+        or read.account_id != account.account_id
+        or read.snapshot_id not in finding.snapshot_ids
+        or finding.assessment != "meets"
+    ):
+        raise ComposeBlocked(
+            f"the listing read given is not the one finding {play.hiring!r} cites as met"
+        )
     current, _ = listing.readings()
     count = len(in_family(current, criterion.family, hiring))
-    read = listing.current
     return {
         "hiring_count": f"at least {count}" if read.status == "partial" else str(count),
         "hiring_family": hiring.families[criterion.family].label,
@@ -112,7 +132,8 @@ def compose_draft(
     snapshots = [sid for name in play.requires for sid in findings[name].snapshot_ids]
     values = {"first_name": account.recipient.first_name, "account_name": account.name}
     rules = strategy.strategy
-    values.update(_hiring_values(play, rules, listing))
+    used_fields = template_fields(play.template)
+    values.update(_hiring_values(play, rules, decision, account, listing))
     point_of_view = None
     if play.pain is not None:
         pain = rules.pains[play.pain]
@@ -123,6 +144,18 @@ def compose_draft(
             if check is None or check.read is None:
                 raise ComposeBlocked(f"play {play.id!r} quotes a proof, and none is usable")
             proof = check.proof
+            # The check must be of the strategy's own proof, and its read must still hold it.
+            if rules.proofs.by_id.get(check.proof_id) != proof:
+                raise ComposeBlocked(f"the check given is not of proof {check.proof_id!r}")
+            problem = page_problem(
+                check.read,
+                customer_id=decision.customer_id,
+                url=str(proof.url),
+                claim=proof.claim,
+                customer=proof.customer,
+            )
+            if problem is not None:
+                raise ComposeBlocked(f"proof {check.proof_id!r}: {problem}")
             values.update(proof_claim=proof.claim, proof_customer=proof.customer)
             quoted = QuotedProof(
                 proof_id=check.proof_id,
@@ -132,6 +165,7 @@ def compose_draft(
                 kind=proof.kind,
                 caveat=proof.caveat,
                 evidence_id=check.read.evidence_id,
+                rendered=tuple(f for f in PROOF_FIELD_NAMES if f in used_fields),
             )
         point_of_view = PointOfView(
             play=play.id,

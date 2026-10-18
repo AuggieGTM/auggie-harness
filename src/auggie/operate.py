@@ -300,9 +300,17 @@ def revise_draft(
     if not content.strip():
         raise ValueError("the edited draft is empty; nothing recorded")
     # Checked again as it is written: the draft may have been delivered while it was open.
-    return record_revision(
+    revised = record_revision(
         store, previous=draft.ref, content=content, by=Actor(kind="human", id=author), at=now()
     )
+    before = draft.point_of_view.proof if draft.point_of_view else None
+    after = revised.point_of_view.proof if revised.point_of_view else None
+    if before is not None and after is None:
+        out(
+            f"note      the new text no longer quotes proof {before.proof_id} exactly as "
+            "written, so review will not show it as a checked proof"
+        )
+    return revised
 
 
 def deliver_draft(

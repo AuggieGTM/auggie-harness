@@ -13,12 +13,12 @@ from pydantic import ValidationError
 
 from auggie.acquisition.careers import ROLE_CAP
 from auggie.acquisition.fixture import FixtureAcquisition, RecordedListings
-from auggie.contracts import Artifact, SubjectRef
+from auggie.contracts import Artifact, SubjectRef, sha256_digest
 from auggie.judgment.rules import RulesQualifier
 from auggie.operate import describe_draft
 from auggie.pipeline import read_proof_pages, record_revision, research_run
-from auggie.proofs import holds
-from auggie.store import Backend, Store
+from auggie.signals import says
+from auggie.store import Backend, IntegrityError, Store
 from auggie.store.memory import InMemoryBackend
 from auggie.strategy import LoadedStrategy, load_strategy
 from auggie.synthetic import SyntheticInputs, load_inputs, run_scenario
@@ -93,7 +93,7 @@ def test_a_draft_quotes_its_proof_exactly_from_the_one_read_that_holds_it(
     assert str(proof.url) == PROOF_PAGE
     read = run.store.get_evidence(proof.evidence_id)
     assert read.subject == SubjectRef(kind="seller", id="demo-security")
-    assert str(read.source_url) == PROOF_PAGE and holds(read.excerpt or "", CLAIM)
+    assert str(read.source_url) == PROOF_PAGE and says(read.excerpt or "", CLAIM)
     assert proof.evidence_id in draft.evidence_ids
     # A person still approves the exact draft before anything is delivered.
     assert [a.scope for a in run.approvals] == ["content", "delivery"]
@@ -207,3 +207,114 @@ def test_a_draft_must_cite_the_read_of_the_proof_it_quotes() -> None:
         Artifact.model_validate(variant(draft, evidence_ids=[]))
     as_json = json.loads(draft.model_dump_json())
     assert as_json["point_of_view"]["proof"]["evidence_id"] == "ev-proof-harborview-triage"
+
+
+# What Pi's review found
+
+
+def test_a_revision_that_changes_the_quoted_words_no_longer_shows_them_as_the_proof(
+    backend: Backend,
+) -> None:
+    from auggie.operate import revise_draft
+
+    undelivered = INPUTS.model_copy(update={"reviews": (), "delivery": None, "outcome": None})
+    run = run_scenario(KESTREL, backend=backend, inputs=undelivered)
+    draft = run.result.draft
+    assert draft is not None
+    printed: list[str] = []
+    revised = revise_draft(
+        run.store,
+        draft_id=draft.ref.artifact_id,
+        author="demo-seller",
+        edit=lambda text: text.replace("twenty minutes", "one minute"),
+        out=printed.append,
+    )
+    assert revised is not None and revised.point_of_view is not None
+    assert revised.point_of_view.proof is None
+    assert revised.point_of_view.fit == draft.point_of_view.fit  # type: ignore[union-attr]
+    assert any("no longer quotes proof harborview-triage" in line for line in printed)
+    shown: list[str] = []
+    describe_draft(run.store, revised, shown.append)
+    assert not any(line.startswith("proof ") for line in shown)
+
+
+def test_a_draft_record_must_hold_the_proof_it_says_it_quotes() -> None:
+    run = run_scenario(KESTREL)
+    draft = run.result.draft
+    assert draft is not None
+    changed = draft.content.replace("twenty minutes", "one minute")
+    with pytest.raises(ValidationError, match="holds the proof it quotes exactly"):
+        Artifact.model_validate(
+            variant(
+                draft,
+                content=changed,
+                ref=variant(draft.ref, content_hash=sha256_digest(changed)),
+            )
+        )
+
+
+def test_the_store_refuses_a_quoted_proof_that_rests_on_an_account_page(
+    backend: Backend,
+) -> None:
+    run = run_scenario(KESTREL, backend=backend)
+    draft = run.result.draft
+    assert draft is not None and draft.point_of_view is not None
+    view = draft.point_of_view
+    assert view.proof is not None
+    forged = Artifact.model_validate(
+        variant(
+            draft,
+            ref=variant(draft.ref, artifact_id="draft-forged"),
+            evidence_ids=["ev-fernhollow-security"],
+            point_of_view=variant(
+                view, proof=variant(view.proof, evidence_id="ev-fernhollow-security")
+            ),
+        )
+    )
+    with pytest.raises(IntegrityError, match="is not a read of the seller's own page"):
+        run.store.put_artifact(forged)
+
+
+def test_the_composer_takes_only_this_runs_read_and_the_strategys_own_proofs() -> None:
+    from auggie.compose.template import ComposeBlocked, compose_draft, select_play
+    from auggie.judgment import ListingReadings
+    from auggie.proofs import ProofCheck, check_proofs
+
+    run = run_scenario(KESTREL)
+    store, rules = run.store, run.strategy
+    decision = run.result.decision
+    at = datetime(2026, 10, 15, 9, 10, tzinfo=UTC)
+    proofs = check_proofs(store, rules.strategy, at)
+    play = select_play(rules, decision, proofs)
+    assert play is not None
+    current = store.get_careers_snapshot("snap-fernhollow-001")
+
+    def compose(listing: Any, checks: Any) -> Any:
+        return compose_draft(
+            artifact_id="draft-probe",
+            play=play,
+            strategy=rules,
+            decision=decision,
+            account=INPUTS.account,
+            sources={},
+            at=at,
+            listing=listing,
+            proofs=checks,
+        )
+
+    elsewhere = current.model_copy(
+        update={"snapshot_id": "careers-other", "account_id": "acc-other"}
+    )
+    with pytest.raises(ComposeBlocked, match="not the one finding 'detection-hiring' cites"):
+        compose(ListingReadings(elsewhere), proofs)
+    real = proofs["harborview-triage"]
+    other = real.proof.model_copy(
+        update={"customer": "Other Story", "claim": "An unsupported result."}
+    )
+    forged = {"harborview-triage": ProofCheck("harborview-triage", other, real.read, None)}
+    with pytest.raises(ComposeBlocked, match="is not of proof 'harborview-triage'"):
+        compose(ListingReadings(current), forged)
+    assert (
+        compose(ListingReadings(current), proofs).point_of_view.proof.proof_id
+        == "harborview-triage"
+    )

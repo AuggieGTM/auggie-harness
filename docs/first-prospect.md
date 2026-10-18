@@ -140,9 +140,9 @@ the shape:
   `{hiring_count}`, `{hiring_family}` and `{hiring_date}`. A play that quotes a proof is used
   only while one of its pain's proofs is usable, so put a play without a proof after it.
 
-A proof is usable only while the newest read of its page holds the claim word for word, case
-included, and is no older than `max_age_days`. After each change to your proofs, read their
-pages, a paid Treg call of at most $0.002 a page:
+A proof is usable only while the newest read of its page was admitted, is no older than
+`max_age_days`, and holds the claim and the customer's name word for word, case included. After
+each change to your proofs, read their pages, a paid Treg call of at most $0.002 a page:
 
 ```bash
 uv run auggie proofs <scope.json> --mongodb <uri> --read \
@@ -153,7 +153,9 @@ uv run auggie proofs <scope.json> --mongodb <uri> --read \
 no proof pages: it uses the reads already recorded. A read keeps the first 4,000 characters of
 the page's text, so a claim further down cannot be checked; quote one near the top. Your case
 studies are your company's claims, so `review` shows each quoted proof as a vendor claim, with
-its page, when it was read and its caveat, beside the pain's fit and limits.
+its page, when it was read and its caveat, beside the pain's fit and limits. If `revise` changes
+the quoted words, the new version is no longer shown as quoting the proof, and review judges
+its text as yours.
 
 ### 3. A Treg team and token for the harness
 

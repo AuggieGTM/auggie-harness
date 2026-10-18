@@ -19,6 +19,7 @@ from auggie.contracts import (
     verify_cited_evidence,
     verify_cited_snapshots,
 )
+from auggie.proofs import page_problem
 from auggie.store import IntegrityError
 
 STORED_KINDS = frozenset({"person", "evidence", "careers", "qualification", "artifact", "approval"})
@@ -86,6 +87,7 @@ def check_artifact(
         snapshot_ids=artifact.snapshot_ids,
         snapshots=snapshots,
     )
+    _check_quoted_proof(artifact, cited)
     if previous is None:
         if artifact.supersedes is not None:
             raise IntegrityError("the first version of an artifact cannot supersede another")
@@ -105,6 +107,27 @@ def check_artifact(
     ]
     if changed:
         raise IntegrityError(f"a new version cannot change {', '.join(changed)}")
+
+
+def _check_quoted_proof(artifact: Artifact, cited: Iterable[SourceEvidence]) -> None:
+    """A proof the draft quotes rests on a read of the seller's own page, at the proof's URL,
+    that holds its claim and its customer word for word (ADR 0026). Whether that read is the
+    newest, admitted and recent enough is known from the strategy; research checks it."""
+    proof = artifact.point_of_view.proof if artifact.point_of_view else None
+    if proof is None:
+        return
+    read = next((e for e in cited if e.evidence_id == proof.evidence_id), None)
+    if read is None:
+        raise IntegrityError(f"the read of proof {proof.proof_id!r} is not stored")
+    problem = page_problem(
+        read,
+        customer_id=artifact.customer_id,
+        url=str(proof.url),
+        claim=proof.claim,
+        customer=proof.customer,
+    )
+    if problem is not None:
+        raise IntegrityError(f"proof {proof.proof_id!r}: {problem}")
 
 
 def check_approval(

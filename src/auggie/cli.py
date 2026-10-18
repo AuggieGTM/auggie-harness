@@ -572,13 +572,13 @@ def shell_command(args: argparse.Namespace, out: Print, ask: Callable[[str], str
                 args.strategy_repo, args.strategy_path, revision=args.revision, scope=scope
             )
         if args.command == "hiring" and args.read:
-            refused = _cannot_read(args, prospects, loaded)
+            refused = _cannot_read(args, prospects, loaded, scope)
             if refused is not None:
                 out(f"stopped   {refused}")
                 return 1
             return _read_and_answer(args, backend.open(scope), prospects, loaded, out)
         if args.command == "proofs" and args.read:
-            refused = _cannot_read_proofs(args, loaded)
+            refused = _cannot_read_proofs(args, loaded, scope)
             if refused is not None:
                 out(f"stopped   {refused}")
                 return 1
@@ -649,7 +649,10 @@ def _answer(
 
 
 def _cannot_read(
-    args: argparse.Namespace, prospects: dict[str, Account], loaded: LoadedStrategy | None
+    args: argparse.Namespace,
+    prospects: dict[str, Account],
+    loaded: LoadedStrategy | None,
+    scope: CustomerScope,
 ) -> str | None:
     """Why ``hiring --read`` cannot run as given, before anything is opened or read."""
     if args.json:
@@ -661,17 +664,31 @@ def _cannot_read(
     prospect = prospects.get(args.account)
     if prospect is None or prospect.careers_listing is None:
         return f"no prospect file names a careers listing for {args.account!r}"
+    if not scope.execution.external_providers:
+        return f"scope {scope.customer_id!r} does not allow calls to external services"
     return None
 
 
-def _cannot_read_proofs(args: argparse.Namespace, loaded: LoadedStrategy | None) -> str | None:
+def _cannot_read_proofs(
+    args: argparse.Namespace, loaded: LoadedStrategy | None, scope: CustomerScope
+) -> str | None:
     """Why ``proofs --read`` cannot run as given, before anything is opened or read."""
+    from auggie.acquisition.treg import CEILING_MICRO_USD
+
     if args.json:
         return "--read records evidence, and JSON commands only read; drop --json"
     if loaded is None:
         return "proofs needs --strategy-repo and --strategy-path"
     if not loaded.strategy.proofs.by_id:
         return "the strategy holds no proofs"
+    if not scope.execution.external_providers:
+        return f"scope {scope.customer_id!r} does not allow calls to external services"
+    limit = RunBudget.for_scope(scope).limit_micro_usd
+    if limit < CEILING_MICRO_USD:
+        return (
+            f"the scope's run limit of {limit} micro-USD is less than one page read can cost "
+            f"({CEILING_MICRO_USD} micro-USD)"
+        )
     return None
 
 

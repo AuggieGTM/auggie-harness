@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import HttpUrl, StringConstraints, model_validator
+from pydantic import Field, HttpUrl, StringConstraints, model_validator
 
 from auggie.contracts.approval import ArtifactRef
 from auggie.contracts.common import (
@@ -18,7 +18,7 @@ from auggie.contracts.common import (
     UtcDatetime,
     sha256_digest,
 )
-from auggie.contracts.strategy import Claim, Copy, Label
+from auggie.contracts.strategy import Claim, Copy, Label, ProofField
 
 Content = Annotated[str, StringConstraints(min_length=1, max_length=50_000)]
 """Exact artifact text. Never stripped or normalized: its bytes are what approvals bind to."""
@@ -35,6 +35,14 @@ class QuotedProof(Contract):
     caveat: Text | None = None
     evidence_id: RecordId
     """The read of the proof's page, about the seller, that holds the claim word for word."""
+    rendered: Annotated[tuple[ProofField, ...], Field(min_length=1)]
+    """The fields the draft's text holds exactly as written here."""
+
+    def value(self, field: ProofField) -> str:
+        return self.claim if field == "proof_claim" else self.customer
+
+    def held_by(self, content: str) -> bool:
+        return all(self.value(field) in content for field in self.rendered)
 
 
 class PointOfView(Contract):
@@ -93,6 +101,9 @@ class Artifact(Contract):
         if self.supersedes == self.ref.content_hash:
             raise ValueError("a version cannot supersede itself")
         proof = self.point_of_view.proof if self.point_of_view else None
-        if proof is not None and proof.evidence_id not in self.evidence_ids:
-            raise ValueError("a draft cites the read of the proof it quotes")
+        if proof is not None:
+            if proof.evidence_id not in self.evidence_ids:
+                raise ValueError("a draft cites the read of the proof it quotes")
+            if not proof.held_by(self.content):
+                raise ValueError("a draft holds the proof it quotes exactly as written")
         return self

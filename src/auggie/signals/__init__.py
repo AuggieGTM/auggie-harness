@@ -34,6 +34,12 @@ def phrase_pattern(phrase: str, *, ignore_case: bool = True) -> re.Pattern[str]:
     return re.compile(r"(?<![^\W_])" + r"\s+".join(parts) + r"(?![^\W_])", flags)
 
 
+def says(text: str, words: str) -> bool:
+    """Whether ``text`` holds ``words`` word for word: case kept, any whitespace between
+    words, and no letter or digit right before or after. How a proof is checked (ADR 0026)."""
+    return phrase_pattern(words, ignore_case=False).search(text) is not None
+
+
 def mentions(text: str, phrase: str) -> bool:
     return phrase_pattern(phrase).search(text) is not None
 

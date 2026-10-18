@@ -16,6 +16,7 @@ from typing import Any, get_args
 from pydantic import ValidationError
 
 from auggie.accounts import Account
+from auggie.acquisition.validation import recorded_validation
 from auggie.contracts import (
     CustomerScope,
     RecordRef,
@@ -141,15 +142,7 @@ def _drafts(store: Store, account_id: str) -> list[View]:
 
 
 def _validation(store: Store) -> dict[str, str]:
-    """Each evidence ID's validation, as its events record it."""
-    found: dict[str, str] = {}
-    for type, word in (("evidence.validated", "admitted"), ("evidence.rejected", "rejected")):
-        for event in store.list_events(type=type):  # type: ignore[arg-type]
-            for ref in event.refs:
-                if ref.kind == "evidence":
-                    reason = event.attributes.get("reason")
-                    found[ref.id] = f"{word}: {reason}" if reason else word
-    return found
+    return recorded_validation(store)
 
 
 def _evidence(store: Store, account_id: str | None) -> list[SourceEvidence]:

@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from auggie.acquisition.treg import MAX_CHARACTERS
-from auggie.acquisition.validation import check_evidence
+from auggie.acquisition.validation import recorded_validation
 from auggie.contracts import (
     CustomerScope,
     Proof,
@@ -21,7 +21,7 @@ from auggie.contracts import (
     SubjectRef,
     ensure_in_scope,
 )
-from auggie.signals import phrase_pattern
+from auggie.signals import says
 from auggie.store import Store
 
 
@@ -44,47 +44,74 @@ class ProofCheck:
         return self.problem is None
 
 
-def holds(text: str, claim: str) -> bool:
-    """Whether ``text`` says ``claim`` word for word: case kept, any whitespace between words."""
-    return phrase_pattern(claim, ignore_case=False).search(text) is not None
+def page_problem(
+    read: SourceEvidence, *, customer_id: str, url: str, claim: str, customer: str
+) -> str | None:
+    """Why ``read`` cannot support a proof: not a read of this seller's own page at ``url``, or
+    without the claim and the customer's name word for word. None when it can."""
+    if read.subject != SubjectRef(kind="seller", id=customer_id):
+        return f"{read.evidence_id} is not a read of the seller's own page"
+    if str(read.source_url) != url:
+        return f"{read.evidence_id} is a read of another page"
+    text = read.excerpt or ""
+    if not says(text, claim):
+        return (
+            "the newest read of its page does not hold the claim word for word "
+            f"(a read keeps the page's first {MAX_CHARACTERS:,} characters)"
+        )
+    if not says(text, customer):
+        return f"the newest read of its page does not name {customer}"
+    return None
 
 
 def check_proofs(store: Store, strategy: Strategy, at: datetime) -> dict[str, ProofCheck]:
-    """Each proof of ``strategy``, judged from the newest read of its page as of ``at``. A
-    newer read that failed makes a proof unusable; an older one never stands in for it."""
+    """Each proof of ``strategy``, judged from the newest read of its page as of ``at``, and
+    that read's recorded validation. A newer read that failed, was rejected or was never
+    checked makes a proof unusable; an older one never stands in for it."""
     ensure_in_scope(store.scope, strategy)
-    subject = seller(store.scope)
-    reads = store.list_evidence(subject=subject)
+    reads = store.list_evidence(subject=seller(store.scope))
+    validation = recorded_validation(store)
     max_age = timedelta(days=strategy.proofs.max_age_days)
     checks = {}
     for proof_id, proof in strategy.proofs.by_id.items():
-        same = [(n, e) for n, e in enumerate(reads) if str(e.source_url) == str(proof.url)]
-        same = [(n, e) for n, e in same if e.observed_at <= at]
+        same = [
+            (n, e)
+            for n, e in enumerate(reads)
+            if str(e.source_url) == str(proof.url) and e.observed_at <= at
+        ]
         newest = max(same, key=lambda pair: (pair[1].observed_at, pair[0]))[1] if same else None
-        checks[proof_id] = ProofCheck(
-            proof_id, proof, newest, _problem(store, proof, newest, at, max_age)
-        )
+        problem = _problem(store, proof, newest, validation, at, max_age)
+        checks[proof_id] = ProofCheck(proof_id, proof, newest, problem)
     return checks
 
 
 def _problem(
-    store: Store, proof: Proof, read: SourceEvidence | None, at: datetime, max_age: timedelta
+    store: Store,
+    proof: Proof,
+    read: SourceEvidence | None,
+    validation: dict[str, str],
+    at: datetime,
+    max_age: timedelta,
 ) -> str | None:
     if read is None:
         return "its page has not been read; read it with proofs --read"
-    verdict = check_evidence(read, scope=store.scope, subject=seller(store.scope))
     if not read.usable:
         return f"the newest read of its page failed: {read.failure_reason}"
-    if not verdict.admitted:
-        return f"the newest read of its page was rejected ({verdict.rejected_for})"
+    verdict = validation.get(read.evidence_id)
+    if verdict is None:
+        return f"the newest read of its page ({read.evidence_id}) was never checked"
+    if verdict != "admitted":
+        reason = verdict.partition(": ")[2]
+        return "the newest read of its page was rejected" + (f" ({reason})" if reason else "")
     if at - read.observed_at > max_age:
         return (
             f"its page was last read on {read.observed_at:%Y-%m-%d}, more than "
             f"{max_age.days} days before {at:%Y-%m-%d}"
         )
-    if not holds(read.excerpt or "", proof.claim):
-        return (
-            "the newest read of its page does not hold the claim word for word "
-            f"(a read keeps the page's first {MAX_CHARACTERS:,} characters)"
-        )
-    return None
+    return page_problem(
+        read,
+        customer_id=store.scope.customer_id,
+        url=str(proof.url),
+        claim=proof.claim,
+        customer=proof.customer,
+    )

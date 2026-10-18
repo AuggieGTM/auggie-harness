@@ -19,8 +19,9 @@ from auggie.cli import main
 from auggie.contracts import CustomerScope, SubjectRef
 from auggie.credentials import CredentialFiles
 from auggie.pipeline import read_proof_pages
-from auggie.proofs import check_proofs, holds
+from auggie.proofs import check_proofs
 from auggie.queries import accounts_view, find_view, proofs_view
+from auggie.signals import says
 from auggie.spend import RunBudget
 from auggie.store import Store
 from auggie.store.memory import InMemoryBackend
@@ -159,9 +160,9 @@ def test_a_read_rejected_by_validation_cannot_support_a_proof() -> None:
 
 
 def test_holding_a_claim_keeps_case_and_word_edges() -> None:
-    assert holds("It cut triage\n time  by half.", "cut triage time by half.")
-    assert not holds("It cut Triage time by half.", "cut triage time by half.")
-    assert not holds("It recut triage time by half.", "cut triage time by half.")
+    assert says("It cut triage\n time  by half.", "cut triage time by half.")
+    assert not says("It cut Triage time by half.", "cut triage time by half.")
+    assert not says("It recut triage time by half.", "cut triage time by half.")
 
 
 # Reading proof pages
@@ -348,3 +349,120 @@ def test_proofs_from_the_command_line_read_on_request(
         (row,) = json.loads(capsys.readouterr().out)
         assert row["usable"] is True
     assert len(treg.requests) == 1
+
+
+# What Pi's review found
+
+
+class AsTheSeller:
+    """An acquisition that returns the proof page as evidence about the seller, whatever it was
+    asked for: a wrong subject the recorded validation catches."""
+
+    actor = FixtureAcquisition([]).actor
+
+    def acquire(self, *, evidence_id: str, customer_id: str, subject: Any, url: Any) -> Any:
+        acquired = FixtureAcquisition([RECORDED]).acquire(
+            evidence_id=evidence_id,
+            customer_id=customer_id,
+            subject=SubjectRef(kind="seller", id=customer_id),
+            url=url,
+        )
+        return acquired
+
+
+def test_a_read_recorded_as_rejected_or_never_checked_supports_no_proof() -> None:
+    from auggie.pipeline import record_page
+
+    store = InMemoryBackend().open(INPUTS.scope)
+    verdict = record_page(
+        store,
+        acquisition=AsTheSeller(),
+        account_id="acc-fernhollow",
+        evidence_id="ev-rejected",
+        url=PAGE,
+        run_id="run-001",
+        now=clock(RUN_AT),
+    )
+    assert verdict.rejected_for == "wrong_subject"
+    assert check(store).problem == "the newest read of its page was rejected (wrong_subject)"
+
+    def interrupted() -> datetime:
+        raise RuntimeError("stopped before the check was recorded")
+
+    store = InMemoryBackend().open(INPUTS.scope)
+    with pytest.raises(RuntimeError):
+        read_proof_pages(
+            store,
+            strategy=strategy(),
+            acquisition=FixtureAcquisition([RECORDED]),
+            run_id="run-002",
+            now=interrupted,
+        )
+    assert len(store.list_evidence()) == 1
+    assert "was never checked" in (check(store).problem or "")
+
+
+def test_a_proof_whose_page_does_not_name_its_customer_is_not_usable() -> None:
+    proof = strategy().strategy.proofs.by_id["harborview-triage"].model_dump(mode="json")
+    rules = strategy(
+        proofs={
+            "max_age_days": 180,
+            "by_id": {"harborview-triage": {**proof, "customer": "Unmentioned Customer"}},
+        }
+    )
+    store = InMemoryBackend().open(INPUTS.scope)
+    reads(store, recorded(), rules=rules)
+    problem = check(store, rules=rules).problem
+    assert problem == "the newest read of its page does not name Unmentioned Customer"
+
+
+@pytest.mark.parametrize(
+    ("execution", "refusal"),
+    [
+        ({"external_providers": False}, "does not allow calls to external services"),
+        (
+            {"external_providers": True, "max_run_spend_micro_usd": 0},
+            "run limit of 0 micro-USD is less than one page read can cost",
+        ),
+    ],
+    ids=["no-external-calls", "no-budget"],
+)
+def test_an_impossible_proof_read_is_refused_before_the_store_opens(
+    execution: dict[str, Any],
+    refusal: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from pymongo import MongoClient
+
+    scope = INPUTS.scope.model_copy(
+        update={"execution": INPUTS.scope.execution.model_copy(update=execution)}
+    )
+    scope_file = tmp_path / "scope.json"
+    scope_file.write_text(scope.model_dump_json(), encoding="utf-8")
+    treg = Replay(page(PAGE, EXCERPT))
+    monkeypatch.setattr(cli, "treg_transport", lambda: treg)
+    with mongo_backend() as backend:
+        argv = [
+            "proofs",
+            str(scope_file),
+            "--mongodb",
+            os.environ[MONGODB_URI],
+            "--database-prefix",
+            backend.database_prefix,
+            "--strategy-repo",
+            str(Path(__file__).resolve().parent.parent),
+            "--strategy-path",
+            "examples/synthetic/kestrel-security/inputs/strategy/security.toml",
+            "--read",
+        ]
+        assert main(argv) == 1
+        assert refusal in capsys.readouterr().out
+        client: MongoClient[dict[str, Any]] = MongoClient(os.environ[MONGODB_URI])
+        try:
+            names = client.list_database_names()
+        finally:
+            client.close()
+        assert not [n for n in names if n.startswith(backend.database_prefix)]
+    assert treg.requests == []

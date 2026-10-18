@@ -600,6 +600,11 @@ def record_revision(
         pass
     else:
         raise ValueError(f"that text is an earlier version of {artifact_id}; change it to revise")
+    view = edited.point_of_view
+    if view is not None and view.proof is not None and not view.proof.held_by(content):
+        # The person changed the quoted words, so they are no longer the proof's: the new
+        # version is not shown as quoting it, and review judges its text as the person's own.
+        view = view.model_copy(update={"proof": None})
     revised = Artifact(
         customer_id=edited.customer_id,
         ref=ref,
@@ -610,7 +615,7 @@ def record_revision(
         evidence_ids=edited.evidence_ids,
         snapshot_ids=edited.snapshot_ids,
         strategy=edited.strategy,
-        point_of_view=edited.point_of_view,
+        point_of_view=view,
         composed_by=by,
         composed_at=at,
         supersedes=previous.content_hash,

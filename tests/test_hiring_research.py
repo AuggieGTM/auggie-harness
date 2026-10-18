@@ -898,3 +898,39 @@ def test_a_disqualifier_that_applies_cannot_be_left_out(tmp_path: Path, backend:
     with pytest.raises(CitationError, match="give disqualified by headcount-50-to-500"):
         research(hides, store)
     assert store.list_events(type="draft.composed") == ()
+
+
+def test_a_listing_read_for_a_scope_without_external_calls_is_refused_before_opening(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from pymongo import MongoClient
+
+    prospects = tmp_path / "prospects"
+    prospects.mkdir()
+    (prospects / "fernhollow.json").write_text((KESTREL / "prospect.json").read_text())
+    with mongo_backend() as backend:
+        argv = [
+            "hiring",
+            str(KESTREL / "scope.json"),  # external_providers is false
+            "--mongodb",
+            os.environ[MONGODB_URI],
+            "--database-prefix",
+            backend.database_prefix,
+            "--prospects",
+            str(prospects),
+            "--strategy-repo",
+            str(Path(__file__).resolve().parent.parent),
+            "--strategy-path",
+            "examples/synthetic/kestrel-security/inputs/strategy/security.toml",
+            "--account",
+            "acc-fernhollow",
+            "--read",
+        ]
+        assert main(argv) == 1
+        assert "does not allow calls to external services" in capsys.readouterr().out
+        client: MongoClient[dict[str, Any]] = MongoClient(os.environ[MONGODB_URI])
+        try:
+            names = client.list_database_names()
+        finally:
+            client.close()
+        assert not [n for n in names if n.startswith(backend.database_prefix)]

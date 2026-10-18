@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from auggie.contracts import Actor, CustomerScope, SourceEvidence, SubjectRef
+from auggie.store import Store
 
 RejectionReason = Literal["retrieval_failed", "wrong_subject", "non_reserved_domain"]
 
@@ -43,3 +44,16 @@ def check_evidence(
     if scope.synthetic and not all(RESERVED_HOST.search(url.host or "") for url in urls):
         return Verdict(evidence, "non_reserved_domain")
     return Verdict(evidence)
+
+
+def recorded_validation(store: Store) -> dict[str, str]:
+    """Each evidence ID's validation, as its events record it: "admitted", or "rejected" with
+    its reason. Evidence with no validation event was never checked."""
+    found: dict[str, str] = {}
+    for type, word in (("evidence.validated", "admitted"), ("evidence.rejected", "rejected")):
+        for event in store.list_events(type=type):  # type: ignore[arg-type]
+            for ref in event.refs:
+                if ref.kind == "evidence":
+                    reason = event.attributes.get("reason")
+                    found[ref.id] = f"{word}: {reason}" if reason else word
+    return found
