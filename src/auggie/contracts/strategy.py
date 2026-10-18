@@ -13,7 +13,14 @@ from collections.abc import Mapping
 from types import MappingProxyType
 from typing import Annotated, Literal
 
-from pydantic import AfterValidator, Field, StringConstraints, field_validator, model_validator
+from pydantic import (
+    AfterValidator,
+    Field,
+    HttpUrl,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
 from auggie.contracts.common import Contract, FrozenMap, RecordId, Slug, Text
 
@@ -22,12 +29,19 @@ FieldName = Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]{0,31}$")]
 BUILTIN_FIELDS: frozenset[str] = frozenset({"first_name", "account_name"})
 """Template fields filled from the account and recipient records, not from evidence."""
 
+PAIN_FIELDS: frozenset[str] = frozenset({"pain", "offer"})
+PROOF_FIELDS: frozenset[str] = frozenset({"proof_claim", "proof_customer"})
+"""Fields a play that names a pain may use, from its approved copy and first usable proof."""
+
+HIRING_FIELDS: frozenset[str] = frozenset({"hiring_count", "hiring_family", "hiring_date"})
+"""Fields a play that names a hiring criterion may use, from this run's tally (ADR 0026)."""
+
 Phrase = Annotated[str, StringConstraints(min_length=1, max_length=200)]
 
 
 def _not_blank(value: str) -> str:
     if not value.strip():
-        raise ValueError("a vocabulary phrase cannot be blank")
+        raise ValueError("cannot be blank")
     return value
 
 
@@ -173,6 +187,81 @@ class Signals(Contract):
     stack: Stack | None = None
 
 
+# ---- The seller's point of view (ADR 0026) ------------------------------------
+
+
+Copy = Annotated[str, StringConstraints(min_length=1, max_length=2000), AfterValidator(_not_blank)]
+"""Wording the seller approved. Rendering never reflows it."""
+
+
+def _single_spaced(value: str) -> str:
+    if not re.fullmatch(r"\S+(?: \S+)*", value):
+        raise ValueError("a claim is one line of words with single spaces, as the draft quotes it")
+    return value
+
+
+Claim = Annotated[
+    str, StringConstraints(min_length=1, max_length=1000), AfterValidator(_single_spaced)
+]
+"""The exact words a draft quotes from a proof's page. A page may break or space them
+differently; any run of whitespace there matches one space here."""
+
+
+class Proof(Contract):
+    """One customer story on one public page of the seller's: a vendor claim, quoted exactly."""
+
+    customer: Annotated[Label, AfterValidator(_not_blank)]
+    url: HttpUrl
+    claim: Claim
+    kind: Literal["result", "scale"]
+    caveat: Text | None = None
+    """What the story does not prove. Shown at review, never in a draft."""
+
+
+class Proofs(Contract):
+    """``[proofs]``: the seller's customer stories by ID, and how old a read of a proof's page
+    may be for the proof to be used. In the file, each story is its own ``[proofs.<id>]``."""
+
+    max_age_days: Annotated[int, Field(ge=1, le=3650)] = 180
+    by_id: FrozenMap[Slug, Proof] = Field(default_factory=dict, validate_default=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _stories(cls, data: object) -> object:
+        # ``by_id`` is no slug, so no story can be named that; its absence means file form.
+        if isinstance(data, Mapping) and "by_id" not in data:
+            stories = {k: v for k, v in data.items() if k != "max_age_days"}
+            age = {"max_age_days": data["max_age_days"]} if "max_age_days" in data else {}
+            return {**age, "by_id": stories}
+        return data
+
+
+class Pain(Contract):
+    """An angle the seller approved: a problem teams like the account's often have. Never a
+    fact about the account, and never recorded as a finding."""
+
+    statement: Copy
+    fit: Copy
+    """Where the seller fits."""
+    limits: Copy
+    """Where the seller stops."""
+    offer: Copy
+    """The one ask a draft closes on."""
+    proofs: tuple[Slug, ...] = ()
+    """Proof IDs, best first."""
+    metric: Copy | None = None
+    threshold: Copy | None = None
+    consequence: Copy | None = None
+    """What to measure, where it starts to hurt, and what breaks then: shown at review only."""
+
+    @field_validator("proofs")
+    @classmethod
+    def _once(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if len(set(value)) != len(value):
+            raise ValueError("a pain lists each proof once")
+        return value
+
+
 class Source(Contract):
     """A kind of source the research step looks at for each account."""
 
@@ -279,18 +368,34 @@ class Play(Contract):
     """A draft template, usable only when every criterion in ``requires`` is met.
 
     The template's fixed wording is approved copy. Only its ``{field}``
-    placeholders are filled, and rendering never reflows text.
+    placeholders are filled, and rendering never reflows text. A play that names
+    a ``pain`` may use its fields; one that names a ``hiring`` criterion may use
+    that tally's fields (ADR 0026).
     """
 
     id: Slug
     requires: Annotated[tuple[Slug, ...], Field(min_length=1)]
     template: Annotated[str, StringConstraints(min_length=1, max_length=20_000)]
     fields: FrozenMap[FieldName, MergeField] = Field(default_factory=dict, validate_default=True)
+    pain: Slug | None = None
+    hiring: Slug | None = None
+
+    @property
+    def uses_proof(self) -> bool:
+        return bool(template_fields(self.template) & PROOF_FIELDS)
 
     @model_validator(mode="after")
     def _placeholders_are_declared(self) -> Play:
         used = template_fields(self.template)
-        unknown = used - BUILTIN_FIELDS - set(self.fields)
+        reserved = set(self.fields) & (BUILTIN_FIELDS | PAIN_FIELDS | PROOF_FIELDS | HIRING_FIELDS)
+        if reserved:
+            raise ValueError(f"play {self.id!r} declares reserved fields: {sorted(reserved)}")
+        available = BUILTIN_FIELDS | set(self.fields)
+        if self.pain is not None:
+            available |= PAIN_FIELDS | PROOF_FIELDS
+        if self.hiring is not None:
+            available |= HIRING_FIELDS
+        unknown = used - available
         if unknown:
             raise ValueError(f"play {self.id!r} uses undeclared fields: {sorted(unknown)}")
         unused = set(self.fields) - used
@@ -310,6 +415,8 @@ class Strategy(Contract):
     required: Annotated[tuple[Slug, ...], Field(min_length=1)]
     plays: tuple[Play, ...] = ()
     signals: Signals = Field(default_factory=Signals)
+    proofs: Proofs = Field(default_factory=Proofs)
+    pains: FrozenMap[Slug, Pain] = Field(default_factory=dict, validate_default=True)
 
     @model_validator(mode="after")
     def _references_resolve(self) -> Strategy:
@@ -332,10 +439,31 @@ class Strategy(Contract):
                     raise ValueError(f"{criterion.id}: unknown stack term {criterion.term!r}")
         if len({play.id for play in self.plays}) != len(self.plays):
             raise ValueError("play ids must be unique")
+        for pain_id, pain in self.pains.items():
+            for proof_id in pain.proofs:
+                if proof_id not in self.proofs.by_id:
+                    raise ValueError(f"pain {pain_id!r} names undefined proof {proof_id!r}")
         for play in self.plays:
             for name in play.requires:
                 if name not in ids:
                     raise ValueError(f"play {play.id!r} requires undefined criterion {name!r}")
+            if play.pain is not None:
+                named = self.pains.get(play.pain)
+                if named is None:
+                    raise ValueError(f"play {play.id!r} names undefined pain {play.pain!r}")
+                if play.uses_proof and not named.proofs:
+                    raise ValueError(
+                        f"play {play.id!r} quotes a proof, but pain {play.pain!r} has none"
+                    )
+            if play.hiring is not None:
+                if play.hiring not in play.requires:
+                    raise ValueError(
+                        f"play {play.id!r}: its hiring criterion {play.hiring!r} must be required"
+                    )
+                if not isinstance(self.criterion(play.hiring), FamilyOpenings):
+                    raise ValueError(
+                        f"play {play.id!r}: hiring names {play.hiring!r}, not a hiring_family"
+                    )
             for field_name, field in play.fields.items():
                 if field.source not in self.sources:
                     raise ValueError(

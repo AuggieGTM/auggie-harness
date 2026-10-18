@@ -71,3 +71,24 @@ min_roles = 2
 label = "Beaconlog"
 phrases = ["Beaconlog"]
 near = ["SIEM", "log platform"]
+
+# The seller's point of view (ADR 0026). The customer, its numbers and the page are invented.
+[proofs]
+max_age_days = 180
+
+[proofs.harborview-triage]
+customer = "Harborview Freight"
+url = "https://lanternwatch.example/customers/harborview-freight"
+claim = "Harborview Freight cut the time to triage a detection alert from four hours to twenty minutes."
+kind = "result"
+caveat = "One customer's own measurement; its detection team already had three engineers."
+
+[pains.alert-triage]
+statement = "New detection teams often spend their first months triaging alerts by hand before they can write new detections."
+fit = "Lanternwatch ranks and groups the alerts the log platform raises, so a small team triages the few that matter first."
+limits = "Lanternwatch does not write detections or replace the log platform; the team still owns both."
+offer = "a 20-minute walkthrough of how teams like Harborview set their first triage rules"
+proofs = ["harborview-triage"]
+metric = "Hours from an alert firing to its triage."
+threshold = "More than one working day."
+consequence = "Alerts age out unreviewed, and new detections wait behind them."

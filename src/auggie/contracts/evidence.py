@@ -12,9 +12,10 @@ RetrievalStatus = Literal["retrieved", "not_found", "failed", "blocked"]
 
 
 class SubjectRef(Contract):
-    """The account or person a piece of evidence is about."""
+    """The account, person or seller a piece of evidence is about. A seller's ID is its scope's
+    customer: its own pages, such as the case studies its proofs quote (ADR 0026)."""
 
-    kind: Literal["account", "person"]
+    kind: Literal["account", "person", "seller"]
     id: RecordId
 
 

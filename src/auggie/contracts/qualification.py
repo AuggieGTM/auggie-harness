@@ -142,6 +142,8 @@ def verify_cited_evidence(
             problems.append(f"{evidence_id}: {record.status}, cannot support a finding")
         elif record.subject.kind == "account" and record.subject.id != account_id:
             problems.append(f"{evidence_id}: about a different account")
+        elif record.subject.kind == "seller" and record.subject.id != customer_id:
+            problems.append(f"{evidence_id}: about another seller")
     if problems:
         raise CitationError("; ".join(problems))
 
