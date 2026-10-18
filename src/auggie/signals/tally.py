@@ -35,15 +35,23 @@ class Role:
 class Reading:
     """One read attempt of one account's listing, as the tally needs it.
 
-    ``order`` is the Store's recording order, used only to break a tie between
-    readings made at the same time.
+    ``listing`` names the account and listing it read; a baseline must name the same one.
+    ``order`` is the Store's recording order, used only to break a tie between readings
+    made at the same time. Each role ID appears once: a reader collapses repeats with
+    ``count_once`` first, and a reading that repeats one is refused.
     """
 
     reading_id: str
+    listing: str
     read_at: datetime
     status: ReadStatus
     roles: tuple[Role, ...] = ()
     order: int = 0
+
+    def __post_init__(self) -> None:
+        ids = [role.role_id for role in self.roles]
+        if len(set(ids)) != len(ids):
+            raise ValueError("a reading lists a role ID twice; count each role once first")
 
     @property
     def usable(self) -> bool:
@@ -62,6 +70,22 @@ class Outcome:
     readings: tuple[str, ...] = ()
 
 
+def count_once(roles: Iterable[Role]) -> tuple[tuple[Role, ...], bool]:
+    """Each role once, by its ID, and whether the copies agreed.
+
+    Identical copies, as pages that overlap produce, collapse into one. Copies of one ID
+    that differ mean the listing gave two answers: the reading is then inconsistent
+    (ADR 0024).
+    """
+    seen: dict[str, Role] = {}
+    consistent = True
+    for role in roles:
+        known = seen.setdefault(role.role_id, role)
+        if known != role:
+            consistent = False
+    return tuple(seen.values()), consistent
+
+
 def in_family(reading: Reading, family: str, hiring: Hiring) -> tuple[Role, ...]:
     return tuple(r for r in reading.roles if family_of(r.title, hiring) == family)
 
@@ -75,7 +99,10 @@ def choose_baseline(current: Reading, earlier: Iterable[Reading], hiring: Hiring
     eligible = [
         r
         for r in earlier
-        if r.complete and r.reading_id != current.reading_id and oldest <= r.read_at <= newest
+        if r.complete
+        and r.listing == current.listing
+        and r.reading_id != current.reading_id
+        and oldest <= r.read_at <= newest
     ]
     return max(eligible, key=lambda r: (r.read_at, r.order), default=None)
 
@@ -129,6 +156,7 @@ def listing_pattern(
         if baseline is None:
             return _unknown("No complete earlier reading is in the comparison window.", current)
         before = in_family(baseline, family, hiring)
+        now = f"{'' if current.complete else 'at least '}{len(roles)}"
         if pattern == "new_openings":
             minimum = settings.new_openings.min_roles
             if before:
@@ -136,19 +164,17 @@ def listing_pattern(
                     "unmet", f"{len(before)} openings already before.", before, current, baseline
                 )
             if len(roles) >= minimum:
-                return _settled(
-                    "met", f"None before; {len(roles)} open now.", roles, current, baseline
-                )
+                return _settled("met", f"None before; {now} open now.", roles, current, baseline)
             if current.complete:
                 return _settled(
                     "unmet", f"None before; {len(roles)} open now.", roles, current, baseline
                 )
-            return _unknown("None before; the current listing was not read in full.", current)
+            return _unknown(
+                "None before; the current listing was not read in full.", current, baseline
+            )
         increase = len(roles) - len(before)
         if increase >= settings.more_openings.min_increase:
-            return _settled(
-                "met", f"{len(before)} before, {len(roles)} now.", roles, current, baseline
-            )
+            return _settled("met", f"{len(before)} before, {now} now.", roles, current, baseline)
         if current.complete:
             return _settled(
                 "unmet", f"{len(before)} before, {len(roles)} now.", roles, current, baseline

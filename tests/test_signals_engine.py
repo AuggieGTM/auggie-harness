@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from pydantic import ValidationError
 
 from auggie.contracts.strategy import Hiring, Technology
 from auggie.signals import family_of, level_of, mentions, stack_matches
@@ -13,11 +14,13 @@ from auggie.signals.tally import (
     ReadStatus,
     Role,
     choose_baseline,
+    count_once,
     family_openings,
     listing_pattern,
 )
 
 NOW = datetime(2026, 10, 18, tzinfo=UTC)
+LISTING = "acc-kestrel/greenhouse:kestrel"
 HIRING = Hiring.model_validate(
     {
         "families": {
@@ -44,7 +47,9 @@ def reading(
     dated: int | None = None,
 ) -> Reading:
     roles = tuple(role(t, i, days_ago=dated) for i, t in enumerate(titles))
-    return Reading(f"snap-{days_ago}-{order}", NOW - timedelta(days=days_ago), status, roles, order)
+    return Reading(
+        f"snap-{days_ago}-{order}", LISTING, NOW - timedelta(days=days_ago), status, roles, order
+    )
 
 
 DE = "Detection Engineer"
@@ -122,7 +127,7 @@ def test_a_stack_term_counts_only_near_its_words_on_one_line(text: str, found: b
 def test_a_term_without_near_words_counts_anywhere() -> None:
     term = Technology(label="Beaconlog", phrases=("Beaconlog",))
     (match,) = stack_matches("intro\n  Customers using Beaconlog  \nend", term)
-    assert match.line == "Customers using Beaconlog" and match.near is None
+    assert "Customers using Beaconlog" in match.quote and match.near is None
 
 
 # hiring_family
@@ -287,7 +292,7 @@ def test_long_listed(current: Reading, answer: str) -> None:
 
 def test_ages_are_measured_from_the_reading_not_today() -> None:
     old_reading = Reading(
-        "snap-old", NOW - timedelta(days=400), "complete", (role(DE, days_ago=430),)
+        "snap-old", LISTING, NOW - timedelta(days=400), "complete", (role(DE, days_ago=430),)
     )
     assert listing_pattern("long_listed", old_reading, [], "detection", HIRING).answer == "unmet"
 
@@ -310,3 +315,121 @@ def test_an_outcome_cites_its_readings_and_at_most_three_roles() -> None:
     current = reading(DE, DE, DE, DE, DE)
     outcome = listing_pattern("new_openings", current, [baseline()], "detection", HIRING)
     assert outcome.readings == ("snap-0-0", "snap-30-0") and len(outcome.roles) == 3
+
+
+# Edges found in review
+
+
+@pytest.mark.parametrize(
+    "vocabulary",
+    [
+        {"families": {"x": {"label": "x", "titles": ["  "]}}},
+        {"families": {"x": {"label": "x", "titles": ["x"]}}, "levels": {"vp": [" "]}},
+    ],
+    ids=["family-title", "level-word"],
+)
+def test_a_blank_vocabulary_phrase_is_refused(vocabulary: dict[str, object]) -> None:
+    with pytest.raises(ValidationError, match="blank"):
+        Hiring.model_validate(vocabulary)
+
+
+@pytest.mark.parametrize("field", ["phrases", "near"])
+def test_a_blank_stack_phrase_is_refused(field: str) -> None:
+    data: dict[str, object] = {"label": "B", "phrases": ["Beaconlog"], field: [" "]}
+    with pytest.raises(ValidationError, match="blank"):
+        Technology.model_validate(data)
+
+
+def test_a_reading_counts_each_role_once() -> None:
+    once = role(DE, 1)
+    with pytest.raises(ValueError, match="role ID twice"):
+        Reading("snap", LISTING, NOW, "complete", (once, once))
+    assert count_once([once, once]) == ((once,), True)
+    retitled = Role(once.role_id, "Senior Detection Engineer", once.url)
+    assert count_once([once, retitled]) == ((once,), False)
+
+
+@pytest.mark.parametrize(
+    ("text", "found"),
+    [
+        ("éBeaconlog", False),
+        ("Beaconlogé", False),
+        ("Beaconlog é", True),
+        ("Beaconlog٣", False),
+        ("foo_Beaconlog", True),
+    ],
+    ids=["letter-before", "letter-after", "spaced", "arabic-digit", "underscore"],
+)
+def test_boundaries_hold_for_letters_and_digits_in_any_script(text: str, found: bool) -> None:
+    assert mentions(text, "Beaconlog") is found
+
+
+def test_words_in_any_script_count_towards_the_near_window() -> None:
+    eight, nine = " ".join(["é"] * 8), " ".join(["é"] * 9)
+    assert stack_matches(f"SIEM {eight} Beaconlog", BEACON)
+    assert not stack_matches(f"SIEM {nine} Beaconlog", BEACON)
+
+
+def test_a_plain_phrase_may_span_lines_but_one_with_near_words_may_not() -> None:
+    plain = Technology(label="Beacon Log", phrases=("Beacon Log",))
+    near = Technology(label="Beacon Log", phrases=("Beacon Log",), near=("SIEM",))
+    assert stack_matches("Our SIEM is Beacon\nLog", plain)
+    assert not stack_matches("Our SIEM is Beacon\nLog", near)
+
+
+def test_a_quote_always_holds_the_match() -> None:
+    line = "An introduction that goes on and on. " * 12 + "Our SIEM is Beaconlog."
+    (match,) = stack_matches(line, BEACON)
+    assert "Our SIEM is Beaconlog." in match.quote and len(match.quote) <= 320
+
+
+def test_a_partial_reading_is_never_given_as_an_exact_count() -> None:
+    current = reading(DE, DE, DE, DE, status="partial")
+    new = listing_pattern("new_openings", current, [baseline()], "detection", HIRING)
+    more = listing_pattern("more_openings", current, [baseline(DE)], "detection", HIRING)
+    assert "at least 4 open now" in new.reason and "at least 4 now" in more.reason
+
+
+def test_an_unknown_answer_cites_every_reading_it_speaks_of() -> None:
+    outcome = listing_pattern(
+        "new_openings", reading(DE, status="partial"), [baseline()], "detection", HIRING
+    )
+    assert outcome.answer == "unknown" and outcome.readings == ("snap-0-0", "snap-30-0")
+
+
+def test_a_baseline_is_only_ever_from_the_same_listing() -> None:
+    elsewhere = Reading("snap-other", "acc-other/lever:other", NOW - timedelta(days=30), "complete")
+    assert choose_baseline(reading(DE), [elsewhere], HIRING) is None
+
+
+def test_answers_follow_the_vocabulary_not_the_words() -> None:
+    """The same listing shape gives the same answers under another seller's renamed words."""
+    other = Hiring.model_validate(
+        {
+            "families": {
+                "lifecycle": {"label": "lifecycle", "titles": ["lifecycle marketer"]},
+                "analytics": {"label": "analytics", "titles": ["analytics engineer"]},
+            }
+        }
+    )
+
+    def answers(vocabulary: Hiring, family: str, title: str) -> list[str]:
+        current = reading(*[title] * 3, f"Senior {title}")
+        return [
+            family_openings(current, family, 2, vocabulary).answer,
+            *(
+                listing_pattern(p, current, [baseline()], family, vocabulary).answer
+                for p in ("new_openings", "more_openings", "senior_openings", "leader_opening")
+            ),
+        ]
+
+    assert answers(HIRING, "detection", DE) == answers(other, "lifecycle", "Lifecycle Marketer")
+    swapped = Hiring.model_validate(
+        {
+            "families": {
+                "b": {"label": "b", "titles": ["engineer"]},
+                "a": {"label": "a", "titles": [DE]},
+            }
+        }
+    )
+    assert family_of(DE, swapped) == "b"  # the strategy's order decides, not the words

@@ -125,7 +125,7 @@ def _stack(criterion: StackMention, strategy: Strategy, label: str, verdict: Ver
         assessment="meets",
         basis="inference",
         evidence_ids=(verdict.evidence.evidence_id,),
-        rationale=f'The {label} names {term.label}{near}: "{match.line[:200]}"',
+        rationale=f'The {label} names {term.label}{near}: "{match.quote}"',
     )
 
 

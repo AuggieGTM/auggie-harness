@@ -13,7 +13,7 @@ from collections.abc import Mapping
 from types import MappingProxyType
 from typing import Annotated, Literal
 
-from pydantic import Field, StringConstraints, field_validator, model_validator
+from pydantic import AfterValidator, Field, StringConstraints, field_validator, model_validator
 
 from auggie.contracts.common import Contract, FrozenMap, RecordId, Slug, Text
 
@@ -23,6 +23,16 @@ BUILTIN_FIELDS: frozenset[str] = frozenset({"first_name", "account_name"})
 """Template fields filled from the account and recipient records, not from evidence."""
 
 Phrase = Annotated[str, StringConstraints(min_length=1, max_length=200)]
+
+
+def _not_blank(value: str) -> str:
+    if not value.strip():
+        raise ValueError("a vocabulary phrase cannot be blank")
+    return value
+
+
+Words = Annotated[str, StringConstraints(min_length=1, max_length=200), AfterValidator(_not_blank)]
+"""A phrase of the signal vocabulary: never blank, since a blank phrase would match anything."""
 
 
 # ---- Signal vocabulary (ADR 0023) -------------------------------------------
@@ -70,7 +80,7 @@ class HiringFamily(Contract):
     """A family of roles the seller counts, recognised by phrases in a role's title."""
 
     label: Label
-    titles: Annotated[tuple[Phrase, ...], Field(min_length=1)]
+    titles: Annotated[tuple[Words, ...], Field(min_length=1)]
 
 
 class NewOpenings(Contract):
@@ -121,7 +131,7 @@ class Hiring(Contract):
     """Families in the file's order: a role belongs to the first one its title matches."""
 
     families: FrozenMap[Slug, HiringFamily]
-    levels: FrozenMap[Level, Annotated[tuple[Phrase, ...], Field(min_length=1)]] = Field(
+    levels: FrozenMap[Level, Annotated[tuple[Words, ...], Field(min_length=1)]] = Field(
         default_factory=dict, validate_default=True
     )
     patterns: HiringPatterns = Field(default_factory=HiringPatterns)
@@ -141,8 +151,8 @@ class Technology(Contract):
     only when one of those words is on the same line, at most ``near_words`` words away."""
 
     label: Label
-    phrases: Annotated[tuple[Phrase, ...], Field(min_length=1)]
-    near: tuple[Phrase, ...] = ()
+    phrases: Annotated[tuple[Words, ...], Field(min_length=1)]
+    near: tuple[Words, ...] = ()
     near_words: Annotated[int, Field(ge=0, le=50)] = 8
 
 
