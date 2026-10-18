@@ -328,6 +328,40 @@ uv run auggie review $K/scope.json --next --reviewer "your name" $M
 - `review --next` shows the oldest draft waiting for you, then asks whether to go on. Each draft
   is still reviewed and approved on its own.
 
+## Learning from what happened
+
+Record what each delivery led to, one at a time with `auggie outcome --draft`, or from a list
+([ADR 0028](adr/0028-learning-from-outcomes.md)):
+
+```bash
+uv run auggie outcome <scope.json> --from outcomes.csv --reporter "your name" $M
+uv run auggie outcome <scope.json> --from outcomes.csv --reporter "your name" $M --write
+```
+
+The CSV has the columns `draft`, `outcome` and `occurred_at` (a date, or a time with its zone).
+The first command previews each row against your records: new, already recorded, or why it
+cannot be, such as a draft never delivered or a time before its delivery. Only `--write`
+records.
+
+`auggie learn <scope.json> $M` then shows, by play, pain, proof and met criterion, how many
+deliveries were positive (a reply or a meeting), negative (a negative reply, an opt-out or no
+reply), bounced or still waiting. A rate is positive deliveries over settled ones, so
+deliveries still waiting never lower it. Add `--json` for your coding agent.
+
+To have the harness propose changes to your strategy:
+
+```bash
+uv run auggie learn <scope.json> $M --strategy-repo <your strategy repo> \
+  --strategy-path <path in it> --propose ~/strategy-proposal.patch
+```
+
+It proposes only a new order: your plays, and each pain's proofs, best first, among those
+with at least 10 settled deliveries. It never writes new wording and never removes anything.
+The patch is a file only you can read; review it, then `git apply` it in your strategy
+repository and commit, or delete it. The harness never applies it. If your file's layout keeps
+it from making a change safely, such as a proofs list over several lines, it tells you the
+order to set by hand instead.
+
 ## Part 3: sending from your Gmail
 
 The harness can send an approved draft from your own Gmail, one message per approval, with a

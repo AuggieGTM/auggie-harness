@@ -169,7 +169,10 @@ reproduce what was learned, land here.
   of [ADR 0022](docs/adr/0022-live-delivery-records.md), tested against a fake Google. Nothing
   has been sent through it yet.*
 - Outcome intake and strategy-revision proposals that people review in Git.
-  *Decided: [ADR 0028](docs/adr/0028-learning-from-outcomes.md).*
+  *Decided: [ADR 0028](docs/adr/0028-learning-from-outcomes.md). Built: `auggie outcome --from`
+  a CSV, `auggie learn` by play, pain, proof and criterion, and `--propose` writing the plays
+  and proofs in order of their results as a patch, tested on synthetic outcomes only. Not
+  built: reading replies from the seller's mailbox.*
 
 ## Later, each its own decision
 

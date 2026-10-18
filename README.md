@@ -74,6 +74,10 @@ product.
   preview. `auggie research-list` researches a folder of them in one run within one spending
   cap, and `auggie review --next` steps through the drafts waiting for a person
   ([ADR 0027](docs/adr/0027-many-accounts.md)). Tested on a synthetic list only.
+- `src/auggie/learning.py` counts what each delivery led to, by play, pain, proof and met
+  criterion, and `src/auggie/proposals.py` proposes the plays and proofs in order of their
+  results, as a patch you apply to your strategy yourself
+  ([ADR 0028](docs/adr/0028-learning-from-outcomes.md)). Tested on synthetic outcomes only.
 - `src/auggie/pipeline.py` runs the first vertical slice as plain sequential calls: research,
   validate evidence, qualify, draft, human approval, simulated delivery, record outcome.
 - `examples/synthetic/northstar-msp/` holds one fully synthetic scenario: its inputs, and the
