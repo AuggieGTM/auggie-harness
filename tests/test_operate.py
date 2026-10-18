@@ -18,8 +18,8 @@ from auggie.operate import (
     review_draft,
     revise_draft,
 )
-from auggie.pipeline import RunResult, record_revision
-from auggie.store import Store, StoreError
+from auggie.pipeline import RunResult, _revision_event, complete_revision, record_revision
+from auggie.store import RecordConflict, Store, StoreError
 from auggie.store.memory import InMemoryBackend
 from auggie.strategy import load_strategy
 from auggie.synthetic import load_inputs
@@ -376,3 +376,55 @@ def test_a_revision_stopped_before_its_event_is_finished_by_the_next_step(
     revise_draft(store, draft_id=draft_id, author="demo-seller", edit=lambda t: t, out=shown.append)
     assert len(by_seller()) == 1
     assert not any("unfinished" in line for line in shown)
+
+
+def _stopped_revision(store: Store, monkeypatch: pytest.MonkeyPatch) -> str:
+    draft = research(store).draft
+    assert draft is not None
+
+    def stop(*_: object) -> None:
+        raise ConnectionError("the run stopped here")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(store, "append_event", stop)
+        with pytest.raises(ConnectionError):
+            revise_draft(
+                store,
+                draft_id=draft.ref.artifact_id,
+                author="demo-seller",
+                edit=lambda t: t + "PS\n",
+                out=print,
+            )
+    return draft.ref.artifact_id
+
+
+@pytest.mark.parametrize("field", ["actor", "attributes"])
+def test_finishing_a_revision_refuses_an_event_that_tells_it_differently(
+    field: str, store: Store, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    draft_id = _stopped_revision(store, monkeypatch)
+    canonical = _revision_event(store, store.latest_artifact(draft_id))
+    different = {
+        "actor": canonical.actor.model_copy(update={"id": "someone-else"}),
+        "attributes": {"supersedes": "sha256:" + "0" * 64},
+    }[field]
+    store.append_event(canonical.model_copy(update={field: different}))
+    with pytest.raises(RecordConflict, match="different revision"):
+        complete_revision(store, draft_id)
+
+
+def test_only_a_persons_edit_is_finished_this_way(store: Store) -> None:
+    draft = research(store).draft
+    assert draft is not None
+    content = draft.content + "PS\n"
+    composed = draft.model_copy(
+        update={
+            "ref": draft.ref.model_copy(update={"content_hash": sha256_digest(content)}),
+            "content": content,
+            "supersedes": draft.ref.content_hash,
+        }
+    )
+    store.put_artifact(type(draft).model_validate(composed.model_dump()))
+    events = len(store.list_events())
+    assert not complete_revision(store, draft.ref.artifact_id)
+    assert len(store.list_events()) == events

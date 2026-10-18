@@ -39,7 +39,7 @@ from auggie.contracts.common import RecordId, UtcDatetime
 from auggie.contracts.events import AttributeValue, EventType, OutcomeKind
 from auggie.delivery import SIMULATED_DELIVERY, authorize_delivery
 from auggie.judgment import Qualifier
-from auggie.store import Appended, RecordNotFound, Store
+from auggie.store import Appended, RecordConflict, RecordNotFound, Store
 from auggie.strategy import LoadedStrategy
 
 
@@ -307,7 +307,7 @@ def record_revision(
     )
     _revision_event(store, revised)  # an event that cannot be recorded stops this before any write
     store.put_artifact(revised)
-    store.append_event(_revision_event(store, revised))
+    _append_revision_event(store, revised)
     return revised
 
 
@@ -318,9 +318,25 @@ def complete_revision(store: Store, artifact_id: str) -> bool:
     when the event is already there (ADR 0015). Returns whether it was added.
     """
     latest = store.latest_artifact(artifact_id)
-    if latest.supersedes is None:
-        return False
-    return store.append_event(_revision_event(store, latest)).created
+    if (
+        latest.supersedes is None
+        or latest.composed_by.kind != "human"
+        or latest.ref.kind != "draft"
+    ):
+        return False  # only a person's edit of a draft is recorded this way
+    return _append_revision_event(store, latest)
+
+
+def _append_revision_event(store: Store, revised: Artifact) -> bool:
+    """Append the revision's event. An event already under its key must be this same event."""
+    event = _revision_event(store, revised)
+    appended = store.append_event(event)
+    facts = {"event_id"}
+    if not appended.created and appended.event.model_dump(
+        mode="json", exclude=facts
+    ) != event.model_dump(mode="json", exclude=facts):
+        raise RecordConflict(f"{event.idempotency_key!r} already records a different revision")
+    return appended.created
 
 
 def _revision_event(store: Store, revised: Artifact) -> OperationalEvent:
