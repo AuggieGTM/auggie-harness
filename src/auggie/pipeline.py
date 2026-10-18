@@ -39,7 +39,7 @@ from auggie.contracts.common import RecordId, UtcDatetime
 from auggie.contracts.events import AttributeValue, EventType, OutcomeKind
 from auggie.delivery import SIMULATED_DELIVERY, authorize_delivery
 from auggie.judgment import Qualifier
-from auggie.store import Appended, Store
+from auggie.store import Appended, RecordNotFound, Store
 from auggie.strategy import LoadedStrategy
 
 
@@ -82,17 +82,40 @@ def _append(
     attributes: dict[str, AttributeValue] | None = None,
 ) -> Appended:
     return store.append_event(
-        OperationalEvent(
-            event_id=f"evt-{len(store.list_events()) + 1:03d}",
-            customer_id=store.scope.customer_id,
-            type=type,
-            occurred_at=at,
+        _event(
+            store,
+            type,
+            at=at,
             actor=actor,
-            refs=tuple(refs),
-            idempotency_key=key,
+            refs=refs,
+            key=key,
             run_id=run_id,
-            attributes=attributes or {},
+            attributes=attributes,
         )
+    )
+
+
+def _event(
+    store: Store,
+    type: EventType,
+    *,
+    at: datetime,
+    actor: Actor,
+    refs: list[RecordRef],
+    key: str,
+    run_id: str | None = None,
+    attributes: dict[str, AttributeValue] | None = None,
+) -> OperationalEvent:
+    return OperationalEvent(
+        event_id=f"evt-{len(store.list_events()) + 1:03d}",
+        customer_id=store.scope.customer_id,
+        type=type,
+        occurred_at=at,
+        actor=actor,
+        refs=tuple(refs),
+        idempotency_key=key,
+        run_id=run_id,
+        attributes=attributes or {},
     )
 
 
@@ -244,43 +267,61 @@ def research_run(
 
 
 def record_revision(
-    store: Store, *, previous: Artifact, content: str, by: Actor, at: datetime
+    store: Store, *, previous: ArtifactRef, content: str, by: Actor, at: datetime
 ) -> Artifact:
-    """Store a person's edit of ``previous`` as the artifact's next version (ADR 0014).
+    """Store a person's edit of the ``previous`` version as the artifact's next one (ADR 0014).
 
-    The new version keeps what ``previous`` was composed from. Approvals bind
-    to one hash, so none of the earlier versions' approvals apply to it.
+    The new version keeps what the stored ``previous`` was composed from.
+    Approvals bind to one hash, so none of the earlier versions' approvals
+    apply to it. Nothing is written unless ``previous`` is still the latest
+    version, the artifact was never delivered, and the text is new.
     """
-    ref = previous.ref
+    edited = store.get_artifact(previous)
+    artifact_id = previous.artifact_id
+    if store.latest_artifact(artifact_id).ref != previous:
+        raise ValueError(f"{artifact_id} has a newer version than the one edited")
+    recipient = edited.recipient_id
+    if recipient is not None and was_delivered(store, artifact_id, recipient):
+        raise ValueError(f"{artifact_id} was already delivered; research again for a new draft")
+    ref = ArtifactRef(
+        artifact_id=artifact_id, kind=previous.kind, content_hash=sha256_digest(content)
+    )
+    try:
+        store.get_artifact(ref)
+    except RecordNotFound:
+        pass
+    else:
+        raise ValueError(f"that text is an earlier version of {artifact_id}; change it to revise")
     revised = Artifact(
-        customer_id=previous.customer_id,
-        ref=ArtifactRef(
-            artifact_id=ref.artifact_id, kind=ref.kind, content_hash=sha256_digest(content)
-        ),
+        customer_id=edited.customer_id,
+        ref=ref,
         content=content,
-        account_id=previous.account_id,
-        recipient_id=previous.recipient_id,
-        qualification_id=previous.qualification_id,
-        evidence_ids=previous.evidence_ids,
-        strategy=previous.strategy,
+        account_id=edited.account_id,
+        recipient_id=recipient,
+        qualification_id=edited.qualification_id,
+        evidence_ids=edited.evidence_ids,
+        strategy=edited.strategy,
         composed_by=by,
         composed_at=at,
-        supersedes=ref.content_hash,
+        supersedes=previous.content_hash,
     )
-    store.put_artifact(revised)
-    _append(
+    # Built before anything is written, so a version is never stored without its event.
+    event = _event(
         store,
         "draft.composed",
         at=at,
         actor=by,
         refs=[
-            RecordRef(kind="artifact", id=ref.artifact_id),
+            RecordRef(kind="artifact", id=artifact_id),
             RecordRef(kind="qualification", id=revised.qualification_id),
             *(RecordRef(kind="evidence", id=eid) for eid in revised.evidence_ids),
         ],
-        key=f"draft.composed:{ref.artifact_id}:{revised.ref.content_hash}",
-        attributes={"supersedes": ref.content_hash},
+        # "@" never appears in a record ID, so this cannot match another draft's first key.
+        key=f"draft.composed:{artifact_id}@{ref.content_hash.removeprefix('sha256:')[:32]}",
+        attributes={"supersedes": previous.content_hash},
     )
+    store.put_artifact(revised)
+    store.append_event(event)
     return revised
 
 

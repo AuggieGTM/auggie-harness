@@ -317,3 +317,23 @@ def test_an_editor_that_fails_records_nothing(
     monkeypatch.setenv("VISUAL", _editor(tmp_path, "sys.exit(3)"))
     with pytest.raises(OSError, match="status 3"):
         cli.edit_in_editor("Thanks, Sam\n")
+
+
+def test_the_editor_keeps_the_drafts_exact_bytes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("VISUAL", _editor(tmp_path, "pass"))
+    assert cli.edit_in_editor("Hi Jordan,\r\nThanks\r\n") == "Hi Jordan,\r\nThanks\r\n"
+    crlf = "Path(sys.argv[1]).write_bytes(b'Hi Jordan,\\r\\nThanks')"
+    monkeypatch.setenv("VISUAL", _editor(tmp_path, crlf))
+    assert cli.edit_in_editor("Hi Jordan,\nThanks\n") == "Hi Jordan,\r\nThanks"
+
+
+def test_the_editor_file_is_private_to_the_person(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    mode = tmp_path / "mode"
+    record = f"import os; Path({str(mode)!r}).write_text(oct(os.stat(sys.argv[1]).st_mode & 0o777))"
+    monkeypatch.setenv("VISUAL", _editor(tmp_path, record))
+    cli.edit_in_editor("Thanks, Sam\n")
+    assert mode.read_text() == "0o600"

@@ -76,7 +76,8 @@ Try the refusals too, each on a fresh `research` run:
   ```
 
   `revise` shows the reviewer's note, opens the draft in your editor (`$VISUAL` or `$EDITOR`,
-  else `vi`) and stores what you save as the draft's next version. Like `review`, it runs only
+  else `vi`) and stores what you save as the draft's next version. A graphical editor must wait
+  until you close the file, as `code --wait` does. Like `review`, it runs only
   at a terminal. Review the new version as you did the first: no earlier approval carries over.
 - Approve the content but not delivery, and `deliver` is refused until a delivery approval
   exists.

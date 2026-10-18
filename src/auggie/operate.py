@@ -232,8 +232,9 @@ def revise_draft(
         return None
     if not content.strip():
         raise ValueError("the edited draft is empty; nothing recorded")
+    # Checked again as it is written: the draft may have been delivered while it was open.
     return record_revision(
-        store, previous=draft, content=content, by=Actor(kind="human", id=author), at=now()
+        store, previous=draft.ref, content=content, by=Actor(kind="human", id=author), at=now()
     )
 
 

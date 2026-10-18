@@ -412,14 +412,17 @@ def edit_in_editor(text: str) -> str:
     editor = os.environ.get("VISUAL") or os.environ.get("EDITOR") or "vi"
     with tempfile.TemporaryDirectory(prefix="auggie-revise-") as folder:
         path = Path(folder) / "draft.md"
-        path.write_text(text, encoding="utf-8")
+        # Bytes both ways: a draft's exact text is what its hash and approvals bind to.
+        with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb") as file:
+            file.write(text.encode("utf-8"))
         finished = subprocess.run([*shlex.split(editor), str(path)], check=False)
         if finished.returncode != 0:
             raise OSError(f"the editor exited with status {finished.returncode}; nothing recorded")
-        edited = path.read_text(encoding="utf-8")
+        edited = path.read_bytes().decode("utf-8")
     # Editors end a saved file with a newline; it is not part of a draft that had none.
-    if not text.endswith("\n") and edited.endswith("\n"):
-        edited = edited[:-1]
+    if not text.endswith("\n"):
+        ending = "\r\n" if edited.endswith("\r\n") else "\n"
+        edited = edited.removesuffix(ending)
     return edited
 
 

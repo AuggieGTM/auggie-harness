@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from auggie.acquisition.fixture import FixtureAcquisition
-from auggie.contracts import ScopeViolation
+from auggie.contracts import ArtifactRef, ScopeViolation, sha256_digest
 from auggie.delivery import DeliveryBlocked
 from auggie.operate import (
     deliver_draft,
@@ -18,7 +18,7 @@ from auggie.operate import (
     review_draft,
     revise_draft,
 )
-from auggie.pipeline import RunResult
+from auggie.pipeline import RunResult, record_revision
 from auggie.store import Store, StoreError
 from auggie.store.memory import InMemoryBackend
 from auggie.strategy import load_strategy
@@ -271,3 +271,78 @@ def test_a_revision_is_refused_without_recording(delivered: bool, store: Store) 
         )
     assert store.latest_artifact(draft_id) == draft
     assert len(store.list_events()) == events
+
+
+def test_a_draft_delivered_while_it_is_being_edited_is_not_revised(store: Store) -> None:
+    draft = research(store).draft
+    assert draft is not None
+    draft_id = draft.ref.artifact_id
+    review(store, draft_id, "y", "", "y")
+
+    def edit_while_someone_delivers(text: str) -> str:
+        deliver_draft(store, draft_id=draft_id)
+        return text + "PS\n"
+
+    with pytest.raises(ValueError, match="already delivered"):
+        revise_draft(
+            store,
+            draft_id=draft_id,
+            author="demo-seller",
+            edit=edit_while_someone_delivers,
+            out=print,
+        )
+    assert store.latest_artifact(draft_id) == draft
+    assert not [e for e in store.list_events(type="draft.composed") if e.actor.id == "demo-seller"]
+
+
+def test_reverting_to_an_earlier_text_is_refused_without_recording(store: Store) -> None:
+    draft = research(store).draft
+    assert draft is not None
+    draft_id = draft.ref.artifact_id
+    revised = revise_draft(
+        store, draft_id=draft_id, author="demo-seller", edit=lambda t: t + "PS\n", out=print
+    )
+    assert revised is not None
+    events = len(store.list_events())
+    with pytest.raises(ValueError, match="earlier version"):
+        revise_draft(
+            store, draft_id=draft_id, author="demo-seller", edit=lambda _: draft.content, out=print
+        )
+    assert store.latest_artifact(draft_id) == revised
+    assert len(store.list_events()) == events
+
+
+def test_only_the_latest_stored_version_can_be_revised(store: Store) -> None:
+    draft = research(store).draft
+    assert draft is not None
+    by = draft.composed_by.model_copy(update={"kind": "human", "id": "demo-seller"})
+    record_revision(
+        store, previous=draft.ref, content=draft.content + "PS\n", by=by, at=draft.composed_at
+    )
+    with pytest.raises(ValueError, match="newer version"):
+        record_revision(
+            store, previous=draft.ref, content=draft.content + "PPS\n", by=by, at=draft.composed_at
+        )
+
+
+def test_a_revision_of_the_longest_draft_id_keeps_its_event(store: Store) -> None:
+    draft = research(store).draft
+    assert draft is not None
+    long_id = "draft-" + "x" * 122
+    first = draft.model_copy(
+        update={
+            "ref": ArtifactRef(
+                artifact_id=long_id, kind="draft", content_hash=draft.ref.content_hash
+            )
+        }
+    )
+    store.put_artifact(first)
+    by = draft.composed_by.model_copy(update={"kind": "human", "id": "demo-seller"})
+    events = len(store.list_events())
+    revised = record_revision(
+        store, previous=first.ref, content=draft.content + "PS\n", by=by, at=draft.composed_at
+    )
+    assert revised.ref.content_hash == sha256_digest(draft.content + "PS\n")
+    assert store.latest_artifact(long_id) == revised
+    (event,) = store.list_events()[events:]
+    assert len(event.idempotency_key) <= 200
