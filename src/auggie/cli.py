@@ -606,6 +606,20 @@ def _add_shell_commands(commands: Any) -> None:
                 action="store_true",
                 help="first read the account's careers listing (free) and record it",
             )
+        if name == "learn":
+            strategy(command)
+            command.add_argument(
+                "--propose",
+                type=Path,
+                metavar="FILE",
+                help="also write proposed changes to the strategy as a patch, for you to apply",
+            )
+            command.add_argument(
+                "--min-settled",
+                type=int,
+                default=10,
+                help="settled deliveries a play or proof needs before it is reordered (min 10)",
+            )
         if name == "proofs":
             strategy(command)
             command.add_argument(
@@ -672,6 +686,11 @@ def shell_command(args: argparse.Namespace, out: Print, ask: Callable[[str], str
                 out(f"stopped   {refused}")
                 return 1
             return _read_and_answer(args, backend.open(scope), prospects, loaded, out)
+        if args.command == "learn" and args.propose is not None:
+            refused = _cannot_propose(args, loaded)
+            if refused is not None:
+                out(f"stopped   {refused}")
+                return 1
         if args.command == "proofs" and args.read:
             refused = _cannot_read_proofs(args, loaded, scope)
             if refused is not None:
@@ -726,6 +745,11 @@ def _answer(
 
         view = learn_view(store)
         lines = research_shell.render_learn(view)
+        if args.propose is not None:
+            for line in lines:
+                out(line)
+            out("")
+            return _propose(args, store, loaded, out)
     elif loaded is None:
         out(f"stopped   {args.command} needs --strategy-repo and --strategy-path")
         return 1
@@ -767,6 +791,49 @@ def _cannot_read(
     if not scope.execution.external_providers:
         return f"scope {scope.customer_id!r} does not allow calls to external services"
     return None
+
+
+def _cannot_propose(args: argparse.Namespace, loaded: LoadedStrategy | None) -> str | None:
+    """Why ``learn --propose`` cannot run as given, before anything is read."""
+    if args.json:
+        return "--propose writes a patch, and JSON commands only read; drop --json"
+    if loaded is None:
+        return "--propose needs --strategy-repo and --strategy-path"
+    if args.propose.exists() or args.propose.is_symlink():
+        return f"{args.propose} exists; give a new file for the patch"
+    return None
+
+
+def _propose(
+    args: argparse.Namespace, store: Store, loaded: LoadedStrategy | None, out: Print
+) -> int:
+    """Write the plays and proofs in order of their results as a patch (ADR 0028)."""
+    from auggie import proposals
+    from auggie.learning import deliveries, tally
+
+    assert loaded is not None  # checked by _cannot_propose
+    found = deliveries(store)
+    plays = {t.key: t for t in tally(found, lambda d: [d.play] if d.play else [])}
+    proofs = {t.key: t for t in tally(found, lambda d: [d.proof] if d.proof else [])}
+    made, by_hand, text = proposals.propose(loaded, plays, proofs, args.min_settled)
+    for proposal in made:
+        out(f"proposed  {proposal.what}: {', '.join(proposal.after)}")
+        out(f"          (now {', '.join(proposal.before)})")
+        for reason in proposal.reasons:
+            out(f"          {reason}")
+    for note in by_hand:
+        out(f"by hand   {note}: the file's layout keeps the harness from writing it safely")
+    if not made:
+        out(
+            f"no patch  nothing has {args.min_settled} settled deliveries and a better rate "
+            "than one listed above it"
+        )
+        return 0
+    proposals.write_patch(args.propose, proposals.patch(loaded, text))
+    ref = loaded.ref
+    out(f"Wrote {args.propose}, against {ref.path} at {ref.commit[:7]}.")
+    out("Review it; to take it, run git apply on it in your strategy repository and commit.")
+    return 0
 
 
 def _cannot_read_proofs(

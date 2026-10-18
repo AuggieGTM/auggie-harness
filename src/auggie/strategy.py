@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import subprocess
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
 from auggie.contracts import CustomerScope, ScopeViolation, Strategy, StrategyRef, sha256_digest
@@ -18,6 +18,8 @@ class StrategyError(ValueError):
 class LoadedStrategy:
     strategy: Strategy
     ref: StrategyRef
+    source: bytes = field(default=b"", repr=False)
+    """The file's exact bytes, which ``ref.digest`` hashes; what a proposal patches."""
 
 
 def _checked(path: str) -> PurePosixPath:
@@ -38,7 +40,7 @@ def _parse(data: bytes, path: str, commit: str, scope: CustomerScope) -> LoadedS
             f"strategy {path!r} belongs to {strategy.customer_id!r}, not {scope.customer_id!r}"
         )
     return LoadedStrategy(
-        strategy, StrategyRef(commit=commit, path=path, digest=sha256_digest(data))
+        strategy, StrategyRef(commit=commit, path=path, digest=sha256_digest(data)), data
     )
 
 
