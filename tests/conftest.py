@@ -20,6 +20,7 @@ from auggie.contracts import (
     CustomerScope,
     HumanApproval,
     OperationalEvent,
+    Person,
     QualificationDecision,
     SourceEvidence,
 )
@@ -42,6 +43,7 @@ class Scenario(Contract):
 
     note: str
     scope: CustomerScope
+    person: Person
     evidence: tuple[SourceEvidence, ...]
     qualification: QualificationDecision
     draft: DraftFixture

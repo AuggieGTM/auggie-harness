@@ -18,7 +18,7 @@ from auggie.contracts import (
 )
 from auggie.store import IntegrityError
 
-STORED_KINDS = frozenset({"evidence", "qualification", "artifact", "approval"})
+STORED_KINDS = frozenset({"person", "evidence", "qualification", "artifact", "approval"})
 """Record kinds the Store holds. Event refs to these must resolve; others name outside records."""
 
 

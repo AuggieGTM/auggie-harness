@@ -28,6 +28,7 @@ from auggie.contracts import (
     DeliveryTarget,
     HumanApproval,
     OperationalEvent,
+    Person,
     QualificationDecision,
     RecordRef,
     SubjectRef,
@@ -133,6 +134,44 @@ def activate_strategy(
         refs=[RecordRef(kind="strategy", id=strategy_id)],
         key=f"strategy.activated:{strategy_id}",
     )
+
+
+def record_person(store: Store, *, account: Account, by: Actor, at: datetime) -> Person:
+    """Store the account's recipient as a person record, once (ADR 0022).
+
+    A person is never edited, so a recipient whose address changed needs a
+    new ``person_id``; the same recipient again changes nothing.
+    """
+    recipient = account.recipient
+    person = Person(
+        customer_id=account.customer_id,
+        person_id=recipient.person_id,
+        account_id=account.account_id,
+        first_name=recipient.first_name,
+        email=recipient.email,
+    )
+    try:
+        stored = store.get_person(person.person_id)
+    except RecordNotFound:
+        stored = None
+    if stored is not None and stored != person:
+        raise ValueError(
+            f"{person.person_id} is already recorded with other details; "
+            "give the recipient a new person_id"
+        )
+    store.put_person(person)
+    _append(
+        store,
+        "person.recorded",
+        at=at,
+        actor=by,
+        refs=[
+            RecordRef(kind="person", id=person.person_id),
+            RecordRef(kind="account", id=person.account_id),
+        ],
+        key=f"person.recorded:{person.person_id}",
+    )
+    return person
 
 
 def research_run(

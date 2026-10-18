@@ -33,7 +33,7 @@ def test_run_reports_every_stage(capsys: pytest.CaptureFixture[str]) -> None:
         "learn",
     ]
     assert f"validate  {'ev-northstar-news':<24} rejected: retrieval_failed" in lines
-    assert lines[-1] == "13 events in the demo-msp store."
+    assert lines[-1] == "14 events in the demo-msp store."
 
 
 def test_show_draft_prints_the_composed_text(capsys: pytest.CaptureFixture[str]) -> None:

@@ -8,6 +8,13 @@
     "knowledge_namespace": "demo-msp-strategy",
     "execution": {"delivery": "simulated", "external_providers": false}
   },
+  "person": {
+    "customer_id": "demo-msp",
+    "person_id": "per-jordan-avery",
+    "account_id": "acc-northstar",
+    "first_name": "Jordan",
+    "email": "jordan.avery@northstar.example"
+  },
   "evidence": [
     {
       "evidence_id": "ev-northstar-careers",
@@ -139,6 +146,15 @@
     {
       "event_id": "evt-002",
       "customer_id": "demo-msp",
+      "type": "person.recorded",
+      "occurred_at": "2026-10-14T15:00:00Z",
+      "actor": {"kind": "human", "id": "demo-reviewer"},
+      "refs": [{"kind": "person", "id": "per-jordan-avery"}, {"kind": "account", "id": "acc-northstar"}],
+      "idempotency_key": "person.recorded:per-jordan-avery"
+    },
+    {
+      "event_id": "evt-003",
+      "customer_id": "demo-msp",
       "type": "evidence.recorded",
       "occurred_at": "2026-10-14T16:00:00Z",
       "actor": {"kind": "service", "id": "fixture-acquisition", "version": "0"},
@@ -147,7 +163,7 @@
       "run_id": "run-001"
     },
     {
-      "event_id": "evt-003",
+      "event_id": "evt-004",
       "customer_id": "demo-msp",
       "type": "evidence.recorded",
       "occurred_at": "2026-10-14T16:00:05Z",
@@ -157,7 +173,7 @@
       "run_id": "run-001"
     },
     {
-      "event_id": "evt-004",
+      "event_id": "evt-005",
       "customer_id": "demo-msp",
       "type": "evidence.recorded",
       "occurred_at": "2026-10-14T16:00:10Z",
@@ -168,7 +184,7 @@
       "attributes": {"status": "failed"}
     },
     {
-      "event_id": "evt-005",
+      "event_id": "evt-006",
       "customer_id": "demo-msp",
       "type": "evidence.validated",
       "occurred_at": "2026-10-14T16:01:00Z",
@@ -178,7 +194,7 @@
       "run_id": "run-001"
     },
     {
-      "event_id": "evt-006",
+      "event_id": "evt-007",
       "customer_id": "demo-msp",
       "type": "evidence.validated",
       "occurred_at": "2026-10-14T16:01:00Z",
@@ -188,7 +204,7 @@
       "run_id": "run-001"
     },
     {
-      "event_id": "evt-007",
+      "event_id": "evt-008",
       "customer_id": "demo-msp",
       "type": "evidence.rejected",
       "occurred_at": "2026-10-14T16:01:00Z",
@@ -199,7 +215,7 @@
       "attributes": {"reason": "retrieval_failed"}
     },
     {
-      "event_id": "evt-008",
+      "event_id": "evt-009",
       "customer_id": "demo-msp",
       "type": "qualification.decided",
       "occurred_at": "2026-10-14T16:05:00Z",
@@ -213,7 +229,7 @@
       "attributes": {"outcome": "qualified"}
     },
     {
-      "event_id": "evt-009",
+      "event_id": "evt-010",
       "customer_id": "demo-msp",
       "type": "draft.composed",
       "occurred_at": "2026-10-14T16:10:00Z",
@@ -228,7 +244,7 @@
       "run_id": "run-001"
     },
     {
-      "event_id": "evt-010",
+      "event_id": "evt-011",
       "customer_id": "demo-msp",
       "type": "approval.recorded",
       "occurred_at": "2026-10-15T15:00:00Z",
@@ -240,7 +256,7 @@
       "idempotency_key": "approval.recorded:apr-northstar-content"
     },
     {
-      "event_id": "evt-011",
+      "event_id": "evt-012",
       "customer_id": "demo-msp",
       "type": "approval.recorded",
       "occurred_at": "2026-10-15T15:02:00Z",
@@ -252,7 +268,7 @@
       "idempotency_key": "approval.recorded:apr-northstar-delivery"
     },
     {
-      "event_id": "evt-012",
+      "event_id": "evt-013",
       "customer_id": "demo-msp",
       "type": "delivery.simulated",
       "occurred_at": "2026-10-15T15:05:00Z",
@@ -265,7 +281,7 @@
       "idempotency_key": "delivery.simulated:draft-northstar-001:per-jordan-avery"
     },
     {
-      "event_id": "evt-013",
+      "event_id": "evt-014",
       "customer_id": "demo-msp",
       "type": "outcome.recorded",
       "occurred_at": "2026-10-16T18:30:00Z",

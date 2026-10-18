@@ -10,6 +10,7 @@
   },
   "recipient": {
     "person_id": "per-jordan-avery",
-    "first_name": "Jordan"
+    "first_name": "Jordan",
+    "email": "jordan.avery@northstar.example"
   }
 }

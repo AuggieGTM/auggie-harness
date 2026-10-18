@@ -24,7 +24,11 @@
       "technology": "https://northstar.example/about/technology",
       "news": "https://news.example/2026/northstar-works-opens-second-office"
     },
-    "recipient": {"person_id": "per-jordan-avery", "first_name": "Jordan"}
+    "recipient": {
+      "person_id": "per-jordan-avery",
+      "first_name": "Jordan",
+      "email": "jordan.avery@northstar.example"
+    }
   },
   "responses": [
     {

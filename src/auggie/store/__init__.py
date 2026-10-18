@@ -16,6 +16,7 @@ from auggie.contracts import (
     CustomerScope,
     HumanApproval,
     OperationalEvent,
+    Person,
     QualificationDecision,
     SourceEvidence,
     SubjectRef,
@@ -56,6 +57,12 @@ class Store(Protocol):
 
     @property
     def scope(self) -> CustomerScope: ...
+
+    def put_person(self, person: Person) -> None:
+        """Store a person. A person is never edited: a new address needs a new ``person_id``."""
+        ...
+
+    def get_person(self, person_id: str) -> Person: ...
 
     def put_evidence(self, record: SourceEvidence) -> None: ...
 

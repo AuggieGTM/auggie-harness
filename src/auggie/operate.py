@@ -34,6 +34,7 @@ from auggie.pipeline import (
     complete_revision,
     deliver,
     record_outcome,
+    record_person,
     record_review,
     record_revision,
     research_run,
@@ -85,7 +86,9 @@ def research_prospect(
     """
     ensure_in_scope(store.scope, prospect)
     ensure_in_scope(store.scope, strategy.strategy)
-    activate_strategy(store, strategy, by=Actor(kind="human", id=operator), at=now())
+    by = Actor(kind="human", id=operator)
+    activate_strategy(store, strategy, by=by, at=now())
+    record_person(store, account=prospect, by=by, at=now())
     started = now()
     times = RunTimes(
         run_id=_fresh_run_id(store),
@@ -120,6 +123,9 @@ def describe_draft(store: Store, draft: Artifact, out: Print) -> None:
     decision: QualificationDecision = store.get_qualification(draft.qualification_id)
     out(f"draft     {draft.ref.artifact_id}, version sha256 {draft.ref.content_hash[7:19]}")
     out(f"          for {draft.recipient_id} at {draft.account_id}, composed {draft.composed_at}")
+    if draft.recipient_id is not None:
+        person = store.get_person(draft.recipient_id)
+        out(f"          to {person.first_name} <{person.email or 'no address recorded'}>")
     out("")
     for line in draft.content.splitlines():
         out(f"          | {line}")

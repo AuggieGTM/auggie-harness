@@ -17,6 +17,7 @@ from auggie.contracts import (
     CustomerScope,
     HumanApproval,
     OperationalEvent,
+    Person,
     QualificationDecision,
     RecordRef,
     ScopeViolation,
@@ -40,6 +41,7 @@ from auggie.store.integrity import (
 class _Namespace:
     """One scope's data, like one database per customer."""
 
+    people: dict[str, str] = field(default_factory=dict)
     evidence: dict[str, str] = field(default_factory=dict)
     qualifications: dict[str, str] = field(default_factory=dict)
     artifacts: dict[str, list[str]] = field(default_factory=dict)
@@ -94,6 +96,18 @@ class InMemoryStore:
     @property
     def scope(self) -> CustomerScope:
         return self._scope
+
+    # People
+
+    def put_person(self, person: Person) -> None:
+        ensure_in_scope(self._scope, person)
+        _put(self._data.people, person.person_id, person)
+
+    def get_person(self, person_id: str) -> Person:
+        stored = self._data.people.get(literal(person_id, "person_id"))
+        if stored is None:
+            raise RecordNotFound(f"person {person_id!r}")
+        return _load(Person, stored)
 
     # Evidence
 
@@ -191,6 +205,7 @@ class InMemoryStore:
 
     def _exists(self, ref: RecordRef) -> bool:
         tables: dict[str, Container[str]] = {
+            "person": self._data.people,
             "evidence": self._data.evidence,
             "qualification": self._data.qualifications,
             "artifact": self._data.artifacts,

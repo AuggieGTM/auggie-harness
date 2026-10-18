@@ -28,6 +28,7 @@ from auggie.pipeline import (
     activate_strategy,
     deliver,
     record_outcome,
+    record_person,
     record_review,
     research_run,
 )
@@ -96,6 +97,12 @@ def run_scenario(
     )
     activation = activate_strategy(
         store, strategy, by=inputs.strategy.activated_by, at=inputs.strategy.activated_at
+    )
+    record_person(
+        store,
+        account=inputs.account,
+        by=inputs.strategy.activated_by,
+        at=inputs.strategy.activated_at,
     )
     result = research_run(
         store,

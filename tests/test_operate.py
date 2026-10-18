@@ -94,6 +94,7 @@ def test_the_full_flow_reviews_delivers_and_records_outcomes(store: Store) -> No
         approvals[1].target is not None and approvals[1].target.recipient_id == "per-jordan-avery"
     )
     assert any("| Hi Jordan," in line for line in shown)
+    assert any("to Jordan <jordan.avery@northstar.example>" in line for line in shown)
     assert any("https://northstar.example/careers/it-operations-manager" in line for line in shown)
     assert len(asked) == 3
     assert deliver_draft(store, draft_id=draft.ref.artifact_id).created
@@ -428,3 +429,33 @@ def test_only_a_persons_edit_is_finished_this_way(store: Store) -> None:
     events = len(store.list_events())
     assert not complete_revision(store, draft.ref.artifact_id)
     assert len(store.list_events()) == events
+
+
+def test_the_recipient_is_recorded_once_as_a_person(store: Store) -> None:
+    research(store)
+    research(store)
+    person = store.get_person("per-jordan-avery")
+    assert (person.account_id, person.email) == ("acc-northstar", "jordan.avery@northstar.example")
+    assert len(store.list_events(type="person.recorded")) == 1
+
+
+def test_a_changed_address_needs_a_new_person_id(store: Store) -> None:
+    research(store)
+    inputs = load_inputs(NORTHSTAR)
+    moved = inputs.account.model_copy(
+        update={"recipient": inputs.account.recipient.model_copy(update={"email": "j@new.example"})}
+    )
+    strategy = load_strategy(
+        NORTHSTAR / "inputs", inputs.strategy.path, commit=inputs.strategy.commit, scope=store.scope
+    )
+    drafts = len(store.list_events(type="draft.composed"))
+    with pytest.raises(ValueError, match="new person_id"):
+        research_prospect(
+            store,
+            strategy=strategy,
+            prospect=moved,
+            acquisition=FixtureAcquisition(inputs.responses),
+            operator="demo-operator",
+        )
+    assert store.get_person("per-jordan-avery").email == "jordan.avery@northstar.example"
+    assert len(store.list_events(type="draft.composed")) == drafts

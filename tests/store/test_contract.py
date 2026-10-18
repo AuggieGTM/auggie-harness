@@ -18,6 +18,7 @@ from auggie.contracts import (
     CustomerScope,
     HumanApproval,
     OperationalEvent,
+    Person,
     QualificationDecision,
     ScopeViolation,
     SourceEvidence,
@@ -55,6 +56,7 @@ def other_scope() -> CustomerScope:
 
 def load(store: Store, scenario: Scenario, draft: Artifact) -> None:
     """Write the whole Northstar fixture, records before the events that refer to them."""
+    store.put_person(scenario.person)
     for evidence in scenario.evidence:
         store.put_evidence(evidence)
     store.put_qualification(scenario.qualification)
@@ -83,6 +85,7 @@ def test_the_fixture_loads_and_reads_back(
     store: Store, scenario: Scenario, draft: Artifact
 ) -> None:
     load(store, scenario, draft)
+    assert store.get_person("per-jordan-avery") == scenario.person
     assert store.list_evidence() == scenario.evidence
     assert store.get_qualification("qual-northstar-001") == scenario.qualification
     assert store.get_artifact(draft.ref) == draft
@@ -108,6 +111,10 @@ def test_a_different_record_under_the_same_id_conflicts(
     load(store, scenario, draft)
     evidence = scenario.evidence[0]
     with pytest.raises(RecordConflict):
+        store.put_person(
+            Person.model_validate(variant(scenario.person, email="other@northstar.example"))
+        )
+    with pytest.raises(RecordConflict):
         store.put_evidence(
             SourceEvidence.model_validate(variant(evidence, provider_request_id="req-2"))
         )
@@ -128,6 +135,8 @@ def test_a_different_record_under_the_same_id_conflicts(
 
 
 def test_missing_records_are_not_found(store: Store, draft: Artifact) -> None:
+    with pytest.raises(RecordNotFound):
+        store.get_person("per-missing")
     with pytest.raises(RecordNotFound):
         store.get_evidence("ev-missing")
     with pytest.raises(RecordNotFound):
@@ -150,6 +159,8 @@ def test_records_from_another_customer_are_refused(
         store.put_evidence(as_other_customer(scenario.evidence[0]))
     load(store, scenario, draft)
     foreign = "demo-other"
+    with pytest.raises(ScopeViolation):
+        store.put_person(Person.model_validate(variant(scenario.person, customer_id=foreign)))
     with pytest.raises(ScopeViolation):
         store.put_qualification(
             QualificationDecision.model_validate(
@@ -314,7 +325,7 @@ def test_an_idempotency_key_stores_one_fact(
     store: Store, scenario: Scenario, draft: Artifact
 ) -> None:
     load(store, scenario, draft)
-    original = scenario.events[1]
+    original = scenario.events[2]
     retry = OperationalEvent.model_validate(
         variant(original, event_id="evt-retry", occurred_at="2026-10-14T16:30:00Z")
     )
@@ -330,7 +341,7 @@ def test_an_idempotency_key_cannot_name_a_different_fact(
 ) -> None:
     load(store, scenario, draft)
     clash = variant(
-        scenario.events[1],
+        scenario.events[2],
         event_id="evt-clash",
         refs=[{"kind": "evidence", "id": "ev-northstar-news"}],
     )
@@ -340,15 +351,17 @@ def test_an_idempotency_key_cannot_name_a_different_fact(
 
 def test_event_ids_are_unique(store: Store, scenario: Scenario, draft: Artifact) -> None:
     load(store, scenario, draft)
-    reused = variant(scenario.events[1], idempotency_key="evidence.recorded:again")
+    reused = variant(scenario.events[2], idempotency_key="evidence.recorded:again")
     with pytest.raises(RecordConflict, match="already used"):
         store.append_event(OperationalEvent.model_validate(reused))
 
 
 def test_event_refs_must_resolve_to_stored_records(store: Store, scenario: Scenario) -> None:
-    with pytest.raises(IntegrityError, match="evidence:ev-northstar-careers"):
+    with pytest.raises(IntegrityError, match="person:per-jordan-avery"):
         store.append_event(scenario.events[1])
-    # Strategy, account and person records live outside the Store.
+    with pytest.raises(IntegrityError, match="evidence:ev-northstar-careers"):
+        store.append_event(scenario.events[2])
+    # Strategy and account records live outside the Store.
     assert store.append_event(scenario.events[0]).created
 
 
@@ -357,9 +370,9 @@ def test_lists_filter_and_keep_write_order(
 ) -> None:
     load(store, scenario, draft)
     recorded = store.list_events(type="evidence.recorded")
-    assert [e.event_id for e in recorded] == ["evt-002", "evt-003", "evt-004"]
+    assert [e.event_id for e in recorded] == ["evt-003", "evt-004", "evt-005"]
     run = store.list_events(run_id="run-001")
-    assert [e.event_id for e in run] == [f"evt-{n:03d}" for n in range(2, 10)]
+    assert [e.event_id for e in run] == [f"evt-{n:03d}" for n in range(3, 11)]
     subject = scenario.evidence[0].subject
     assert store.list_evidence(subject=subject) == scenario.evidence
     assert store.list_approvals("draft-elsewhere") == ()
@@ -379,7 +392,14 @@ def test_an_artifact_is_found_only_by_its_exact_ref(
 
 @pytest.mark.parametrize(
     "lookup",
-    ["get_evidence", "get_qualification", "latest_artifact", "get_approval", "list_approvals"],
+    [
+        "get_person",
+        "get_evidence",
+        "get_qualification",
+        "latest_artifact",
+        "get_approval",
+        "list_approvals",
+    ],
 )
 def test_lookups_take_literal_ids_only(
     store: Store, scenario: Scenario, draft: Artifact, lookup: str

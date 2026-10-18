@@ -122,7 +122,7 @@ def test_records_of_another_customer_are_never_returned(
         store.list_evidence()
     recorded = OperationalEvent.model_validate(
         variant(
-            scenario.events[1],
+            scenario.events[2],
             refs=[{"kind": "evidence", "id": "ev-foreign"}],
             idempotency_key="evidence.recorded:ev-foreign",
         )

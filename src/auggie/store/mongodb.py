@@ -23,6 +23,7 @@ from auggie.contracts import (
     CustomerScope,
     HumanApproval,
     OperationalEvent,
+    Person,
     QualificationDecision,
     RecordRef,
     ScopeViolation,
@@ -46,10 +47,11 @@ Document = dict[str, Any]
 NAMESPACE_EXISTS = 48
 """MongoDB's error code when a collection is created twice with different options."""
 
-RECORD_COLLECTIONS = ("evidence", "qualifications", "artifacts", "approvals", "events")
+RECORD_COLLECTIONS = ("people", "evidence", "qualifications", "artifacts", "approvals", "events")
 
 INDEXES: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     # (collection, fields, unique)
+    ("people", ("seq",), True),
     ("evidence", ("seq",), True),
     ("evidence", ("subject.kind", "subject.id"), False),
     ("qualifications", ("seq",), True),
@@ -271,6 +273,19 @@ class MongoStore:
     def _find_evidence(self, evidence_ids: Iterable[str]) -> tuple[SourceEvidence, ...]:
         return self._find("evidence", SourceEvidence, {"_id": {"$in": list(evidence_ids)}})
 
+    # People
+
+    def put_person(self, person: Person) -> None:
+        self._writing()
+        ensure_in_scope(self._scope, person)
+        self._insert("people", person.person_id, person)
+
+    def get_person(self, person_id: str) -> Person:
+        person = self._find_one("people", Person, {"_id": literal(person_id, "person_id")})
+        if person is None:
+            raise RecordNotFound(f"person {person_id!r}")
+        return person
+
     # Evidence
 
     def put_evidence(self, record: SourceEvidence) -> None:
@@ -386,6 +401,7 @@ class MongoStore:
     def _exists(self, ref: RecordRef) -> bool:
         """Whether ``ref`` names a stored record of this customer. Refuses a foreign one."""
         lookups: dict[str, tuple[str, type[BaseModel], Document]] = {
+            "person": ("people", Person, {"_id": ref.id}),
             "evidence": ("evidence", SourceEvidence, {"_id": ref.id}),
             "qualification": ("qualifications", QualificationDecision, {"_id": ref.id}),
             "artifact": ("artifacts", Artifact, {"ref.artifact_id": ref.id}),
