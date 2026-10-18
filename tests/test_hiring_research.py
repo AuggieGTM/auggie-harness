@@ -782,3 +782,75 @@ def test_a_reply_about_another_listing_is_not_recorded() -> None:
             run_id=None,
         )
     assert store.list_careers_snapshots("acc-fernhollow") == ()
+
+
+class Decides(RulesQualifier):
+    """A qualifier that rewrites the whole decision after the rules made it."""
+
+    def __init__(self, **changes: Any) -> None:
+        self.changes = changes
+
+    def qualify(self, **kwargs: Any) -> Any:
+        decision = super().qualify(**kwargs)
+        changes = {k: v(decision) if callable(v) else v for k, v in self.changes.items()}
+        data = {**decision.model_dump(mode="json"), **changes}
+        return type(decision).model_validate(data)
+
+
+def test_research_keeps_an_outcome_to_its_strategys_rules(backend: Backend) -> None:
+    failed_now = with_current(503, "unavailable")  # detection-hiring, required, is unknown
+    without_hiring = Decides(
+        outcome="qualified",
+        unknowns=[],
+        findings=lambda d: [
+            f.model_dump(mode="json") for f in d.findings if f.criterion != "detection-hiring"
+        ],
+    )
+    for qualifier, problem in (
+        (without_hiring, "detection-hiring: not assessed"),
+        (Decides(outcome="qualified"), "detection-hiring: required, but unknown"),
+    ):
+        store = backend.open(failed_now.scope)
+        with pytest.raises(CitationError, match=f"qualified does not follow .*{problem}"):
+            research_with(store, failed_now, qualifier)
+        assert store.list_events(type="qualification.decided") == ()
+
+
+def test_a_decision_names_the_runs_own_strategy_revision() -> None:
+    store = InMemoryBackend().open(INPUTS.scope)
+    other = Decides(strategy=lambda d: {**d.strategy.model_dump(mode="json"), "commit": "f" * 40})
+    with pytest.raises(CitationError, match="another strategy revision"):
+        research_with(store, INPUTS, other)
+
+
+def test_only_a_criterion_the_strategy_marks_disqualifying_can_disqualify() -> None:
+    from tests.conftest import NORTHSTAR
+
+    northstar = load_inputs(NORTHSTAR)
+    rules = load_strategy(
+        NORTHSTAR / "inputs",
+        northstar.strategy.path,
+        commit=northstar.strategy.commit,
+        scope=northstar.scope,
+    )
+
+    def denied(d: Any) -> list[Any]:
+        rows = [f.model_dump(mode="json") for f in d.findings]
+        for row in rows:
+            if row["criterion"] == "active-it-hiring":
+                row["assessment"] = "does_not_meet"
+        return rows
+
+    disqualifies = Decides(
+        outcome="disqualified", findings=denied, disqualifiers=["active-it-hiring"]
+    )
+    store = InMemoryBackend().open(northstar.scope)
+    with pytest.raises(CitationError, match="active-it-hiring: the strategy does not let it"):
+        research_run(
+            store,
+            strategy=rules,
+            account=northstar.account,
+            acquisition=FixtureAcquisition(northstar.responses),
+            qualifier=disqualifies,
+            times=northstar.run,
+        )

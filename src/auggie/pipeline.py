@@ -386,6 +386,30 @@ def _check_hiring_findings(
         raise CitationError("; ".join(problems))
 
 
+def _check_outcome(decision: QualificationDecision, strategy: LoadedStrategy) -> None:
+    """Whatever the qualifier, the decision assesses every criterion of its strategy, and its
+    outcome follows the strategy's rules: qualified only when every required criterion is met,
+    and disqualified only by a criterion the strategy marks as disqualifying."""
+    rules = strategy.strategy
+    if decision.strategy != strategy.ref:
+        raise CitationError("the decision names another strategy revision than the run's")
+    assessed = {f.criterion: f.assessment for f in decision.findings}
+    problems = [f"{c.id}: not assessed" for c in rules.criteria if c.id not in assessed]
+    if decision.outcome == "qualified":
+        problems += [
+            f"{name}: required, but {assessed[name]}"
+            for name in rules.required
+            if name in assessed and assessed[name] != "meets"
+        ]
+    for name in decision.disqualifiers:
+        if not getattr(rules.criterion(name), "disqualifying", False):
+            problems.append(f"{name}: the strategy does not let it disqualify")
+    if problems:
+        raise CitationError(
+            f"{decision.outcome} does not follow {rules.strategy_id}: " + "; ".join(problems)
+        )
+
+
 def research_run(
     store: Store,
     *,
@@ -453,6 +477,7 @@ def research_run(
         listing=listing,
     )
     _check_hiring_findings(decision, strategy, listing)
+    _check_outcome(decision, strategy)
     store.put_qualification(decision)
     _append(
         store,
