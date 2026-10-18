@@ -119,6 +119,8 @@ views: evidence and approvals always go through the harness itself.
 
 - [Your first prospect](docs/first-prospect.md): rehearse the whole loop offline, then run it
   for one real prospect of one customer.
+- [Set up with your coding agent](docs/agent-setup.md): prompts that have an agent do the
+  setup, the rehearsal and a first customer, leaving review, credentials and spending to you.
 - [Architecture](docs/architecture.md): the loop, systems of record, isolation, proposed layout.
 - [Decision records](docs/adr/README.md): what is decided, what is proposed, what is open.
 - [Roadmap](ROADMAP.md): milestones and their gates. No dates.

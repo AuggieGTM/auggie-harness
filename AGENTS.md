@@ -59,6 +59,12 @@ If a task needs a decision that is Proposed or Open, stop and ask the maintainer
 - **One path to records.** Operational records are read and written only through the `Store`
   API (`src/auggie/store/`), each write together with the event that records it.
 
+## Running the harness for someone
+
+When you operate the harness for a person, follow [docs/agent-setup.md](docs/agent-setup.md). The
+person runs `review` and creates credentials in their own terminal. Ask them before each paid
+call.
+
 ## Public repository rules
 
 This repository is public. Anything committed is published, and history is hard to retract.
