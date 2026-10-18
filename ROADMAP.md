@@ -57,9 +57,10 @@ contract ([ADR 0014](docs/adr/0014-artifact-contract.md)), both Accepted.
   paid page fetch waits for a funded team and confirmed Treg and Exa retention terms.*
 - A judgment engine chosen ([ADR 0009](docs/adr/0009-judgment-and-synthesis-engines.md)). *Decided:
   rules for judgment, templates for synthesis.*
-- Read-only Sheets projection; Docs later. *Built: four managed tabs regenerated from the
-  Store, with no page text, written as CSV, by an operator's agent connector, or by a scope's
-  own service account ([ADR 0019](docs/adr/0019-projection-writers-and-agent-connectors.md)).
+- Read-only Sheets projection; Docs later. *Built: managed tabs regenerated from the Store
+  (five since M4 added hiring), with no page text, written as CSV, by an operator's agent
+  connector, or by a scope's own service account
+  ([ADR 0019](docs/adr/0019-projection-writers-and-agent-connectors.md)).
   The connector path passed a live check on 2026-10-17 on synthetic Northstar data: the grid
   read-back showed every tab at exactly the projection's size, from A1, every cell literal text
   and equal. The service-account path is tested against a fake Google only.*
@@ -111,7 +112,9 @@ own vocabulary.
 
 **Gate:** two synthetic sellers in different domains qualify and draft from their own
 vocabulary, with no domain words in the code; every tally line cites a dated snapshot and its
-role links; a failed listing read leaves its criteria unknown.
+role links; a failed listing read leaves its criteria unknown. *Met on synthetic data on
+2026-10-18: the IT-services and security sellers both qualify and draft, and the tests cover
+each part. No listing has been read live yet.*
 
 ## M5: The seller's point of view (Planned)
 
@@ -119,7 +122,7 @@ role links; a failed listing read leaves its criteria unknown.
   as a vendor claim, and pains with where the seller fits, where it stops, and its approved
   offer, all in the seller's private strategy repository.
 - Plays select by signal, and a draft pairs the account's evidence with a proof and an offer.
-  Drafts stay templates.
+  Drafts stay templates. *Decided: [ADR 0026](docs/adr/0026-the-sellers-point-of-view.md).*
 
 **Gate:** every proof in a draft is a vendor claim with exactly one source, quoted exactly; a
 person still approves each draft.

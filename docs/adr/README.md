@@ -38,3 +38,4 @@ behavior or the public boundary. The process is described in
 | [0023](0023-signal-vocabulary-in-the-strategy.md) | The seller's strategy holds the signal vocabulary | Accepted |
 | [0024](0024-careers-snapshots-and-hiring-tallies.md) | Careers snapshots and hiring tallies | Accepted |
 | [0025](0025-the-research-shell.md) | The research shell | Accepted |
+| [0026](0026-the-sellers-point-of-view.md) | The seller's point of view: pains, proofs and offers | Accepted |
