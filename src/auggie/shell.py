@@ -59,6 +59,7 @@ reading (asks before any paid or external call)
   hiring <account> --read       read the account's careers listing now, free
   proofs --read                 read each proof's page through Treg and record it
   research <account>            research from the account's prospect file
+  research --hiring [--again]   read every listing free, then research the accounts hiring
 the flow (yours alone)
   review <draft>   revise <draft>   deliver <draft>
   outcome <draft> <kind>        record what happened: {kinds}
@@ -266,6 +267,10 @@ def _read_proofs(session: Session, strategy: LoadedStrategy) -> bool:
 # Reading
 
 
+def _count(n: int, thing: str) -> str:
+    return f"{n} {thing}{'' if n == 1 else 's'}"
+
+
 def _cost(pages: int) -> str:
     return f"at most ${pages * CEILING_MICRO_USD / 1_000_000:.3f}"
 
@@ -297,6 +302,12 @@ def _fetch(session: Session, args: list[str]) -> None:
 
 
 def _research(session: Session, args: list[str]) -> None:
+    if "--hiring" in args:
+        rest = [arg for arg in args if arg not in ("--hiring", "--again")]
+        if rest:
+            raise ValueError("usage: research --hiring [--again]")
+        _research_hiring(session, again="--again" in args)
+        return
     _need(args, 1, "research <account>")
     prospect = session.prospects.get(args[0])
     if prospect is None:
@@ -328,6 +339,74 @@ def _research(session: Session, args: list[str]) -> None:
         session.out(f"draft     {result.draft.ref.artifact_id}: review it with review")
     else:
         session.out(f"no draft  {result.stopped}")
+
+
+def _research_hiring(session: Session, *, again: bool) -> None:
+    """Screen every prospect by hiring, free, then research the ones that passed under one cap,
+    asking once before each part when live, then offer to review the drafts (ADR 0030)."""
+    from auggie.acquisition.treg import CEILING_MICRO_USD
+
+    strategy = session.strategy
+    if strategy is None:
+        raise ValueError("start the shell with --strategy-repo and --strategy-path to research")
+    prospects = list(session.prospects.values())
+    reader = session.listings()
+    if reader is None:
+        raise ValueError("this session has no way to read listings")
+    listed = sum(p.careers_listing is not None for p in prospects)
+    if session.live:
+        require_external_calls(session.store.scope)  # refused before asking
+        if not _yes(session, f"read {_count(listed, 'careers listing')}, free; go ahead?"):
+            session.out("nothing read")
+            return
+    screened = operate.screen(
+        session.store,
+        strategy=strategy,
+        prospects=prospects,
+        reader=reader,
+        run_id=operate.new_run_id(operate.utc_now()),
+        again=again,
+    )
+    for found in screened:
+        session.out(f"{found.status:<12} {found.account_id:<28} {found.detail}")
+    passed = {found.account_id for found in screened if found.status == "passed"}
+    chosen = [p for p in prospects if p.account_id in passed]
+    session.out(f"{len(chosen)} of {len(screened)} passed the screen")
+    if not chosen:
+        return
+    acquisition = session.acquisition()
+    budget = getattr(acquisition, "budget", None)
+    if session.live:
+        pages = sum(k in p.sources for p in chosen for k in strategy.strategy.sources)
+        cap = (
+            f", under this command's limit of ${budget.limit_micro_usd / 1_000_000:.3f}"
+            if budget
+            else ""
+        )
+        if not _yes(
+            session,
+            f"research {_count(len(chosen), 'account')}: {_count(pages, 'page')} through Treg, "
+            f"{_cost(pages)}{cap}; go ahead?",
+        ):
+            session.out("nothing researched")
+            return
+    lines = operate.research_list(
+        session.store,
+        strategy=strategy,
+        prospects=chosen,
+        acquisition=acquisition,
+        operator=session.me,
+        budget=budget,
+        page_ceiling_micro_usd=CEILING_MICRO_USD,
+        again=again,
+        now=session.research_clock or operate.utc_now,
+        listings=session.listings(),
+    )
+    for line in lines:
+        session.out(f"{line.status:<12} {line.account_id:<28} {line.detail}")
+    waiting = operate.waiting_drafts(session.store)
+    if waiting and _yes(session, f"{_count(len(waiting), 'draft')} waiting; review them now?"):
+        operate.review_waiting(session.store, reviewer=session.me, ask=session.ask, out=session.out)
 
 
 # The flow

@@ -115,8 +115,8 @@ Ground rules:
 - To answer my questions about the records, run auggie accounts, brief, find, stack, hiring
   and proofs with --json, and quote what they return. The shell is mine to use.
 - For a list of prospects, run auggie import without --write and show me its preview; add
-  --write only once I say so. research-list makes paid calls, so give me its spending limit and
-  wait for my yes. review --next is mine, like review.
+  --write only once I say so. research-list makes paid calls, with --screen too, so give me its
+  spending limit and wait for my yes. review --next is mine, like review.
 - Outcomes are mine to report: preview auggie outcome --from without --write, and add --write
   only once I say so. auggie learn --json only reads; write a --propose patch only when I ask,
   outside the harness clone, and leave applying it to me. outcome --replies is mine, like

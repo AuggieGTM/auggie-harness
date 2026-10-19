@@ -509,6 +509,12 @@ def _add_prospect_commands(commands: Any) -> None:
         "--again", action="store_true", help="research accounts already researched too"
     )
     batch.add_argument(
+        "--screen",
+        action="store_true",
+        help="first read every careers listing (free) and research only the accounts hiring as "
+        "the strategy requires",
+    )
+    batch.add_argument(
         "--replay", type=Path, metavar="FILE", help="recorded responses instead of live Treg calls"
     )
     batch.add_argument(
@@ -1070,30 +1076,9 @@ def _review_waiting(
     """Review the drafts waiting for a person, oldest first, each on its own (ADR 0027)."""
     from auggie import operate
 
-    reviewed = 0
-    while waiting := operate.waiting_drafts(store):
-        if reviewed:
-            try:
-                go_on = ask(f"{len(waiting)} more waiting. Review the next? [Y/n]: ")
-            except EOFError:
-                go_on = "n"
-            if go_on.strip().lower() in ("n", "no"):
-                return 0
-            out("")
-        draft_id = waiting[0]
-        out(f"next      {draft_id}, the oldest of {len(waiting)} waiting")
-        approvals = operate.review_draft(
-            store,
-            draft_id=draft_id,
-            reviewer=args.reviewer,
-            ask=ask,
-            out=out,
-            delivery_days=args.delivery_days,
-        )
-        for approval in approvals:
-            out(f"recorded  {approval.scope} {approval.decision} ({approval.approval_id})")
-        reviewed += 1
-    out("no drafts are waiting for a person" if not reviewed else "no more drafts are waiting")
+    operate.review_waiting(
+        store, reviewer=args.reviewer, ask=ask, out=out, delivery_days=args.delivery_days
+    )
     return 0
 
 
@@ -1167,10 +1152,27 @@ def _research_list(
     out(prepared.header)
     budget = prepared.budget
     out("")
+    prospects = prepared.prospects
+    if args.screen:
+        screened = operate.screen(
+            store,
+            strategy=prepared.strategy,
+            prospects=prospects,
+            reader=prepared.listings,
+            run_id=operate.new_run_id(operate.utc_now()),
+            again=args.again,
+        )
+        for found in screened:
+            out(f"{found.status:<12} {found.account_id:<28} {found.detail}")
+        passed = {found.account_id for found in screened if found.status == "passed"}
+        prospects = [p for p in prospects if p.account_id in passed]
+        out("")
+        out(f"{len(prospects)} of {len(screened)} passed the screen; researching them")
+        out("")
     lines = operate.research_list(
         store,
         strategy=prepared.strategy,
-        prospects=prepared.prospects,
+        prospects=prospects,
         acquisition=prepared.acquisition,
         operator=args.operator,
         budget=budget,

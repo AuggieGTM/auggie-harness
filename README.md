@@ -75,7 +75,10 @@ product.
 - `src/auggie/prospect_list.py` turns a CSV list of accounts into prospect files after a
   preview. `auggie research-list` researches a folder of them in one run within one spending
   cap, and `auggie review --next` steps through the drafts waiting for a person
-  ([ADR 0027](docs/adr/0027-many-accounts.md)). Tested on a synthetic list only.
+  ([ADR 0027](docs/adr/0027-many-accounts.md)). With `--screen`, or `research --hiring` in the
+  shell, it reads every careers listing first, free, and pays to research only the accounts
+  hiring as the strategy requires ([ADR 0030](docs/adr/0030-screening-a-list-by-hiring.md)).
+  Tested on a synthetic list only.
 - `src/auggie/learning.py` counts what each delivery led to, by play, pain, proof and met
   criterion, and `src/auggie/proposals.py` proposes the plays and proofs in order of their
   results, as a patch you apply to your strategy yourself

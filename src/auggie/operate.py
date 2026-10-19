@@ -44,6 +44,7 @@ from auggie.pipeline import (
     record_person,
     record_review,
     record_revision,
+    record_snapshot,
     research_run,
     resolve_send,
 )
@@ -253,6 +254,118 @@ def _research_one(
     else:
         detail = f"{decision.outcome}, no draft: {result.stopped}"
     return ListLine(account_id, "researched", detail, result, spent)
+
+
+ScreenStatus = Literal["passed", "screened out", "not screened", "skipped"]
+
+
+@dataclass(frozen=True)
+class ScreenLine:
+    """What screening by hiring found for one prospect (ADR 0030)."""
+
+    account_id: str
+    status: ScreenStatus
+    detail: str
+
+
+def screen(
+    store: Store,
+    *,
+    strategy: LoadedStrategy,
+    prospects: Sequence[Account],
+    reader: ListingReader,
+    run_id: str,
+    again: bool = False,
+) -> list[ScreenLine]:
+    """Read each prospect's careers listing once, free, and judge the strategy's required
+    hiring criteria on it with the rules' own tally (ADR 0030). A prospect passes only when
+    every one is met; one shown unmet is screened out; one the read cannot settle, or with no
+    listing, is not screened. Prospects already researched are skipped unless ``again``.
+    """
+    from auggie.contracts.strategy import LISTING_CRITERIA
+    from auggie.judgment import ListingReadings
+    from auggie.judgment.rules import hiring_finding
+
+    rules = strategy.strategy
+    ensure_in_scope(store.scope, rules)
+    for prospect in prospects:
+        ensure_in_scope(store.scope, prospect)
+    required = [rules.criterion(name) for name in rules.required]
+    hiring = [c for c in required if isinstance(c, LISTING_CRITERIA)]
+    if not hiring:
+        raise ValueError(
+            "the strategy requires no hiring criterion, so there is nothing to screen by"
+        )
+    lines = []
+    for prospect in prospects:
+        account_id = prospect.account_id
+        decided = researched_as(store, account_id)
+        if decided is not None and not again:
+            lines.append(ScreenLine(account_id, "skipped", f"already researched ({decided})"))
+            continue
+        if prospect.careers_listing is None:
+            lines.append(ScreenLine(account_id, "not screened", "it names no careers listing"))
+            continue
+        current = record_snapshot(
+            store,
+            reader=reader,
+            account=prospect,
+            snapshot_id=f"snap-{prospect.key}-screen-{run_id}",
+            run_id=run_id,
+        )
+        earlier = tuple(
+            s
+            for s in store.list_careers_snapshots(account_id)
+            if s.snapshot_id != current.snapshot_id
+        )
+        listing = ListingReadings(current, earlier)
+        findings = [hiring_finding(c, rules, listing) for c in hiring]
+        assessed = {f.assessment for f in findings}
+        why = "; ".join(f"{f.criterion}: {f.rationale}" for f in findings)
+        if assessed == {"meets"}:
+            lines.append(ScreenLine(account_id, "passed", why))
+        elif "does_not_meet" in assessed:
+            lines.append(ScreenLine(account_id, "screened out", why))
+        else:
+            lines.append(ScreenLine(account_id, "not screened", why))
+    return lines
+
+
+def review_waiting(
+    store: Store,
+    *,
+    reviewer: str,
+    ask: Ask,
+    out: Print,
+    delivery_days: int = 7,
+) -> int:
+    """Review the drafts waiting for a person, oldest first, each on its own (ADR 0027),
+    asking before each after the first. Returns how many were reviewed."""
+    reviewed = 0
+    while waiting := waiting_drafts(store):
+        if reviewed:
+            try:
+                go_on = ask(f"{len(waiting)} more waiting. Review the next? [Y/n]: ")
+            except EOFError:
+                go_on = "n"
+            if go_on.strip().lower() in ("n", "no"):
+                return reviewed
+            out("")
+        draft_id = waiting[0]
+        out(f"next      {draft_id}, the oldest of {len(waiting)} waiting")
+        approvals = review_draft(
+            store,
+            draft_id=draft_id,
+            reviewer=reviewer,
+            ask=ask,
+            out=out,
+            delivery_days=delivery_days,
+        )
+        for approval in approvals:
+            out(f"recorded  {approval.scope} {approval.decision} ({approval.approval_id})")
+        reviewed += 1
+    out("no drafts are waiting for a person" if not reviewed else "no more drafts are waiting")
+    return reviewed
 
 
 def replay_clock(

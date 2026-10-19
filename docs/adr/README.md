@@ -42,3 +42,4 @@ behavior or the public boundary. The process is described in
 | [0027](0027-many-accounts.md) | Many accounts: importing a list, researching it, reviewing its drafts | Accepted |
 | [0028](0028-learning-from-outcomes.md) | Learning from outcomes: a report, and proposals as a patch | Accepted |
 | [0029](0029-reading-replies-from-gmail.md) | Reading replies from the seller's Gmail | Accepted |
+| [0030](0030-screening-a-list-by-hiring.md) | Screening a list by hiring before paying to research it | Accepted |
