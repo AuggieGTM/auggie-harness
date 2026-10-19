@@ -76,7 +76,8 @@ product.
   preview. `auggie research-list` researches a folder of them in one run within one spending
   cap, and `auggie review --next` steps through the drafts waiting for a person
   ([ADR 0027](docs/adr/0027-many-accounts.md)). With `--screen`, or `research --hiring` in the
-  shell, it reads every careers listing first, free, and pays to research only the accounts
+  shell, it first reads the careers listing of each account not yet researched, free, and pays
+  to research only the accounts
   hiring as the strategy requires ([ADR 0030](docs/adr/0030-screening-a-list-by-hiring.md)).
   Tested on a synthetic list only.
 - `src/auggie/learning.py` counts what each delivery led to, by play, pain, proof and met

@@ -201,3 +201,99 @@ def test_declining_either_question_reads_or_spends_nothing_more(tmp_path: Path) 
     shell.run(run)
     assert "nothing researched" in printed and treg.requests == []
     assert run.store.list_events(type="qualification.decided") == ()
+
+
+# What Pi's review found
+
+
+def test_a_screen_finishes_a_draft_an_earlier_run_left_unrecorded() -> None:
+    from auggie.operate import waiting_drafts
+    from tests.test_research_list import rehearse
+
+    store = InMemoryBackend().open(SCOPE)
+    real = store.append_event
+
+    def fails_once(event: Any) -> Any:
+        if event.type == "draft.composed":
+            store.append_event = real  # type: ignore[method-assign]
+            raise OSError("the connection dropped")
+        return real(event)
+
+    store.append_event = fails_once  # type: ignore[method-assign]
+    rehearse(store)
+    assert waiting_drafts(store) == []
+    lines = screened(store)
+    assert lines[0].status == "skipped"
+    assert lines[0].detail.endswith("recorded its draft, which that run left unfinished")
+    assert len(waiting_drafts(store)) == 1
+
+
+def test_a_list_naming_an_account_twice_is_refused_before_any_read() -> None:
+    store = InMemoryBackend().open(SCOPE)
+    with pytest.raises(ValueError, match="names an account twice"):
+        screened(store, prospects=[prospects()[0], prospects()[0]])
+    assert store.list_events() == ()
+
+
+def test_a_strategy_with_nothing_to_screen_by_is_refused_before_connecting(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import subprocess
+    import tomllib
+
+    folder = folder_of_prospects(tmp_path)
+    text = (KESTREL / "inputs" / "strategy" / "security.toml").read_text(encoding="utf-8")
+    text = text.replace('required = ["detection-hiring"]', 'required = ["names-beaconlog"]')
+    assert tomllib.loads(text)["required"] == ["names-beaconlog"]
+    repo = tmp_path / "repo"
+    (repo / "strategy").mkdir(parents=True)
+    (repo / "strategy" / "s.toml").write_text(text, encoding="utf-8")
+    git = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.invalid"]
+    subprocess.run([*git, "init", "-q"], check=True)
+    subprocess.run([*git, "add", "strategy"], check=True)
+    subprocess.run([*git, "commit", "-qm", "s"], check=True)
+    argv = [
+        "research-list",
+        str(KESTREL / "scope.json"),
+        "--prospects",
+        str(folder),
+        "--strategy-repo",
+        str(repo),
+        "--strategy-path",
+        "strategy/s.toml",
+        "--operator",
+        "demo-seller",
+        "--replay",
+        str(KESTREL / "list-replay.json"),
+        "--screen",
+        "--mongodb",
+        "mongodb://127.0.0.1:1",  # never reached
+    ]
+    assert main(argv) == 1
+    assert "requires no hiring criterion" in capsys.readouterr().out
+
+
+def test_the_shell_counts_only_the_listings_it_will_read(tmp_path: Path) -> None:
+    from tests.test_research_list import rehearse
+
+    run, asked, printed, treg = session(tmp_path, ["research --hiring"])
+    rehearse(run.store, prospects=list(run.prospects.values()))
+    shell.run(run)
+    assert [q for q in asked if "go ahead" in q] == []  # nothing to read, so nothing asked
+    assert sum(line.startswith("skipped") for line in printed) == 3
+    assert "0 of 3 passed the screen" in printed and treg.requests == []
+
+
+def test_the_shell_refuses_a_strategy_with_nothing_to_screen_by_before_asking(
+    tmp_path: Path,
+) -> None:
+    from auggie.strategy import LoadedStrategy
+
+    data = RULES.strategy.model_dump(mode="json")
+    data["required"] = ["names-beaconlog"]
+    run, asked, printed, _ = session(tmp_path, ["research --hiring"])
+    run.strategy = LoadedStrategy(type(RULES.strategy).model_validate(data), RULES.ref)
+    shell.run(run)
+    assert [q for q in asked if "go ahead" in q] == []
+    assert any("requires no hiring criterion" in line for line in printed)
+    assert run.store.list_events() == ()

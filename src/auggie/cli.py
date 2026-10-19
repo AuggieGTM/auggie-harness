@@ -1105,6 +1105,8 @@ def _prepare_research_list(args: argparse.Namespace, scope: CustomerScope) -> _P
     strategy = load_strategy_at(
         args.strategy_repo, args.strategy_path, revision=args.revision, scope=scope
     )
+    if args.screen:
+        operate.screen_criteria(strategy)  # a strategy with nothing to screen by stops here
     found, ignored = queries.load_prospects(args.prospects, scope)
     prospects = list(found.values())
     if args.replay is not None:

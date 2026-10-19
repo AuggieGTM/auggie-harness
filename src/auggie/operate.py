@@ -11,7 +11,7 @@ import secrets
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Literal
+from typing import Any, Literal
 
 from auggie.accounts import Account
 from auggie.acquisition import Acquisition
@@ -268,6 +268,31 @@ class ScreenLine:
     detail: str
 
 
+def screen_criteria(strategy: LoadedStrategy) -> list[Any]:
+    """The strategy's required hiring criteria, which a screen judges (ADR 0030). Raises
+    ``ValueError`` when there are none: there is nothing to screen by."""
+    from auggie.contracts.strategy import LISTING_CRITERIA
+
+    rules = strategy.strategy
+    required = (rules.criterion(name) for name in rules.required)
+    hiring = [c for c in required if isinstance(c, LISTING_CRITERIA)]
+    if not hiring:
+        raise ValueError(
+            "the strategy requires no hiring criterion, so there is nothing to screen by"
+        )
+    return hiring
+
+
+def to_screen(store: Store, prospects: Sequence[Account], *, again: bool = False) -> list[Account]:
+    """The prospects a screen reads a listing for: those naming one, not yet researched unless
+    ``again``."""
+    return [
+        p
+        for p in prospects
+        if p.careers_listing is not None and (again or researched_as(store, p.account_id) is None)
+    ]
+
+
 def screen(
     store: Store,
     *,
@@ -282,7 +307,6 @@ def screen(
     every one is met; one shown unmet is screened out; one the read cannot settle, or with no
     listing, is not screened. Prospects already researched are skipped unless ``again``.
     """
-    from auggie.contracts.strategy import LISTING_CRITERIA
     from auggie.judgment import ListingReadings
     from auggie.judgment.rules import hiring_finding
 
@@ -290,18 +314,19 @@ def screen(
     ensure_in_scope(store.scope, rules)
     for prospect in prospects:
         ensure_in_scope(store.scope, prospect)
-    required = [rules.criterion(name) for name in rules.required]
-    hiring = [c for c in required if isinstance(c, LISTING_CRITERIA)]
-    if not hiring:
-        raise ValueError(
-            "the strategy requires no hiring criterion, so there is nothing to screen by"
-        )
+    ids = [p.account_id for p in prospects]
+    if len(set(ids)) != len(ids):
+        raise ValueError("a list names an account twice")
+    hiring = screen_criteria(strategy)
     lines = []
     for prospect in prospects:
         account_id = prospect.account_id
         decided = researched_as(store, account_id)
         if decided is not None and not again:
-            lines.append(ScreenLine(account_id, "skipped", f"already researched ({decided})"))
+            detail = f"already researched ({decided})"
+            if complete_research(store, decided):
+                detail += "; recorded its draft, which that run left unfinished"
+            lines.append(ScreenLine(account_id, "skipped", detail))
             continue
         if prospect.careers_listing is None:
             lines.append(ScreenLine(account_id, "not screened", "it names no careers listing"))

@@ -59,7 +59,7 @@ reading (asks before any paid or external call)
   hiring <account> --read       read the account's careers listing now, free
   proofs --read                 read each proof's page through Treg and record it
   research <account>            research from the account's prospect file
-  research --hiring [--again]   read every listing free, then research the accounts hiring
+  research --hiring [--again]   read listings free, then research the accounts hiring
 the flow (yours alone)
   review <draft>   revise <draft>   deliver <draft>
   outcome <draft> <kind>        record what happened: {kinds}
@@ -353,8 +353,9 @@ def _research_hiring(session: Session, *, again: bool) -> None:
     reader = session.listings()
     if reader is None:
         raise ValueError("this session has no way to read listings")
-    listed = sum(p.careers_listing is not None for p in prospects)
-    if session.live:
+    operate.screen_criteria(strategy)  # refused before asking, if there is nothing to screen by
+    listed = len(operate.to_screen(session.store, prospects, again=again))
+    if session.live and listed:
         require_external_calls(session.store.scope)  # refused before asking
         if not _yes(session, f"read {_count(listed, 'careers listing')}, free; go ahead?"):
             session.out("nothing read")

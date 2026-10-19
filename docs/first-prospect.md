@@ -272,12 +272,12 @@ with recorded responses. At the `auggie>` prompt:
   patterns that hold. A newer read that failed is shown as failed; an older one never stands in
   for it. `proofs` shows each of your proofs, and whether a draft may quote it.
 - `fetch <account> <url>` reads one page you name and records it as evidence. `research <account>`
-  researches from the account's prospect file, and `research --hiring` screens every prospect file
-  by hiring first, then researches the ones that pass and offers to review their drafts. When they
-  read live, each says what it will call and the most it can spend, and waits for your yes.
-  `hiring <account> --read` reads the account's careers listing now, free, and asks the same way,
-  as does `proofs --read`, which reads your proof pages through Treg. With `--replay` nothing is
-  called, so nothing is asked.
+  researches from the account's prospect file, and `research --hiring` screens each prospect not
+  yet researched by hiring first, then researches the ones that pass and offers to review their
+  drafts. When they read live, each says what it will call and the most it can spend, and waits
+  for your yes. `hiring <account> --read` reads the account's careers listing now, free, and asks
+  the same way, as does `proofs --read`, which reads your proof pages through Treg. With
+  `--replay` nothing is called, so nothing is asked.
 - `find` searches every stored account page and labels any that were not admitted, so you can
   tell rejected or unchecked text from evidence. A quote is the page's own words, with its
   whitespace collapsed and, when its matches are far apart, an ellipsis between two passages.
@@ -326,8 +326,8 @@ uv run auggie review $K/scope.json --next --reviewer "your name" $M
   start, and its pages are paid for again. An error stops the list, and its report says what
   was researched, skipped and waiting, and what each account spent. Two prospect files that
   hold one account differently are both left out, and the report names them.
-- `research-list --screen` reads every careers listing on the list first, for free, and
-  researches only the accounts hiring as your strategy requires
+- `research-list --screen` first reads the careers listing of each account on the list not yet
+  researched, for free, and researches only the accounts hiring as your strategy requires
   ([ADR 0030](adr/0030-screening-a-list-by-hiring.md)). An account shown not to be hiring is
   screened out; one with no listing, or a read that settles nothing, is listed as not screened,
   for you to research by hand. Only the accounts that pass are paid for.
