@@ -372,3 +372,27 @@ def test_the_listing_transport_reads_a_reply_up_to_the_listing_limit() -> None:
     url = request_for(LISTINGS["ashby"]).url
     assert transport.send(HttpRequest("GET", url, {}, b"", 1.0)).body == b"[]"
     assert asked == [MAX_LISTING_BYTES + 1]
+
+
+def test_lever_eu_boards_are_read_from_levers_eu_host_like_lever() -> None:
+    eu = CareersListing.model_validate(
+        {
+            "service": "lever-eu",
+            "board": "fernhollow",
+            "url": "https://jobs.lever.example/fernhollow",
+        }
+    )
+    assert request_for(eu).url == (
+        f"https://api.eu.lever.co/v0/postings/fernhollow?mode=json&limit={ROLE_CAP + 1}"
+    )
+    transport = Replay(reply(COMPLETE["lever"]))
+    reader = CareersReader(scope=scope(), transport=transport, now=lambda: READ_AT)
+    snapshot = reader.read(
+        listing=eu, customer_id="demo-security", account_id="acc-prospect", snapshot_id="snap-eu"
+    )
+    assert snapshot.status == "complete" and len(snapshot.roles) == 4
+    assert snapshot.listing.service == "lever-eu"
+    # The EU host is one of the transport's origins; a look-alike is not.
+    for elsewhere in ("https://api.eu.lever.co.example/v0", "https://eu.lever.co/v0"):
+        with pytest.raises(ValueError, match="only go to"):
+            ListingTransport().send(HttpRequest("GET", elsewhere, {}, b"", 1.0))

@@ -203,9 +203,10 @@ Write a `prospect.json` like the synthetic one:
   `email`. Research records each person once, exactly as given, so a new address needs a new
   person ID.
 - `careers_listing`, if your strategy counts hiring: the listing's `service` (`lever`,
-  `greenhouse` or `ashby`), the company's `board` name as the service spells it in the
-  listing's address (jobs.lever.co/*board*, boards.greenhouse.io/*board*,
-  jobs.ashbyhq.com/*board*), and the `url` of that page. Check that it is the company's own
+  `lever-eu`, `greenhouse` or `ashby`), the company's `board` name as the service spells it in
+  the listing's address (jobs.lever.co/*board*, jobs.eu.lever.co/*board* for Lever's EU
+  instance, boards.greenhouse.io/*board*, jobs.ashbyhq.com/*board*), and the `url` of that
+  page. Check that it is the company's own
   listing: the harness reads only the listing you name, and never looks for another when it
   fails.
 
@@ -215,8 +216,7 @@ hiring criteria it would have settled stay unknown. Before the first live read, 
 service's terms of use and your company's policy, as you did for Treg
 ([ADR 0024](adr/0024-careers-snapshots-and-hiring-tallies.md)). None of the three services says
 when a role was posted, so the long-listed pattern is never met: it stays unknown for a family
-with open roles, and only a complete read with none rules it out. Lever's EU-hosted boards are
-not supported yet.
+with open roles, and only a complete read with none rules it out.
 
 Keep it to what your company is allowed to hold about the prospect.
 

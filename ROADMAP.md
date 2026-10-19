@@ -101,10 +101,9 @@ own vocabulary.
   for Lever, Greenhouse and Ashby, tested on synthetic replies only; research counts hiring from
   the run's read, and findings and drafts cite their snapshots. The second seller's scenario
   qualifies and drafts from a replayed listing. A play quotes the tally's count, family and date
-  through the fields of [ADR 0026](docs/adr/0026-the-sellers-point-of-view.md). Not built:
-  Lever's EU-hosted boards. None of the three services documents when a role
-  was posted, so the long-listed pattern is never met for them: it stays unknown for a family
-  with open roles.*
+  through the fields of [ADR 0026](docs/adr/0026-the-sellers-point-of-view.md), and Lever's EU
+  instance is read like Lever. None of the three services documents when a role was posted, so the
+  long-listed pattern is never met for them: it stays unknown for a family with open roles.*
 - A hiring tab in the workbook. *Built.*
 - The research shell: `auggie shell` for questions across accounts and the whole flow, with
   each question also a single command that prints JSON for a coding agent

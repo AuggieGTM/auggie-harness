@@ -24,7 +24,8 @@ from auggie.contracts.common import (
     sha256_digest,
 )
 
-ListingService = Literal["lever", "greenhouse", "ashby"]
+ListingService = Literal["lever", "lever-eu", "greenhouse", "ashby"]
+"""``lever-eu`` is Lever's EU instance: the same postings API at its own host."""
 ReadStatus = Literal["complete", "partial", "inconsistent", "failed"]
 
 Board = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$")]

@@ -7,6 +7,8 @@ to roles. What each takes from the reply follows the service's own documentation
   /v0/postings/{site}?mode=json`` with ``skip`` and ``limit``. Each posting's ``id``,
   ``text`` (its name), ``categories`` (team, department, location) and ``hostedUrl``.
   No field is documented as when a posting was created, so roles carry no date.
+  Accounts on Lever's EU instance (``lever-eu``) are served the same API from
+  ``api.eu.lever.co``, and their job pages are at ``jobs.eu.lever.co``.
 - Greenhouse, the Job Board API (developers.greenhouse.io/job-board.html): ``GET
   /v1/boards/{board_token}/jobs``, unpaginated. Each job's ``id`` (the job post),
   ``title``, ``location.name`` and ``absolute_url``, and ``meta.total``. ``updated_at`` is
@@ -48,6 +50,7 @@ from auggie.signals.tally import count_once
 
 ORIGINS: dict[ListingService, str] = {
     "lever": "https://api.lever.co",
+    "lever-eu": "https://api.eu.lever.co",
     "greenhouse": "https://boards-api.greenhouse.io",
     "ashby": "https://api.ashbyhq.com",
 }
@@ -75,6 +78,7 @@ def request_for(listing: CareersListing) -> HttpRequest:
     board = listing.board  # the contract allows only letters, digits, '.', '_' and '-'
     paths: dict[ListingService, str] = {
         "lever": f"/v0/postings/{board}?mode=json&limit={ROLE_CAP + 1}",
+        "lever-eu": f"/v0/postings/{board}?mode=json&limit={ROLE_CAP + 1}",
         "greenhouse": f"/v1/boards/{board}/jobs",
         "ashby": f"/posting-api/job-board/{board}",
     }
@@ -200,6 +204,7 @@ def ashby(reply: Any) -> Reply:
 
 PARSERS: dict[ListingService, Callable[[Any], Reply]] = {
     "lever": lever,
+    "lever-eu": lever,
     "greenhouse": greenhouse,
     "ashby": ashby,
 }

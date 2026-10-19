@@ -131,7 +131,12 @@ def _stack(criterion: StackMention, strategy: Strategy, label: str, verdict: Ver
     )
 
 
-SERVICES = {"lever": "Lever", "greenhouse": "Greenhouse", "ashby": "Ashby"}
+SERVICES = {
+    "lever": "Lever",
+    "lever-eu": "Lever (EU)",
+    "greenhouse": "Greenhouse",
+    "ashby": "Ashby",
+}
 ASSESSMENTS: dict[str, Assessment] = {
     "met": "meets",
     "unmet": "does_not_meet",
