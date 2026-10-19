@@ -398,8 +398,9 @@ def test_a_reply_that_could_answer_either_draft_is_left_to_the_person(tmp_path: 
     found = replies.pending(store, reader(tmp_path, ByReceipt(thread=shared(unclear).thread)))
     assert found.replies == []
     assert found.notes == [
-        f"a reply at {(sent_at() + timedelta(hours=1)).isoformat()} could answer any of "
-        f"{first}, {second}; record it by hand with auggie outcome --draft"
+        f"a reply at {(sent_at() + timedelta(hours=1)).isoformat()} in the thread of "
+        f"{first}, {second} could answer any of {first}, {second}; record it by hand with "
+        "auggie outcome --draft"
     ]
 
 
@@ -515,3 +516,57 @@ def test_a_missing_read_token_is_refused_before_connecting(
     ]
     assert main(argv) == 1
     assert "gmail-read-token" in capsys.readouterr().out
+
+
+def test_a_reply_naming_a_message_not_in_its_thread_is_left_to_the_person(
+    tmp_path: Path,
+) -> None:
+    store = InMemoryBackend().open(live_scope())
+    first, _second = two_sent(store)
+    # B's sent message is gone, but the reply still names it: it is never credited to A.
+    to_b = message(
+        JORDAN,
+        sent_at() + timedelta(hours=1),
+        "Jordan <j@northstar.example>",
+        "INBOX",
+        in_reply_to=SECOND,
+    )
+    only_a = [message(SENT, sent_at(), "Riley <riley@seller.example>", "SENT"), to_b]
+
+    class OnlyA(FakeGmail):
+        def send(self, request: HttpRequest) -> HttpResponse:
+            if request.url.startswith(f"{MESSAGES_URL}/{SECOND}"):
+                self.requests.append(request)
+                return reply(404, {})
+            return super().send(request)
+
+    google = OnlyA(thread=reply(200, {"id": THREAD, "messages": only_a}))
+    found = replies.pending(store, reader(tmp_path, google))
+    assert found.replies == []
+    assert any(
+        "names a message that is not one of your drafts in its thread" in note and first in note
+        for note in found.notes
+    )
+
+
+def test_a_reply_to_a_follow_up_is_traced_to_the_draft_it_followed(tmp_path: Path) -> None:
+    store = InMemoryBackend().open(live_scope())
+    first, second = two_sent(store)
+    follow_up = message(
+        SELLER_FOLLOW_UP,
+        sent_at() + timedelta(hours=1),
+        "Riley <riley@seller.example>",
+        "SENT",
+        in_reply_to=SENT,
+    )
+    answer = message(
+        JORDAN,
+        sent_at() + timedelta(hours=2),
+        "Jordan <j@northstar.example>",
+        "INBOX",
+        in_reply_to=SELLER_FOLLOW_UP,
+    )
+    google = ByReceipt(thread=shared(follow_up, answer).thread)
+    found = replies.pending(store, reader(tmp_path, google))
+    assert [(r.draft_id, r.message.message_id) for r in found.replies] == [(first, JORDAN)]
+    assert second != first

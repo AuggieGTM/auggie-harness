@@ -8,6 +8,7 @@ outcome they choose, the message's time and Gmail's opaque ID for it.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Protocol, cast
 
@@ -70,7 +71,9 @@ def pending(store: Store, reader: ThreadReader) -> Found:
 
     A message is put to the person only when it came after a draft the seller sent in its
     thread, the seller did not send it, no outcome answers it yet, and it can be tied to one
-    draft: its In-Reply-To names that draft's message, or only one sent draft precedes it.
+    draft. With an In-Reply-To, the chain of replies it names must lead, within the thread, to
+    that draft's message; without one, only one sent draft may precede it. Anything else is
+    left for the person to record by hand.
     """
     sent = sent_from_gmail(store)
     by_receipt = {receipt: (draft, person) for draft, person, receipt in sent}
@@ -88,19 +91,28 @@ def pending(store: Store, reader: ThreadReader) -> Found:
             continue
         seen_threads.add(thread_id)
         anchors = [m for m in thread if m.message_id in by_receipt]
+        by_header = {m.header_id: m for m in thread if m.header_id}
         for message in thread:
             if message.message_id in by_receipt or message.from_seller:
                 continue
             if message.message_id in known:
                 continue
             before = [a for a in anchors if a.at < message.at]
-            named = [a for a in before if a.header_id and a.header_id == message.in_reply_to]
-            chosen = named or (before if len(before) == 1 else [])
+            if message.in_reply_to:
+                answers = _answers(message, by_header, by_receipt)
+                chosen = [answers] if answers is not None and answers in before else []
+            else:
+                chosen = before if len(before) == 1 else []
             if len(chosen) != 1:
                 if before:
                     drafts = ", ".join(by_receipt[a.message_id][0] for a in before)
+                    why = (
+                        "names a message that is not one of your drafts in its thread"
+                        if message.in_reply_to
+                        else f"could answer any of {drafts}"
+                    )
                     notes.append(
-                        f"a reply at {message.at.isoformat()} could answer any of {drafts}; "
+                        f"a reply at {message.at.isoformat()} in the thread of {drafts} {why}; "
                         "record it by hand with auggie outcome --draft"
                     )
                 continue
@@ -108,6 +120,26 @@ def pending(store: Store, reader: ThreadReader) -> Found:
             first_name = store.get_person(person).first_name
             replies.append(Reply(draft, person, first_name, message))
     return Found(replies, notes)
+
+
+def _answers(
+    message: ThreadMessage,
+    by_header: Mapping[str, ThreadMessage],
+    by_receipt: Mapping[str, object],
+) -> ThreadMessage | None:
+    """The sent draft a reply's In-Reply-To chain leads to within its thread, or None when the
+    chain leaves the thread, loops, or ends anywhere else."""
+    seen: set[str] = set()
+    current = message
+    while current.in_reply_to and current.in_reply_to not in seen:
+        seen.add(current.in_reply_to)
+        parent = by_header.get(current.in_reply_to)
+        if parent is None:
+            return None
+        if parent.message_id in by_receipt:
+            return parent
+        current = parent
+    return None
 
 
 def record_reply(store: Store, reply: Reply, outcome: str, reporter: str) -> Appended:
