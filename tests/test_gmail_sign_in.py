@@ -202,3 +202,36 @@ def test_the_flow_gets_only_the_desktop_configuration(tmp_path: Path) -> None:
 
     script.sign_in(NORTHSTAR / "scope.json", client(tmp_path), root=tmp_path / "c", run=run)
     assert given == [{"installed": {"client_id": "synthetic-client", "client_secret": "s"}}]
+
+
+def test_the_read_sign_in_asks_for_headers_only_and_saves_the_read_token(tmp_path: Path) -> None:
+    from auggie.delivery.gmail import READ_SCOPE
+
+    asked: list[str] = []
+
+    def run(_client: object, scope: str) -> Signed:
+        asked.append(scope)
+        return Signed(granted_scopes=(READ_SCOPE,))
+
+    saved = script.sign_in(
+        NORTHSTAR / "scope.json",
+        client(tmp_path),
+        root=tmp_path / "credentials",
+        run=run,
+        read=True,
+    )
+    assert asked == [READ_SCOPE]
+    assert saved == folder(tmp_path) / "gmail-read-token"
+    assert stat.S_IMODE(saved.stat().st_mode) == 0o600
+    assert not (folder(tmp_path) / "gmail-token").exists()  # the send token is untouched
+    # A grant of more than the read scope, or of the send scope, saves nothing.
+    for granted in ((READ_SCOPE, SEND_SCOPE), (SEND_SCOPE,)):
+        with pytest.raises(script.SignInRefused, match=r"exactly gmail\.metadata"):
+            script.sign_in(
+                NORTHSTAR / "scope.json",
+                client(tmp_path),
+                root=tmp_path / "other",
+                run=lambda _c, _s, g=granted: Signed(granted_scopes=g),
+                read=True,
+            )
+    assert not (tmp_path / "other").exists() or not any((tmp_path / "other").rglob("*token*"))

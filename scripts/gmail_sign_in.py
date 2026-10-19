@@ -1,18 +1,20 @@
-"""Sign a seller in to Gmail once, and save the token the harness reads (ADR 0021).
+"""Sign a seller in to Gmail once, and save the token the harness reads (ADRs 0021, 0029).
 
 A deployment step, like installing the Treg token: the seller runs it in their
 own terminal, outside any agent session, and the harness never runs it. It opens
 Google's consent page in the browser, signs in through a loopback redirect with
-PKCE, and saves the result only if Google granted exactly ``gmail.send`` and
-returned a refresh token. Nothing it prints contains a token, even when the
-sign-in fails.
+PKCE, and saves the result only if Google granted exactly the one scope asked
+for and returned a refresh token. Nothing it prints contains a token, even when
+the sign-in fails.
 
     uv run --with google-auth-oauthlib python scripts/gmail_sign_in.py \\
-        <scope.json> <client_secret.json>
+        [--read] <scope.json> <client_secret.json>
 
 ``client_secret.json`` is the Desktop app OAuth client downloaded from Google
-Cloud. The token is saved as ``gmail-token`` in the scope's credential folder,
-replacing whatever was there.
+Cloud. Without ``--read`` the token is for ``gmail.send`` and is saved as
+``gmail-token``; with it, the token is for ``gmail.metadata``, headers only, and
+is saved as ``gmail-read-token``. Either replaces whatever was at its path in
+the scope's credential folder.
 """
 
 from __future__ import annotations
@@ -30,7 +32,7 @@ from typing import Any, Protocol
 
 from auggie.contracts import CustomerScope
 from auggie.credentials import DEFAULT_ROOT
-from auggie.delivery.gmail import CREDENTIAL, SEND_SCOPE
+from auggie.delivery.gmail import CREDENTIAL, READ_CREDENTIAL, READ_SCOPE, SEND_SCOPE
 
 SIGN_IN_SECONDS = 300
 
@@ -85,12 +87,18 @@ def sign_in(
     *,
     root: Path | None = None,
     run: SignIn = google_sign_in,
+    read: bool = False,
 ) -> Path:
-    """Sign in, check what Google granted, and save the token. Returns the saved path."""
+    """Sign in, check what Google granted, and save the token. Returns the saved path.
+
+    ``read`` asks for the headers-only read scope and saves the read token instead.
+    """
+    wanted, name = (READ_SCOPE, READ_CREDENTIAL) if read else (SEND_SCOPE, CREDENTIAL)
+    short = wanted.rsplit("/", 1)[-1]
     scope = CustomerScope.model_validate_json(scope_file.read_text(encoding="utf-8"))
     client = desktop_client(client_file)
     try:
-        signed = run(client, SEND_SCOPE)
+        signed = run(client, wanted)
         granted = signed.granted_scopes
         refresh_token = signed.refresh_token
         token_file = signed.to_json()
@@ -98,17 +106,17 @@ def sign_in(
         # Not chained or shown: OAuth errors can carry Google's description and token values.
         raise SignInRefused("Google's sign-in did not complete; nothing was saved") from None
     scopes = set(granted.split() if isinstance(granted, str) else granted or ())
-    if scopes != {SEND_SCOPE}:
-        raise SignInRefused("Google did not grant exactly gmail.send; nothing was saved")
+    if scopes != {wanted}:
+        raise SignInRefused(f"Google did not grant exactly {short}; nothing was saved")
     if not refresh_token:
         raise SignInRefused("Google returned no refresh token; nothing was saved")
     folder = (root or Path(os.environ.get("AUGGIE_CREDENTIALS_DIR", DEFAULT_ROOT))) / (
         scope.credential_namespace
     )
-    return _save(folder, token_file)
+    return _save(folder, token_file, name)
 
 
-def _save(folder: Path, content: str) -> Path:
+def _save(folder: Path, content: str, name: str = CREDENTIAL) -> Path:
     """Write ``content`` as the folder's token, replacing any file or link there.
 
     The folder itself must be a real folder owned by this user: a link there could
@@ -119,7 +127,7 @@ def _save(folder: Path, content: str) -> Path:
     if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid():
         raise SignInRefused(f"{folder} is not a real folder of yours; nothing was saved")
     directory = os.open(folder, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-    temporary = f".{CREDENTIAL}.{secrets.token_hex(8)}"
+    temporary = f".{name}.{secrets.token_hex(8)}"
     try:
         os.fchmod(directory, 0o700)
         descriptor = os.open(
@@ -132,24 +140,26 @@ def _save(folder: Path, content: str) -> Path:
             with os.fdopen(descriptor, "w", encoding="utf-8") as file:
                 file.write(content)
             # Replaces a file or link at the token's path, never following it.
-            os.replace(temporary, CREDENTIAL, src_dir_fd=directory, dst_dir_fd=directory)
+            os.replace(temporary, name, src_dir_fd=directory, dst_dir_fd=directory)
         except BaseException:
             with contextlib.suppress(FileNotFoundError):
                 os.unlink(temporary, dir_fd=directory)
             raise
     finally:
         os.close(directory)
-    return folder / CREDENTIAL
+    return folder / name
 
 
 def main(argv: list[str]) -> int:
+    read = argv[:1] == ["--read"]
+    argv = argv[1:] if read else argv
     if len(argv) != 2:
         print(__doc__, file=sys.stderr)
         return 2
     quiet = logging.root.manager.disable
     logging.disable(logging.CRITICAL)  # the OAuth libraries may log token exchanges
     try:
-        saved = sign_in(Path(argv[0]), Path(argv[1]))
+        saved = sign_in(Path(argv[0]), Path(argv[1]), read=read)
     except SignInRefused as refused:
         print(f"stopped   {refused}", file=sys.stderr)
         return 1
@@ -161,7 +171,8 @@ def main(argv: list[str]) -> int:
         return 1
     finally:
         logging.disable(quiet)
-    print(f"saved     {saved}: it can send as the account you chose; it was not printed")
+    can = "read the headers of" if read else "send as"
+    print(f"saved     {saved}: it can {can} the account you chose; it was not printed")
     return 0
 
 

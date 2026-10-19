@@ -1,8 +1,11 @@
-"""Gmail delivery: one approved message from the seller's own mailbox (ADRs 0020, 0021, 0022).
+"""Gmail: one approved message sent from the seller's own mailbox (ADRs 0020, 0021, 0022), and
+the replies in its thread read back, headers only (ADR 0029).
 
 Each send renews an access token from the scope's ``gmail-token`` file, uses
 it only if Google lists exactly the ``gmail.send`` scope for it, and sends
-one message through the Gmail API. The harness never writes the file.
+one message through the Gmail API. Reading renews one from ``gmail-read-token``
+for exactly ``gmail.metadata`` and never asks for a message's body. The
+harness never writes either file.
 """
 
 from __future__ import annotations
@@ -10,7 +13,10 @@ from __future__ import annotations
 import base64
 import json
 import re
+import unicodedata
 import urllib.parse
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from email.message import EmailMessage
 from email.policy import SMTP
 
@@ -26,6 +32,12 @@ SEND_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send"
 SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send"
 CREDENTIAL = "gmail-token"
 """Name of the authorized-user file in the scope's credential folder (ADR 0021)."""
+
+READ_SCOPE = "https://www.googleapis.com/auth/gmail.metadata"
+READ_CREDENTIAL = "gmail-read-token"
+"""The second authorized-user file, for reading headers only (ADR 0029)."""
+MESSAGES_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages"
+THREADS_URL = "https://gmail.googleapis.com/gmail/v1/users/me/threads"
 
 TIMEOUT_SECONDS = 30.0
 GMAIL = Actor(kind="service", id="gmail-delivery", version="1")
@@ -117,57 +129,71 @@ class GmailSender:
         return message_id
 
     def _access_token(self) -> tuple[str, tuple[str, ...]]:
-        """Renew an access token for exactly ``gmail.send``. Raises ``SendRefused`` otherwise.
-
-        Returns the token and every secret value involved, so a reply that
-        repeats one is never trusted as a receipt.
-        """
-        try:
-            secret = self._credentials.secret(self._scope, CREDENTIAL)
-        except CredentialError as error:
-            raise SendRefused(str(error)) from None
-        try:
-            stored = json.loads(secret.reveal())
-            form = {
-                "client_id": stored["client_id"],
-                "client_secret": stored["client_secret"],
-                "refresh_token": stored["refresh_token"],
-                "grant_type": "refresh_token",
-            }
-            if not all(isinstance(value, str) and value for value in form.values()):
-                raise ValueError
-        except (ValueError, KeyError, TypeError):
-            raise SendRefused(
-                f"{CREDENTIAL} is not an authorized-user file; sign in again"
-            ) from None
-        request = HttpRequest(
-            method="POST",
-            url=TOKEN_URL,
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-            body=urllib.parse.urlencode(form).encode(),
-            timeout=TIMEOUT_SECONDS,
+        """Renew an access token for exactly ``gmail.send``. Raises ``SendRefused`` otherwise."""
+        return renew(
+            self._transport, self._credentials, self._scope, CREDENTIAL, SEND_SCOPE, SendRefused
         )
-        try:
-            response = self._transport.send(request)
-        except OSError:
-            raise SendRefused("Google could not be reached to renew the token") from None
-        if len(response.body) > MAX_BODY_BYTES:
-            raise SendRefused("Google's token reply was too large to read")
-        if response.status != 200:
-            reason = _field(response, "error")
-            code = f" ({reason})" if reason in OAUTH_ERRORS else ""
-            raise SendRefused(
-                f"Google refused to renew the token{code} (HTTP {response.status}); sign in again"
-            )
-        token = _field(response, "access_token")
-        granted = _field(response, "scope")
-        if token is None or (_field(response, "token_type") or "").lower() != "bearer":
-            raise SendRefused("Google's token reply was not a bearer access token")
-        if granted is None or set(granted.split()) != {SEND_SCOPE}:
-            raise SendRefused(
-                "the token is not granted exactly gmail.send; sign in again with only that scope"
-            )
-        return token, (token, form["client_secret"], form["refresh_token"])
+
+
+def renew(
+    transport: Transport,
+    credentials: CredentialFiles,
+    scope: CustomerScope,
+    name: str,
+    wanted: str,
+    refuse: type[Exception],
+) -> tuple[str, tuple[str, ...]]:
+    """Renew an access token from the scope's credential ``name``, for exactly ``wanted``.
+    Raises ``refuse`` otherwise, with a reason that never holds a secret.
+
+    Returns the token and every secret value involved, so a reply that
+    repeats one is never trusted.
+    """
+    short = wanted.rsplit("/", 1)[-1]
+    try:
+        secret = credentials.secret(scope, name)
+    except CredentialError as error:
+        raise refuse(str(error)) from None
+    try:
+        stored = json.loads(secret.reveal())
+        form = {
+            "client_id": stored["client_id"],
+            "client_secret": stored["client_secret"],
+            "refresh_token": stored["refresh_token"],
+            "grant_type": "refresh_token",
+        }
+        if not all(isinstance(value, str) and value for value in form.values()):
+            raise ValueError
+    except (ValueError, KeyError, TypeError):
+        raise refuse(f"{name} is not an authorized-user file; sign in again") from None
+    request = HttpRequest(
+        method="POST",
+        url=TOKEN_URL,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        body=urllib.parse.urlencode(form).encode(),
+        timeout=TIMEOUT_SECONDS,
+    )
+    try:
+        response = transport.send(request)
+    except OSError:
+        raise refuse("Google could not be reached to renew the token") from None
+    if len(response.body) > MAX_BODY_BYTES:
+        raise refuse("Google's token reply was too large to read")
+    if response.status != 200:
+        reason = _field(response, "error")
+        code = f" ({reason})" if reason in OAUTH_ERRORS else ""
+        raise refuse(
+            f"Google refused to renew the token{code} (HTTP {response.status}); sign in again"
+        )
+    token = _field(response, "access_token")
+    granted = _field(response, "scope")
+    if token is None or (_field(response, "token_type") or "").lower() != "bearer":
+        raise refuse("Google's token reply was not a bearer access token")
+    if granted is None or set(granted.split()) != {wanted}:
+        raise refuse(
+            f"the token is not granted exactly {short}; sign in again with only that scope"
+        )
+    return token, (token, form["client_secret"], form["refresh_token"])
 
 
 def _message(to: str, subject: str, body: str) -> str:
@@ -196,3 +222,134 @@ def _field(response: HttpResponse, name: str) -> str | None:
     except (ValueError, AttributeError):
         return None
     return value if isinstance(value, str) and value else None
+
+
+class ReadRefused(Exception):
+    """The mailbox could not be read as asked. Nothing was recorded."""
+
+
+@dataclass(frozen=True)
+class ThreadMessage:
+    """One message of a thread, as headers-only reading shows it."""
+
+    message_id: str
+    at: datetime
+    """When Gmail received it."""
+    from_seller: bool
+    """It carries Gmail's SENT label: the seller sent it."""
+    sender: str
+    """Its From header, for a person to read: control characters removed, never stored."""
+
+    @property
+    def looks_like_bounce(self) -> bool:
+        """A mail system's delivery-failure notice, by its sender. Only ever a suggestion."""
+        lowered = self.sender.lower()
+        return "mailer-daemon" in lowered or "postmaster" in lowered
+
+
+def _shown(value: str) -> str:
+    """A header for a person to read: no control or format characters, at most 200 of them."""
+    cleaned = "".join(c for c in value if unicodedata.category(c)[0] != "C")
+    return cleaned.strip()[:200]
+
+
+class GmailReader:
+    """Reads the threads of messages a scope's mailbox sent, headers only (ADR 0029). Refused
+    unless the scope allows external calls."""
+
+    def __init__(
+        self, *, scope: CustomerScope, credentials: CredentialFiles, transport: Transport
+    ) -> None:
+        require_external_calls(scope)
+        self._scope = scope
+        self._credentials = credentials
+        self._transport = transport
+        self._token: tuple[str, tuple[str, ...]] | None = None
+
+    def thread_of(self, message_id: str) -> list[ThreadMessage]:
+        """Every message in the thread of a message the seller sent, oldest first. Empty when
+        Gmail no longer has the message."""
+        if not MESSAGE_ID.fullmatch(message_id):
+            raise ReadRefused(f"{message_id!r} is not a Gmail message ID")
+        found = self._get(f"{MESSAGES_URL}/{message_id}?format=minimal")
+        if found is None:
+            return []
+        thread_id = found.get("threadId")
+        if not isinstance(thread_id, str) or not MESSAGE_ID.fullmatch(thread_id):
+            raise ReadRefused("Gmail returned no usable thread for the sent message")
+        thread = self._get(f"{THREADS_URL}/{thread_id}?format=metadata&metadataHeaders=From")
+        messages = thread.get("messages") if thread else None
+        if not isinstance(messages, list):
+            raise ReadRefused("Gmail returned a thread without its messages")
+        read = [_thread_message(m) for m in messages]
+        return sorted(read, key=lambda m: (m.at, m.message_id))
+
+    def _get(self, url: str) -> dict[str, object] | None:
+        if self._token is None:
+            self._token = renew(
+                self._transport,
+                self._credentials,
+                self._scope,
+                READ_CREDENTIAL,
+                READ_SCOPE,
+                ReadRefused,
+            )
+        token, secrets = self._token
+        request = HttpRequest(
+            method="GET",
+            url=url,
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+            body=b"",
+            timeout=TIMEOUT_SECONDS,
+        )
+        try:
+            response = self._transport.send(request)
+        except OSError:
+            raise ReadRefused("Gmail could not be reached") from None
+        if response.status == 404:
+            return None
+        if response.status != 200 or len(response.body) > MAX_BODY_BYTES:
+            raise ReadRefused(f"Gmail answered HTTP {response.status}")
+        if any(secret in response.body.decode("utf-8", "replace") for secret in secrets):
+            raise ReadRefused("Gmail's reply repeated a credential; none of it was used")
+        try:
+            data = json.loads(response.body)
+        except ValueError:
+            raise ReadRefused("Gmail's reply was not JSON") from None
+        if not isinstance(data, dict):
+            raise ReadRefused("Gmail's reply was not an object")
+        return data
+
+
+def _thread_message(message: object) -> ThreadMessage:
+    if not isinstance(message, dict):
+        raise ReadRefused("a message of the thread was not an object")
+    message_id = message.get("id")
+    labels = message.get("labelIds", [])
+    received = message.get("internalDate")
+    if not isinstance(message_id, str) or not MESSAGE_ID.fullmatch(message_id):
+        raise ReadRefused("a message of the thread had no usable ID")
+    if not isinstance(received, str) or not received.isdigit():
+        raise ReadRefused("a message of the thread had no time")
+    if not isinstance(labels, list):
+        raise ReadRefused("a message of the thread had unreadable labels")
+    payload = message.get("payload")
+    headers = payload.get("headers", []) if isinstance(payload, dict) else []
+    sender = next(
+        (
+            h.get("value")
+            for h in (headers if isinstance(headers, list) else [])
+            if isinstance(h, dict) and str(h.get("name", "")).lower() == "from"
+        ),
+        "",
+    )
+    try:
+        at = datetime.fromtimestamp(int(received) / 1000, tz=UTC)
+    except (OverflowError, ValueError, OSError):
+        raise ReadRefused("a message of the thread had an impossible time") from None
+    return ThreadMessage(
+        message_id=message_id,
+        at=at,
+        from_seller="SENT" in labels,
+        sender=_shown(sender if isinstance(sender, str) else ""),
+    )

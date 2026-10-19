@@ -171,7 +171,10 @@ reproduce what was learned, land here.
   *Decided: [ADR 0028](docs/adr/0028-learning-from-outcomes.md). Built: `auggie outcome --from`
   a CSV, `auggie learn` by play, pain, proof and criterion, and `--propose` writing the plays
   and proofs in order of their results as a patch, tested on synthetic outcomes only. Not
-  built: reading replies from the seller's mailbox.*
+  built: reading replies from the seller's mailbox. Built since: `auggie outcome --replies`,
+  headers only with a second token, each reply classified by the person
+  ([ADR 0029](docs/adr/0029-reading-replies-from-gmail.md)), tested against a fake Google
+  only.*
 
 ## Later, each its own decision
 

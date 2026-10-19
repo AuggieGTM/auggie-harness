@@ -411,3 +411,30 @@ uv run auggie deliver <scope.json> --draft <draft id> --resolve sent \
 
 Use `--resolve not-sent` if it is not there. Either way the draft is closed. If it never went
 out, research again for a new draft.
+
+### Reading replies, headers only
+
+Instead of typing each outcome, you can have the harness find the replies to drafts it sent
+from your Gmail and ask you what each one was
+([ADR 0029](adr/0029-reading-replies-from-gmail.md)). It needs a second token, separate from
+the send token, that can read message headers but never a message's body:
+
+```bash
+uv run --with google-auth-oauthlib python scripts/gmail_sign_in.py --read \
+  <scope.json> <client_secret.json>
+```
+
+It saves `gmail-read-token` only if Google granted exactly `gmail.metadata`. Google classes that
+permission as restricted, so use the Internal OAuth client from step 1. Then, at your own
+terminal:
+
+```bash
+uv run auggie outcome <scope.json> --replies --reporter "your name" --mongodb <uri>
+```
+
+For each message in a sent draft's thread that came after it and that you did not send, it
+shows who it is from and when, marks a mail system's delivery-failure notice as a likely
+bounce, and asks you: positive, negative, meeting, opt-out, bounce, or skip. Nothing is
+recorded without your answer, and a skipped message is asked about again next time. The
+harness keeps only the outcome you chose, the reply's time and Gmail's ID for it: no addresses,
+names or subjects. It is tested against a fake Google only.

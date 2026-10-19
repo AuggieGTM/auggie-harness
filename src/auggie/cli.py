@@ -552,6 +552,14 @@ def _add_prospect_commands(commands: Any) -> None:
         metavar="CSV",
         help="a list of outcomes: draft, outcome and occurred_at",
     )
+    source.add_argument(
+        "--replies",
+        action="store_true",
+        help="read replies to drafts sent from your Gmail, headers only, and classify each",
+    )
+    outcome.add_argument(
+        "--credentials", type=Path, help="credentials root (default: $AUGGIE_CREDENTIALS_DIR)"
+    )
     outcome.add_argument("--outcome", choices=get_args(OutcomeKind), help="with --draft")
     outcome.add_argument("--reporter", required=True, help="your name, recorded on the outcome")
     outcome.add_argument(
@@ -1195,6 +1203,8 @@ def prospect_command(args: argparse.Namespace, out: Print, ask: Callable[[str], 
     person_step = PERSON_COMMANDS.get(args.command)
     if args.command == "deliver" and args.resolve is not None:
         person_step = "resolving a send records what a person found"
+    if args.command == "outcome" and args.replies:
+        person_step = "classifying replies records a person's judgment"
     if person_step is not None and not interactive():
         out(
             f"stopped   {person_step}, so it must be answered at a "
@@ -1204,6 +1214,7 @@ def prospect_command(args: argparse.Namespace, out: Print, ask: Callable[[str], 
     from pydantic import ValidationError
 
     from auggie.credentials import CredentialError
+    from auggie.delivery.gmail import ReadRefused
     from auggie.external import ExternalCallRefused
     from auggie.spend import SpendRefused
     from auggie.strategy import StrategyError
@@ -1220,6 +1231,7 @@ def prospect_command(args: argparse.Namespace, out: Print, ask: Callable[[str], 
         *BLOCKING,
         CredentialError,
         ExternalCallRefused,
+        ReadRefused,
         SpendRefused,
         StrategyError,
         ValidationError,
@@ -1247,6 +1259,11 @@ def prospect_command(args: argparse.Namespace, out: Print, ask: Callable[[str], 
     if args.command == "outcome" and args.draft is not None and args.outcome is None:
         out("stopped   --draft needs --outcome")
         return 1
+    if args.command == "outcome" and args.replies:
+        refused = _cannot_read_replies(args, scope)
+        if refused is not None:
+            out(f"stopped   {refused}")
+            return 1
     outcomes = None
     if args.command == "outcome" and args.from_list is not None:
         from auggie import outcome_list
@@ -1268,6 +1285,8 @@ def prospect_command(args: argparse.Namespace, out: Print, ask: Callable[[str], 
         store = backend.open(scope)
         if outcomes is not None:
             return _outcomes_from(args, store, outcomes, out)
+        if args.command == "outcome" and args.replies:
+            return _classify_replies(args, store, out, ask)
         if prepared is not None:
             return _research_list(args, store, prepared, out)
         return _prospect_step(args, store, out, ask)
@@ -1393,6 +1412,77 @@ def _prospect_step(
         store, draft_id=args.draft, outcome=args.outcome, reporter=args.reporter
     )
     out(f"learn     outcome {args.outcome} recorded ({recorded_outcome.event.idempotency_key})")
+    return 0
+
+
+REPLY_CHOICES: dict[str, str] = {
+    "p": "positive_reply",
+    "n": "negative_reply",
+    "m": "meeting_booked",
+    "o": "opt_out",
+    "b": "bounce",
+}
+
+
+def _cannot_read_replies(args: argparse.Namespace, scope: CustomerScope) -> str | None:
+    """Why ``outcome --replies`` cannot run as given, before anything connects."""
+    try:
+        Actor(kind="human", id=args.reporter)
+    except ValueError:
+        return "--reporter must be your name"
+    execution = scope.execution
+    if execution.delivery != "live" or execution.platform != "gmail":
+        return "replies are read only for a scope that sends live from Gmail"
+    if not execution.external_providers:
+        return f"scope {scope.customer_id!r} does not allow calls to external services"
+    return None
+
+
+def _classify_replies(
+    args: argparse.Namespace, store: Store, out: Print, ask: Callable[[str], str]
+) -> int:
+    """Put each new reply to a draft sent from Gmail to the person, who says what it was
+    (ADR 0029). Nothing is recorded without their answer."""
+    from auggie import replies
+    from auggie.delivery.gmail import GmailReader
+
+    reader = GmailReader(
+        scope=store.scope,
+        credentials=CredentialFiles(args.credentials),
+        transport=google_transport(),
+    )
+    waiting = replies.pending(store, reader)
+    out(f"{len(waiting)} new messages in the threads of drafts you sent from Gmail")
+    recorded = 0
+    for reply in waiting:
+        message = reply.message
+        bounce = " (it looks like a delivery failure)" if message.looks_like_bounce else ""
+        out("")
+        out(
+            f"reply     {reply.draft_id} to {reply.first_name}: from {message.sender or 'unknown'}"
+            f" at {message.at.isoformat()}{bounce}"
+        )
+        try:
+            answer = (
+                ask(
+                    "[p]ositive / [n]egative / [m]eeting / [o]pt-out / [b]ounce / [s]kip / [q]uit: "
+                )
+                .strip()
+                .lower()
+            )
+        except EOFError:
+            answer = "q"
+        if answer in ("q", "quit"):
+            break
+        outcome = REPLY_CHOICES.get(answer[:1]) if answer and answer[0] != "s" else None
+        if outcome is None:
+            out("skipped   nothing recorded; you will be asked again next time")
+            continue
+        appended = replies.record_reply(store, reply, outcome, args.reporter)
+        out(f"recorded  {outcome} ({appended.event.idempotency_key})")
+        recorded += 1
+    out("")
+    out(f"Recorded {recorded} outcomes.")
     return 0
 
 

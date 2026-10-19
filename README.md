@@ -51,7 +51,9 @@ product.
 - `src/auggie/delivery/gmail.py` sends an approved draft from the seller's own Gmail with a
   send-only permission ([ADR 0021](docs/adr/0021-the-sellers-gmail-credential.md)), recording
   each attempt and what came of it ([ADR 0022](docs/adr/0022-live-delivery-records.md)).
-  `scripts/gmail_sign_in.py` saves its token. Tests use a fake Google.
+  `scripts/gmail_sign_in.py` saves its token. `auggie outcome --replies` reads the replies to
+  those drafts, headers only, with a second, read-only token, and asks you what each was
+  ([ADR 0029](docs/adr/0029-reading-replies-from-gmail.md)). Tests use a fake Google.
 - `src/auggie/projections/` turns the Store into read-only tabs (accounts, findings, evidence,
   drafts, hiring) without page text, written as CSV, by your agent's Google connector, or by a
   service account ([ADR 0019](docs/adr/0019-projection-writers-and-agent-connectors.md)).

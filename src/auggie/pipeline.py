@@ -943,8 +943,11 @@ def resolve_send(
     )
 
 
-def record_outcome(store: Store, *, artifact_id: str, report: OutcomeReport) -> Appended:
-    """Record what happened after a delivery. There must have been one."""
+def record_outcome(
+    store: Store, *, artifact_id: str, report: OutcomeReport, reply_id: str | None = None
+) -> Appended:
+    """Record what happened after a delivery. There must have been one. ``reply_id`` is the
+    mailbox's opaque ID for the reply it answers, when one was read (ADR 0029)."""
     recipient_id = store.latest_artifact(artifact_id).recipient_id
     if recipient_id is None:
         raise ValueError(f"{artifact_id} has no recipient")
@@ -960,5 +963,5 @@ def record_outcome(store: Store, *, artifact_id: str, report: OutcomeReport) -> 
             RecordRef(kind="person", id=recipient_id),
         ],
         key=f"outcome.recorded:{artifact_id}:{recipient_id}:{report.sequence}",
-        attributes={"outcome": report.outcome},
+        attributes={"outcome": report.outcome, **({"reply": reply_id} if reply_id else {})},
     )

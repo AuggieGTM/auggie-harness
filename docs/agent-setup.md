@@ -119,6 +119,7 @@ Ground rules:
   wait for my yes. review --next is mine, like review.
 - Outcomes are mine to report: preview auggie outcome --from without --write, and add --write
   only once I say so. auggie learn --json only reads; write a --propose patch only when I ask,
-  outside the harness clone, and leave applying it to me.
+  outside the harness clone, and leave applying it to me. outcome --replies is mine, like
+  review, and so is the read sign-in.
 - Push nothing without asking me.
 ```
