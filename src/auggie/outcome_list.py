@@ -75,9 +75,11 @@ def read_outcomes(text: str) -> list[OutcomeRow]:
             moment = None
             try:
                 moment = _when(values["occurred_at"])
-            except ValueError as error:
+            except (ValueError, OverflowError) as error:
                 problems.append(f"occurred_at: {error}")
-            key = (values["draft"], values["outcome"], values["occurred_at"])
+            # The same moment written in another zone is the same report.
+            when = moment.isoformat() if moment else values["occurred_at"]
+            key = (values["draft"], values["outcome"], when)
             first = seen.setdefault(key, line)
             if first != line:
                 problems.append(f"repeats line {first}")
@@ -140,14 +142,21 @@ def _problem(store: Store, row: OutcomeRow, at: datetime, now: datetime) -> str 
 
 
 def record(rows: Sequence[OutcomeRow], store: Store, reporter: str) -> list[Appended]:
-    """Record each new row as the next report for its draft."""
+    """Record each new row as the next report for its draft, unless an equal report, the same
+    outcome at the same moment, is already recorded."""
     by = Actor(kind="human", id=reporter)
     recorded = []
     for row in rows:
         if row.status != "new" or row.occurred_at is None:
             continue
         artifact = RecordRef(kind="artifact", id=row.draft_id)
-        earlier = sum(artifact in e.refs for e in store.list_events(type="outcome.recorded"))
+        reports = [e for e in store.list_events(type="outcome.recorded") if artifact in e.refs]
+        if any(
+            e.attributes.get("outcome") == row.outcome and e.occurred_at == row.occurred_at
+            for e in reports
+        ):
+            continue  # recorded since the preview, or by an equivalent row
+        earlier = len(reports)
         report = OutcomeReport(
             outcome=cast(OutcomeKind, row.outcome),
             reported_by=by,

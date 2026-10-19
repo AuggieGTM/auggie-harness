@@ -199,18 +199,21 @@ def _same_but_order(
     return parsed_new == parsed_old and list(before) != list(after)
 
 
+NO_NEWLINE = "\\ No newline at end of file\n"
+
+
 def patch(loaded: LoadedStrategy, text: str) -> str:
-    """A unified diff from the strategy's text to ``text``, for ``git apply`` in its repo."""
+    """A unified diff from the strategy's text to ``text``, for ``git apply`` in its repo. A
+    last line without a newline is marked as Git marks it."""
     old = loaded.source.decode("utf-8")
     path = loaded.ref.path
-    return "".join(
-        difflib.unified_diff(
-            old.splitlines(keepends=True),
-            text.splitlines(keepends=True),
-            fromfile=f"a/{path}",
-            tofile=f"b/{path}",
-        )
+    lines = difflib.unified_diff(
+        old.splitlines(keepends=True),
+        text.splitlines(keepends=True),
+        fromfile=f"a/{path}",
+        tofile=f"b/{path}",
     )
+    return "".join(line if line.endswith("\n") else f"{line}\n{NO_NEWLINE}" for line in lines)
 
 
 def write_patch(path: Path, body: str) -> None:

@@ -186,8 +186,9 @@ def test_learn_proposes_a_patch_from_reported_outcomes(
 ) -> None:
     from auggie.store.mongodb import MongoBackend
 
-    rules = load_strategy(KESTREL / "inputs", INPUTS.strategy.path, commit="0" * 40, scope=SCOPE)
     repo = Path(__file__).resolve().parent.parent
+    # Researched under the strategy's path in its repository, which the proposal names too.
+    rules = load_strategy(repo, STRATEGY_PATH, commit="0" * 40, scope=SCOPE)
     with mongo_backend() as backend:
         assert isinstance(backend, MongoBackend)
         store = backend.open(SCOPE)
@@ -251,3 +252,91 @@ def stat_mode(path: Path) -> int:
     import stat
 
     return stat.S_IMODE(path.stat().st_mode)
+
+
+# What Pi's review found
+
+
+def test_a_patch_for_a_file_without_a_final_newline_still_applies(tmp_path: Path) -> None:
+    text = two_proofs('proofs = ["harborview-triage", "saltmarsh-scale"]')
+    # Moving the proof line near the end keeps the last line in the diff's context.
+    text = text.rstrip("\n")
+    repo = tmp_path / "repo"
+    (repo / "strategy").mkdir(parents=True)
+    (repo / "strategy" / "s.toml").write_text(text, encoding="utf-8")
+    git = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.invalid"]
+    subprocess.run([*git, "init", "-q"], check=True)
+    subprocess.run([*git, "add", "."], check=True)
+    subprocess.run([*git, "commit", "-qm", "strategy"], check=True)
+    loaded = load_strategy(repo, "strategy/s.toml", commit="0" * 40, scope=SCOPE)
+    proofs = {
+        "harborview-triage": tally("harborview-triage", 1, 9),
+        "saltmarsh-scale": tally("saltmarsh-scale", 5, 5),
+    }
+    (_proposal,), _, proposed = propose(loaded, {}, proofs)
+    diff = tmp_path / "proposal.patch"
+    diff.write_text(patch(loaded, proposed), encoding="utf-8")
+    subprocess.run([*git, "apply", "--check", str(diff)], check=True)
+    subprocess.run([*git, "apply", str(diff)], check=True)
+    assert (repo / "strategy" / "s.toml").read_text(encoding="utf-8") == proposed
+
+
+def test_results_under_another_strategy_file_are_never_credited(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from auggie.store.mongodb import MongoBackend
+
+    (tmp_path / "strategy").mkdir()
+    (tmp_path / "strategy" / "other.toml").write_text(
+        TEXT.replace("strategy-security-r1", "strategy-security-other"), encoding="utf-8"
+    )
+    other = load_strategy(tmp_path, "strategy/other.toml", commit="0" * 40, scope=SCOPE)
+    repo = Path(__file__).resolve().parent.parent
+    with mongo_backend() as backend:
+        assert isinstance(backend, MongoBackend)
+        store = backend.open(SCOPE)
+        for n in range(10):
+            deliver_one(store, other, "positive_reply" if n < 9 else "no_reply")
+        store_args = [
+            "--mongodb",
+            os.environ[MONGODB_URI],
+            "--database-prefix",
+            backend.database_prefix,
+        ]
+        argv = [
+            "learn",
+            str(KESTREL / "scope.json"),
+            "--strategy-repo",
+            str(repo),
+            "--strategy-path",
+            STRATEGY_PATH,
+        ]
+        assert main([*argv, "--propose", str(tmp_path / "p.patch"), *store_args]) == 0
+        out = capsys.readouterr().out
+        assert f"counted   0 deliveries composed under {STRATEGY_PATH}" in out
+        assert "10 under other strategies left out" in out and "no patch" in out
+        assert not (tmp_path / "p.patch").exists()
+        assert main(["learn", str(KESTREL / "scope.json"), *store_args]) == 0
+        assert "under strategy/other.toml: 10 deliveries" in capsys.readouterr().out
+
+
+def test_a_patch_is_never_written_inside_the_strategy_repository(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    repo = Path(__file__).resolve().parent.parent
+    inside = repo / "examples" / "never-written.patch"
+    argv = [
+        "learn",
+        str(KESTREL / "scope.json"),
+        "--strategy-repo",
+        str(repo),
+        "--strategy-path",
+        STRATEGY_PATH,
+        "--propose",
+        str(inside),
+        "--mongodb",
+        "mongodb://127.0.0.1:1",
+    ]
+    assert main(argv) == 1
+    assert "outside the strategy repository" in capsys.readouterr().out
+    assert not inside.exists()

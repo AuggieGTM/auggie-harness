@@ -515,11 +515,19 @@ def render_learn(view: Mapping[str, Any]) -> list[str]:
         f"{view['deliveries']} deliveries. A rate is positive deliveries over settled ones "
         "(positive or negative); deliveries still waiting do not count."
     ]
+    for strategy in view["strategies"]:
+        lines.append(f"under {strategy['strategy']}: {strategy['deliveries']} deliveries")
+        lines.extend(_learned(strategy))
+    return lines
+
+
+def _learned(view: Mapping[str, Any]) -> list[str]:
+    lines = []
     for group in ("plays", "pains", "proofs", "criteria"):
         rows = view[group]
         if not rows:
             continue
-        lines.append(group)
+        lines.append(f" {group}")
         for row in rows:
             rate = f"{row['rate']:.0%}" if row["rate"] is not None else "none settled"
             lines.append(

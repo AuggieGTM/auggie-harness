@@ -25,6 +25,9 @@ class Delivery:
     criteria: tuple[str, ...]
     """The criteria its qualification found met."""
     outcomes: tuple[str, ...]
+    strategy: str = ""
+    """The strategy file it was composed under. Plays, pains and proofs are named within one
+    file: the same ID in another file is another play."""
 
     @property
     def result(self) -> Result:
@@ -69,6 +72,7 @@ def deliveries(store: Store) -> list[Delivery]:
                 proof=view.proof.proof_id if view and view.proof else None,
                 criteria=tuple(f.criterion for f in decision.findings if f.assessment == "meets"),
                 outcomes=tuple(outcomes.get(draft_id, ())),
+                strategy=draft.strategy.path,
             )
         )
     return found
@@ -126,14 +130,29 @@ def tally(found: Iterable[Delivery], by: Callable[[Delivery], Iterable[str]]) ->
 NO_PLAY = "(no play recorded)"
 
 
+def under(found: Iterable[Delivery], strategy_path: str) -> list[Delivery]:
+    """The deliveries composed under one strategy file, any of its revisions."""
+    return [d for d in found if d.strategy == strategy_path]
+
+
 def learn_view(store: Store) -> dict[str, Any]:
-    """The report `auggie learn` prints: deliveries counted by play, pain, proof and criterion."""
+    """The report `auggie learn` prints: deliveries counted by play, pain, proof and criterion,
+    for each strategy file they were composed under. IDs are never pooled across files."""
     found = deliveries(store)
+    files = list(dict.fromkeys(d.strategy for d in found))
     return {
+        "deliveries": len(found),
+        "strategies": [_strategy_view(path, under(found, path)) for path in files],
+        "basis": "reported outcomes",
+    }
+
+
+def _strategy_view(path: str, found: list[Delivery]) -> dict[str, Any]:
+    return {
+        "strategy": path,
         "deliveries": len(found),
         "plays": [t.view() for t in tally(found, lambda d: [d.play or NO_PLAY])],
         "pains": [t.view() for t in tally(found, lambda d: [d.pain] if d.pain else [])],
         "proofs": [t.view() for t in tally(found, lambda d: [d.proof] if d.proof else [])],
         "criteria": [t.view() for t in tally(found, lambda d: d.criteria)],
-        "basis": "reported outcomes",
     }

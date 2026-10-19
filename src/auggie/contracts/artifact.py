@@ -122,7 +122,10 @@ class Artifact(Contract):
                 raise ValueError(f"{name} must not repeat")
         if self.supersedes == self.ref.content_hash:
             raise ValueError("a version cannot supersede itself")
-        proof = self.point_of_view.proof if self.point_of_view else None
+        view = self.point_of_view
+        if view is not None and self.play is not None and view.play != self.play:
+            raise ValueError("a draft's play and its point of view's play must agree")
+        proof = view.proof if view else None
         if proof is not None:
             if proof.evidence_id not in self.evidence_ids:
                 raise ValueError("a draft cites the read of the proof it quotes")

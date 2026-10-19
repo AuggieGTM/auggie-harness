@@ -78,7 +78,7 @@ def test_each_row_is_checked_against_the_store_then_recorded() -> None:
     (appended,) = record(rows, run.store, "demo-reviewer")
     assert appended.event.idempotency_key.endswith(":2")  # the draft's second report
     assert appended.event.actor.id == "demo-reviewer"
-    assert learn_view(run.store)["plays"][0]["positive"] == 1
+    assert learn_view(run.store)["strategies"][0]["plays"][0]["positive"] == 1
     again = check(
         read_outcomes(HEADER + f"{draft},positive_reply,2026-10-17T10:00:00Z\n"),
         run.store,
@@ -140,3 +140,71 @@ def test_the_outcome_command_previews_then_records(
             == 1
         )
         assert "--draft needs --outcome" in capsys.readouterr().out
+
+
+# What Pi's review found
+
+
+def test_the_same_moment_in_another_zone_is_one_report() -> None:
+    run = run_scenario(KESTREL)
+    draft = "draft-fernhollow-001"
+    rows = check(
+        read_outcomes(
+            HEADER
+            + f"{draft},positive_reply,2026-10-17T10:00:00Z\n"
+            + f"{draft},positive_reply,2026-10-17T12:00:00+02:00\n"
+        ),
+        run.store,
+        lambda: NOW,
+    )
+    assert [(r.status, r.problems) for r in rows] == [("new", ()), ("refused", ("repeats line 2",))]
+    # Even if two equal rows reach recording, the second is not recorded again.
+    duplicated = [rows[0], rows[0]]
+    assert len(record(duplicated, run.store, "demo-reviewer")) == 1
+
+
+def test_a_time_beyond_the_calendar_refuses_its_row_not_the_list() -> None:
+    rows = read_outcomes(
+        HEADER + "draft-a,no_reply,0001-01-01T00:00:00+01:00\ndraft-b,no_reply,2026-10-17\n"
+    )
+    assert rows[0].status == "refused" and rows[0].problems[0].startswith("occurred_at:")
+    assert rows[1].status == "new"
+
+
+def test_a_preview_only_reads_and_a_bad_list_is_refused_before_connecting(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from pymongo import monitoring
+
+    class Commands(monitoring.CommandListener):
+        def __init__(self) -> None:
+            self.names: list[str] = []
+
+        def started(self, event: monitoring.CommandStartedEvent) -> None:
+            self.names.append(event.command_name)
+
+        def succeeded(self, event: monitoring.CommandSucceededEvent) -> None:
+            return None
+
+        def failed(self, event: monitoring.CommandFailedEvent) -> None:
+            return None
+
+    listed = tmp_path / "outcomes.csv"
+    listed.write_text(
+        HEADER + "draft-fernhollow-001,positive_reply,2026-10-17T10:00:00Z\n", encoding="utf-8"
+    )
+    with mongo_backend() as backend:
+        store = ["--mongodb", os.environ[MONGODB_URI], "--database-prefix", backend.database_prefix]
+        assert main(["run", str(KESTREL), *store]) == 0
+        capsys.readouterr()
+        seen = Commands()
+        monitoring.register(seen)
+        argv = ["outcome", str(KESTREL / "scope.json"), "--from", str(listed), *store]
+        assert main([*argv, "--reporter", "demo-reviewer"]) == 0
+        assert "Nothing recorded" in capsys.readouterr().out
+        assert not {"createIndexes", "collMod", "insert", "update"} & set(seen.names)
+        seen.names.clear()
+        assert main([*argv, "--reporter", ""]) == 1
+        missing = ["outcome", str(KESTREL / "scope.json"), "--from", str(tmp_path / "none.csv")]
+        assert main([*missing, "--reporter", "demo-reviewer", *store]) == 1
+        assert seen.names == []  # refused before anything was sent to MongoDB

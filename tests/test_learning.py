@@ -78,12 +78,14 @@ def test_the_report_counts_a_delivery_by_what_it_was_composed_from() -> None:
     assert found.outcomes == ("meeting_booked",) and found.result == "positive"
     view = learn_view(run.store)
     assert view["deliveries"] == 1
-    assert [row["key"] for row in view["criteria"]] == [
+    (strategy,) = view["strategies"]
+    assert strategy["strategy"] == "strategy/security.toml"
+    assert [row["key"] for row in strategy["criteria"]] == [
         "detection-hiring",
         "detection-openings-new",
         "names-beaconlog",
     ]
-    assert view["plays"][0] | {"key": None} == {
+    assert strategy["plays"][0] | {"key": None} == {
         "key": None,
         "delivered": 1,
         "positive": 1,
@@ -98,12 +100,12 @@ def test_the_report_counts_a_delivery_by_what_it_was_composed_from() -> None:
     report_outcome(
         run.store, draft_id=found.draft_id, outcome="negative_reply", reporter="demo-reviewer"
     )
-    assert learn_view(run.store)["plays"][0]["delivered"] == 1
+    assert learn_view(run.store)["strategies"][0]["plays"][0]["delivered"] == 1
 
 
 def test_a_draft_without_a_pain_is_counted_by_its_play_alone() -> None:
     run = run_scenario(NORTHSTAR)
-    view = learn_view(run.store)
+    (view,) = learn_view(run.store)["strategies"]
     (play,) = view["plays"]
     assert play["key"] == run.strategy.strategy.plays[0].id
     assert view["pains"] == [] and view["proofs"] == []
@@ -116,7 +118,7 @@ def test_a_draft_from_before_plays_were_recorded_is_counted_as_such(
 
     legacy = Delivery("draft-old", None, None, None, ("c",), ("positive_reply",))
     monkeypatch.setattr(learning, "deliveries", lambda store: [legacy])
-    (row,) = learn_view(run_scenario(NORTHSTAR).store)["plays"]
+    (row,) = learn_view(run_scenario(NORTHSTAR).store)["strategies"][0]["plays"]
     assert (row["key"], row["positive"]) == (NO_PLAY, 1)
 
 
@@ -137,4 +139,17 @@ def test_the_report_is_text_in_the_shell_and_json_for_an_agent(
         capsys.readouterr()
         assert main(["learn", str(KESTREL / "scope.json"), "--json", *store]) == 0
         view: dict[str, Any] = json.loads(capsys.readouterr().out)
-        assert view["deliveries"] == 1 and view["proofs"][0]["key"] == "harborview-triage"
+        assert view["deliveries"] == 1
+        assert view["strategies"][0]["proofs"][0]["key"] == "harborview-triage"
+
+
+def test_a_drafts_play_and_its_point_of_views_play_must_agree() -> None:
+    from pydantic import ValidationError
+
+    from auggie.contracts import Artifact
+    from tests.conftest import variant
+
+    draft = run_scenario(KESTREL).result.draft
+    assert draft is not None
+    with pytest.raises(ValidationError, match="play and its point of view's play must agree"):
+        Artifact.model_validate(variant(draft, play="detection-build-out"))

@@ -812,6 +812,9 @@ def _cannot_propose(args: argparse.Namespace, loaded: LoadedStrategy | None) -> 
         return "--propose needs --strategy-repo and --strategy-path"
     if args.propose.exists() or args.propose.is_symlink():
         return f"{args.propose} exists; give a new file for the patch"
+    # The harness never writes the strategy repository, the patch included.
+    if args.propose.parent.resolve().is_relative_to(args.strategy_repo.resolve()):
+        return "--propose must name a file outside the strategy repository"
     return None
 
 
@@ -820,10 +823,21 @@ def _propose(
 ) -> int:
     """Write the plays and proofs in order of their results as a patch (ADR 0028)."""
     from auggie import proposals
-    from auggie.learning import deliveries, tally
+    from auggie.learning import deliveries, tally, under
 
     assert loaded is not None  # checked by _cannot_propose
-    found = deliveries(store)
+    everything = deliveries(store)
+    # Only what was composed under this strategy file counts: an ID in another file names
+    # another play or proof.
+    found = under(everything, loaded.ref.path)
+    out(
+        f"counted   {len(found)} deliveries composed under {loaded.ref.path}"
+        + (
+            f"; {len(everything) - len(found)} under other strategies left out"
+            if len(found) != len(everything)
+            else ""
+        )
+    )
     plays = {t.key: t for t in tally(found, lambda d: [d.play] if d.play else [])}
     proofs = {t.key: t for t in tally(found, lambda d: [d.proof] if d.proof else [])}
     made, by_hand, text = proposals.propose(loaded, plays, proofs, args.min_settled)
@@ -1230,12 +1244,30 @@ def prospect_command(args: argparse.Namespace, out: Print, ask: Callable[[str], 
         except stops as error:
             out(f"stopped   {type(error).__name__}: {error}")
             return 1
+    if args.command == "outcome" and args.draft is not None and args.outcome is None:
+        out("stopped   --draft needs --outcome")
+        return 1
+    outcomes = None
+    if args.command == "outcome" and args.from_list is not None:
+        from auggie import outcome_list
+
+        try:
+            Actor(kind="human", id=args.reporter)  # an unusable name is refused here
+            outcomes = outcome_list.read_outcomes(args.from_list.read_text(encoding="utf-8"))
+        except (*stops, UnicodeDecodeError) as error:
+            out(f"stopped   {type(error).__name__}: {error}")
+            return 1
     client: MongoClient[dict[str, Any]] = MongoClient(args.mongodb, serverSelectionTimeoutMS=5000)
     try:
         backend = MongoBackend(client, database_prefix=args.database_prefix)
+        existing = None
         if args.command not in ("research", "research-list"):
-            backend.open_existing(scope)  # a mistyped name stops here instead of starting afresh
+            existing = backend.open_existing(scope)  # a mistyped name stops here, not afresh
+        if outcomes is not None and existing is not None and not args.write:
+            return _outcomes_from(args, existing, outcomes, out)  # a preview only reads
         store = backend.open(scope)
+        if outcomes is not None:
+            return _outcomes_from(args, store, outcomes, out)
         if prepared is not None:
             return _research_list(args, store, prepared, out)
         return _prospect_step(args, store, out, ask)
@@ -1355,8 +1387,6 @@ def _prospect_step(
             receipt = delivered.event.attributes.get("receipt")
             out(f"deliver   {args.draft} sent, receipt {receipt}{again}")
         return 0
-    if args.from_list is not None:
-        return _outcomes_from(args, store, out)
     if args.outcome is None:
         raise ValueError("--draft needs --outcome")
     recorded_outcome = operate.report_outcome(
@@ -1366,17 +1396,12 @@ def _prospect_step(
     return 0
 
 
-def _outcomes_from(args: argparse.Namespace, store: Store, out: Print) -> int:
-    """Preview a list of outcomes against the Store and, with --write, record the new rows
-    (ADR 0028)."""
+def _outcomes_from(args: argparse.Namespace, store: Store, read: Any, out: Print) -> int:
+    """Preview a list of outcomes, read and checked before the Store was opened, against the
+    Store and, with --write, record the new rows (ADR 0028)."""
     from auggie import operate, outcome_list
 
-    Actor(kind="human", id=args.reporter)  # an unusable name is refused before anything
-    rows = outcome_list.check(
-        outcome_list.read_outcomes(args.from_list.read_text(encoding="utf-8")),
-        store,
-        operate.utc_now,
-    )
+    rows = outcome_list.check(read, store, operate.utc_now)
     for row in rows:
         out(outcome_list.describe(row))
     counts = {s: sum(r.status == s for r in rows) for s in ("new", "recorded", "refused")}
