@@ -195,7 +195,17 @@ def research_list(
     if writer is not None and writer.budget is not budget:
         raise ValueError("the list's budget must be the one its model spends from")
     calls = model_calls(strategy) if writer is not None else 0
-    draft_ceiling = calls * writer.most_per_call() if writer is not None and calls else 0
+    priced: list[int] = []
+
+    def draft_ceiling() -> int:
+        """The most an account's model calls can cost, priced once, when an account first
+        needs it; a model that cannot be priced stops the list there."""
+        if writer is None or not calls:
+            return 0
+        if not priced:
+            priced.append(calls * writer.most_per_call())
+        return priced[0]
+
     lines: list[ListLine] = []
     for n, prospect in enumerate(prospects):
         account_id = prospect.account_id
@@ -213,7 +223,7 @@ def research_list(
                 now=now,
                 listings=listings,
                 writer=writer,
-                draft_ceiling_micro_usd=draft_ceiling,
+                draft_ceiling=draft_ceiling,
             )
         except Exception as error:
             # Anything that fails, recovery included, stops the list here, and says so.
@@ -241,7 +251,7 @@ def _research_one(
     now: Clock,
     listings: ListingReader | None,
     writer: TextModel | None = None,
-    draft_ceiling_micro_usd: int = 0,
+    draft_ceiling: Callable[[], int] = lambda: 0,
 ) -> ListLine:
     """One prospect of a list: skipped, waiting for room under the cap, or researched."""
     account_id = prospect.account_id
@@ -252,7 +262,7 @@ def _research_one(
             detail += "; recorded its draft, which that run left unfinished"
         return ListLine(account_id, "skipped", detail)
     pages = sum(kind in prospect.sources for kind in strategy.strategy.sources)
-    worst = pages * page_ceiling_micro_usd + draft_ceiling_micro_usd
+    worst = pages * page_ceiling_micro_usd + draft_ceiling()
     if budget is not None and budget.committed_micro_usd + worst > budget.limit_micro_usd:
         left = budget.limit_micro_usd - budget.committed_micro_usd
         why = f"needs up to {worst} micro-USD, and {left} of {budget.limit_micro_usd} is left"

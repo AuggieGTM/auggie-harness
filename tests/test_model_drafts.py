@@ -60,6 +60,10 @@ class Fake:
         return self._budget
 
     ceiling = 5000
+    model = MODEL
+
+    def ready(self) -> None:
+        return None
 
     def most_per_call(self) -> int:
         return self.ceiling
@@ -424,3 +428,104 @@ def test_a_lists_model_must_spend_from_the_lists_budget(tmp_path: Any) -> None:
             budget=budget,
             writer=Fake(),
         )
+
+
+# What Pi's review found
+
+
+def quoted(opening: int, closing: int) -> str:
+    return f"Subject: Hi\n\nThey said {chr(opening)}triage is solved{chr(closing)}."
+
+
+QUOTES = "quote: a quotation not in double"
+HIDDEN = "characters: a control or invisible"
+
+
+@pytest.mark.parametrize(
+    ("text", "found"),
+    [
+        ("Subject: Hi\n\nThey said 'triage is solved'.", QUOTES),
+        (quoted(0x2018, 0x2019), QUOTES),  # single curly quotation marks
+        (quoted(0x00AB, 0x00BB), QUOTES),  # guillemets
+        (quoted(0x300C, 0x300D), QUOTES),  # corner brackets
+        ("Subject: Hi\n\nOne point: Acme agrees.", "name: Acme"),
+        ("Subject: Hi\n\nTeams like Fernhollow-Acme agree.", "name: Acme"),
+        (f"Subject: Hi\n\n{chr(0x4E09)} teams agree.", f"number: {chr(0x4E09)}"),  # three
+        (f"Subject: Hi\n\nWe saw {chr(0x00BD)} the alerts.", f"number: {chr(0x00BD)}"),  # half
+        (f"Subject: Hi\n\nWe saw {chr(0x217B)} teams.", f"number: {chr(0x217B)}"),  # xii
+        (f"Subject: Hi\n\nWe saw {chr(0xFF12)} teams.", f"number: {chr(0xFF12)}"),  # fullwidth
+        ("Subject: Hi\n\nWe saw -2 teams.", "number: -2"),
+        ("Subject: Hi\n\nWe saw .2 teams.", "number: .2"),
+        (f"Subject: Hi\n\nHi Casey,{chr(0x2028)}about it.", HIDDEN),  # line separator
+        (f"Subject: Hi\n\nHi Casey,{chr(0x2029)}about it.", HIDDEN),  # paragraph separator
+    ],
+)
+def test_the_checks_pi_found_open(text: str, found: str) -> None:
+    got = problems(text)
+    assert any(p.startswith(found) for p in got), got
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Subject: Hi\n\nThe teams' alerts and Fernhollow's roles.",  # apostrophes, not quotes
+        "Subject: Hi\n\n- Fernhollow Logistics agrees.\n* Casey agrees.",  # bullets start
+        "Subject: Your 2 open roles at Fernhollow Logistics",
+        "Subject: Hi\n\nWe saw 2 teams. Then 4,000 alerts.",
+    ],
+)
+def test_what_the_checks_still_allow(text: str) -> None:
+    assert problems(text) == []
+
+
+def test_the_template_draft_given_back_unchanged_passes_its_own_checks() -> None:
+    store = InMemoryBackend().open(INPUTS.scope)
+    draft = written(store, Fake(template_draft())).draft
+    assert draft.content == template_draft() and draft.fallback is None
+    assert draft.composed_by.kind == "model"
+
+
+def test_a_list_prices_its_model_only_when_an_account_needs_it(tmp_path: Any) -> None:
+    from tests.test_research_list import paid, prospects, rehearse
+
+    class Unpriced(Fake):
+        priced = 0
+
+        def most_per_call(self) -> int:
+            self.priced += 1
+            raise ModelRefused("prices unavailable")
+
+    scope, budget, acquisition, treg = paid(10_000, tmp_path)
+    store = InMemoryBackend().open(scope)
+    model = Unpriced(GOOD)
+    model._budget = budget
+    lines = rehearse(
+        store,
+        strategy=by_model(),
+        prospects=prospects(scope),
+        acquisition=acquisition,
+        budget=budget,
+        writer=model,
+    )
+    # The first account to need the price stops the list there, before paying for its pages.
+    assert [(line.account_id, line.status) for line in lines] == [
+        ("acc-fernhollow", "stopped"),
+        ("acc-brightquarry", "waiting"),
+        ("acc-saltmarsh", "waiting"),
+    ]
+    assert lines[0].detail == "ModelRefused: prices unavailable" and treg.requests == []
+    # Accounts already researched are skipped without pricing anything.
+    _, budget, acquisition, _ = paid(10_000, tmp_path / "next")
+    done = InMemoryBackend().open(scope)
+    rehearse(done, prospects=prospects(scope))
+    again = Unpriced()
+    again._budget = budget
+    skipped = rehearse(
+        done,
+        strategy=by_model(),
+        prospects=prospects(scope),
+        acquisition=acquisition,
+        budget=budget,
+        writer=again,
+    )
+    assert [line.status for line in skipped] == ["skipped"] * 3 and again.priced == 0
