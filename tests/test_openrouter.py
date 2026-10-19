@@ -14,7 +14,9 @@ from pydantic import ValidationError
 
 from auggie.compose.openrouter import (
     ECHOED,
+    MAX_MESSAGES,
     MAX_PROMPT_BYTES,
+    MESSAGE_ALLOWANCE_TOKENS,
     PROMPT_ALLOWANCE_TOKENS,
     HttpsTransport,
     Message,
@@ -286,11 +288,11 @@ def test_the_ceiling_is_the_most_the_dearest_listed_price_allows() -> None:
         output=Decimal("0.000015"),
         request=Decimal("0.001"),
     )
-    # (1000 + 256) prompt tokens at $3/M, 500 output tokens at $15/M, and $0.001 a call.
-    assert prices.ceiling_micro_usd(1000, 500) == 3768 + 7500 + 1000
+    # (1000 + 256 + 2 x 32) prompt tokens at $3/M, 500 output tokens at $15/M, and $0.001.
+    assert prices.ceiling_micro_usd(1000, 2, 500) == 3960 + 7500 + 1000
     assert prices.max_price() == {"prompt": "3", "completion": "15", "request": "0.001"}
     free = Prices(Decimal(0), Decimal(0), Decimal(0), Decimal(0))
-    assert free.ceiling_micro_usd(10, 10) == 1  # a reservation is never empty
+    assert free.ceiling_micro_usd(10, 1, 10) == 1  # a reservation is never empty
 
 
 def test_prices_are_the_highest_of_every_provider_and_window(make: Any) -> None:
@@ -309,7 +311,7 @@ def test_prices_are_the_highest_of_every_provider_and_window(make: Any) -> None:
         output=Decimal("0.00004"),
         request=Decimal("0.0005"),
     )
-    assert model.most_per_call() == prices.ceiling_micro_usd(MAX_PROMPT_BYTES, 1000)
+    assert model.most_per_call() == prices.ceiling_micro_usd(MAX_PROMPT_BYTES, MAX_MESSAGES, 1000)
 
 
 # The call
@@ -366,7 +368,8 @@ def test_a_reply_settles_to_its_reported_cost(make: Any) -> None:
 
 def math_ceiling() -> int:
     """Each prompt token at $3/M is 3 micro-USD; 1,000 output tokens at $15/M are 15,000."""
-    return (PROMPT_BYTES + PROMPT_ALLOWANCE_TOKENS) * 3 + 1000 * 15
+    tokens = PROMPT_BYTES + PROMPT_ALLOWANCE_TOKENS + len(MESSAGES) * MESSAGE_ALLOWANCE_TOKENS
+    return tokens * 3 + 1000 * 15
 
 
 def test_a_cost_not_reported_counts_as_the_ceiling(make: Any) -> None:
@@ -444,3 +447,31 @@ def test_the_transport_reaches_only_openrouter() -> None:
     )
     with pytest.raises(ValueError, match=r"openrouter\.ai"):
         HttpsTransport().send(request)
+
+
+# What Pi's review found
+
+
+def test_each_message_adds_to_the_ceiling_and_a_call_sends_at_most_eight(make: Any) -> None:
+    model, _ = make()
+    one = write(model).attributes["ceiling_micro_usd"]
+    many = model.write(
+        customer_id="demo-msp",
+        messages=[*MESSAGES, Message("assistant", ""), Message("user", "")],
+    ).attributes["ceiling_micro_usd"]
+    assert many - one == 2 * MESSAGE_ALLOWANCE_TOKENS * 3
+    model, fake = make()
+    with pytest.raises(ModelRefused, match="one to 8 messages"):
+        model.write(customer_id="demo-msp", messages=[Message("user", "x")] * 9)
+    with pytest.raises(ModelRefused, match="one to 8 messages"):
+        model.write(customer_id="demo-msp", messages=[])
+    assert fake.requests == []
+
+
+def test_a_price_listing_of_another_model_is_refused(make: Any) -> None:
+    other = json.loads(listing(endpoint(prompt="0", completion="0")).body)
+    other["data"]["id"] = "cheap/other"
+    model, fake = make(Fake(prices=HttpResponse(200, {}, json.dumps(other).encode())))
+    with pytest.raises(ModelRefused, match="of another model"):
+        write(model)
+    assert fake.calls == [] and model.budget.committed_micro_usd == 0

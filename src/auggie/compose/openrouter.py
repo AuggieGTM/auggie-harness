@@ -40,8 +40,13 @@ KEY = "openrouter-key"
 MAX_PROMPT_BYTES = 32_000
 """The longest prompt sent, in UTF-8 bytes, so the most a call can cost is known before it."""
 
+MAX_MESSAGES = 8
+"""The most messages a call sends: the instructions, the facts, and a retry's two more."""
+
 PROMPT_ALLOWANCE_TOKENS = 256
-"""Tokens a chat format may add around the messages. A prompt has no more tokens than bytes."""
+MESSAGE_ALLOWANCE_TOKENS = 32
+"""Tokens a chat format may add around the prompt, and around each message. A prompt has no
+more tokens than bytes."""
 
 TIMEOUT_SECONDS = 120.0
 
@@ -84,10 +89,11 @@ class Prices:
     request: Decimal
     """Per call."""
 
-    def ceiling_micro_usd(self, prompt_bytes: int, max_tokens: int) -> int:
-        """The most one call can cost: every prompt token, as many as its bytes plus the
-        chat format's allowance, and every output token up to ``max_tokens``."""
-        tokens = prompt_bytes + PROMPT_ALLOWANCE_TOKENS
+    def ceiling_micro_usd(self, prompt_bytes: int, messages: int, max_tokens: int) -> int:
+        """The most one call can cost: every prompt token, as many as its bytes plus the chat
+        format's allowance for the prompt and each message, and every output token up to
+        ``max_tokens``."""
+        tokens = prompt_bytes + PROMPT_ALLOWANCE_TOKENS + messages * MESSAGE_ALLOWANCE_TOKENS
         cost = tokens * self.prompt + max_tokens * self.output + self.request
         return max(1, math.ceil(cost * _MILLION))
 
@@ -173,7 +179,9 @@ class OpenRouterWriter:
         return self._prices(self._key())
 
     def most_per_call(self) -> int:
-        return self.prices().ceiling_micro_usd(MAX_PROMPT_BYTES, self._writer.max_output_tokens)
+        return self.prices().ceiling_micro_usd(
+            MAX_PROMPT_BYTES, MAX_MESSAGES, self._writer.max_output_tokens
+        )
 
     def write(self, *, customer_id: str, messages: Sequence[Message]) -> ModelReply:
         """Make one paid call, unless the scope, its key, the prices or the budget forbid it.
@@ -184,8 +192,8 @@ class OpenRouterWriter:
         if customer_id != self._scope.customer_id:
             raise ScopeViolation(f"this writer serves {self._scope.customer_id!r}")
         require_external_calls(self._scope)
-        if not messages:
-            raise ModelRefused("a model call needs a message")
+        if not 0 < len(messages) <= MAX_MESSAGES:
+            raise ModelRefused(f"a model call sends one to {MAX_MESSAGES} messages")
         size = sum(len(m.content.encode("utf-8")) for m in messages)
         if size > MAX_PROMPT_BYTES:
             raise ModelRefused(
@@ -194,7 +202,7 @@ class OpenRouterWriter:
         key = self._key()
         prices = self._prices(key)
         max_tokens = self._writer.max_output_tokens
-        ceiling = prices.ceiling_micro_usd(size, max_tokens)
+        ceiling = prices.ceiling_micro_usd(size, len(messages), max_tokens)
         reservation = self._budget.reserve(ceiling)
         provider: dict[str, Any] = {
             "data_collection": "deny",
@@ -280,6 +288,8 @@ class OpenRouterWriter:
         endpoints = data.get("endpoints") if isinstance(data, dict) else None
         if not isinstance(endpoints, list) or not endpoints:
             raise ModelRefused(f"{refused}: it lists no provider for the model")
+        if isinstance(data, dict) and data.get("id") != model:
+            raise ModelRefused(f"{refused}: the listing it sent is of another model")
         highest: dict[str, Decimal] = {}
         limited = False
         for endpoint in endpoints:
