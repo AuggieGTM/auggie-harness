@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import datetime
 
 from auggie.accounts import Account
@@ -108,19 +109,22 @@ def _hiring_values(
     }
 
 
-def _point_of_view(
-    play: Play, strategy: Strategy, quoted: ProofCheck | None, values: Mapping[str, str]
+def template_passages(play: Play, values: Mapping[str, str]) -> tuple[str, ...]:
+    """Each template line that renders a proof field, exactly as rendered."""
+    lines = [line for line in play.template.splitlines() if template_fields(line) & PROOF_FIELDS]
+    return tuple(line.format_map(values) for line in lines)
+
+
+def point_of_view(
+    play: Play, strategy: Strategy, quoted: ProofCheck | None, passages: tuple[str, ...]
 ) -> PointOfView | None:
-    """What review shows beside the draft. A quoted proof is bound to each template line that
-    renders one of its fields, exactly as rendered, so an edit to any of them unbinds it."""
+    """What review shows beside the draft. A quoted proof is bound to ``passages``, the
+    draft's lines that quote it, exactly as written, so an edit to any of them unbinds it."""
     if play.pain is None:
         return None
     pain = strategy.pains[play.pain]
     proof = None
     if quoted is not None and quoted.read is not None:
-        lines = [
-            line for line in play.template.splitlines() if template_fields(line) & PROOF_FIELDS
-        ]
         proof = QuotedProof(
             proof_id=quoted.proof_id,
             customer=quoted.proof.customer,
@@ -129,7 +133,7 @@ def _point_of_view(
             kind=quoted.proof.kind,
             caveat=quoted.proof.caveat,
             evidence_id=quoted.read.evidence_id,
-            passages=tuple(line.format_map(values) for line in lines),
+            passages=passages,
         )
     return PointOfView(
         play=play.id,
@@ -143,20 +147,30 @@ def _point_of_view(
     )
 
 
-def compose_draft(
+@dataclass(frozen=True)
+class Filled:
+    """What a play's template is filled from: its fields' values, the evidence and snapshots
+    they came from, and the proof it quotes, each checked as ``compose_draft`` requires."""
+
+    values: Mapping[str, str]
+    used: frozenset[str]
+    snapshots: tuple[str, ...]
+    quoted: ProofCheck | None
+
+
+def fill(
     *,
-    artifact_id: str,
     play: Play,
     strategy: LoadedStrategy,
     decision: QualificationDecision,
     account: Account,
     sources: Mapping[str, Verdict],
-    at: datetime,
     listing: ListingReadings | None = None,
     proofs: Mapping[str, ProofCheck] = {},
-) -> Artifact:
-    """Render ``play`` for ``account``. Every field must come from admitted evidence, the
-    run's tally, or the strategy's approved copy and a proof whose page read holds it."""
+) -> Filled:
+    """The values of ``play``'s fields for ``account``. Every one must come from admitted
+    evidence, the run's tally, or the strategy's approved copy and a proof whose page read
+    holds it; ``ComposeBlocked`` says which cannot."""
     for owner in (account.customer_id, strategy.strategy.customer_id):
         if owner != decision.customer_id:
             raise ScopeViolation(f"input belongs to {owner!r}, not {decision.customer_id!r}")
@@ -204,13 +218,31 @@ def compose_draft(
             raise ComposeBlocked(f"field {name!r} is empty in the {label}")
         values[name] = value
         used.add(verdict.evidence.evidence_id)
-    content = play.template.format_map(values)
-    point_of_view = _point_of_view(play, rules, quoted, values)
+    return Filled(values, frozenset(used), tuple(dict.fromkeys(snapshots)), quoted)
+
+
+def draft_of(
+    *,
+    artifact_id: str,
+    content: str,
+    play: Play,
+    strategy: LoadedStrategy,
+    decision: QualificationDecision,
+    account: Account,
+    sources: Mapping[str, Verdict],
+    filled: Filled,
+    passages: tuple[str, ...],
+    composed_by: Actor,
+    at: datetime,
+    fallback: str | None = None,
+) -> Artifact:
+    """The draft ``content`` of ``play``, citing what ``filled`` came from, in source order."""
+    view = point_of_view(play, strategy.strategy, filled.quoted, passages)
     in_source_order = [
-        v.evidence.evidence_id for v in sources.values() if v.evidence.evidence_id in used
+        v.evidence.evidence_id for v in sources.values() if v.evidence.evidence_id in filled.used
     ]
-    if point_of_view is not None and point_of_view.proof is not None:
-        in_source_order.append(point_of_view.proof.evidence_id)
+    if view is not None and view.proof is not None:
+        in_source_order.append(view.proof.evidence_id)
     return Artifact(
         customer_id=decision.customer_id,
         ref=ArtifactRef(artifact_id=artifact_id, kind="draft", content_hash=sha256_digest(content)),
@@ -219,10 +251,49 @@ def compose_draft(
         recipient_id=account.recipient.person_id,
         qualification_id=decision.decision_id,
         evidence_ids=tuple(in_source_order),
-        snapshot_ids=tuple(dict.fromkeys(snapshots)),
+        snapshot_ids=filled.snapshots,
         strategy=strategy.ref,
-        composed_by=COMPOSER,
+        composed_by=composed_by,
         composed_at=at,
         play=play.id,
-        point_of_view=point_of_view,
+        point_of_view=view,
+        fallback=fallback,
+    )
+
+
+def compose_draft(
+    *,
+    artifact_id: str,
+    play: Play,
+    strategy: LoadedStrategy,
+    decision: QualificationDecision,
+    account: Account,
+    sources: Mapping[str, Verdict],
+    at: datetime,
+    listing: ListingReadings | None = None,
+    proofs: Mapping[str, ProofCheck] = {},
+) -> Artifact:
+    """Render ``play`` for ``account``. Every field must come from admitted evidence, the
+    run's tally, or the strategy's approved copy and a proof whose page read holds it."""
+    filled = fill(
+        play=play,
+        strategy=strategy,
+        decision=decision,
+        account=account,
+        sources=sources,
+        listing=listing,
+        proofs=proofs,
+    )
+    return draft_of(
+        artifact_id=artifact_id,
+        content=play.template.format_map(filled.values),
+        play=play,
+        strategy=strategy,
+        decision=decision,
+        account=account,
+        sources=sources,
+        filled=filled,
+        passages=template_passages(play, filled.values),
+        composed_by=COMPOSER,
+        at=at,
     )

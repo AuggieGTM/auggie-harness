@@ -108,6 +108,8 @@ class Artifact(Contract):
     play: Slug | None = None
     """The play it was composed from (ADR 0028); drafts from before then have none."""
     point_of_view: PointOfView | None = None
+    fallback: Text | None = None
+    """Why a play written by a model was drafted from its template instead (ADR 0031)."""
 
     @model_validator(mode="after")
     def _check_consistency(self) -> Artifact:
@@ -122,6 +124,8 @@ class Artifact(Contract):
                 raise ValueError(f"{name} must not repeat")
         if self.supersedes == self.ref.content_hash:
             raise ValueError("a version cannot supersede itself")
+        if self.fallback is not None and self.composed_by.kind == "model":
+            raise ValueError("a draft a model wrote did not fall back to its template")
         view = self.point_of_view
         if view is not None and self.play is not None and view.play != self.play:
             raise ValueError("a draft's play and its point of view's play must agree")

@@ -24,7 +24,9 @@ from auggie.acquisition import Acquisition
 from auggie.acquisition.careers import ListingReader
 from auggie.acquisition.validation import VALIDATOR, Verdict, check_evidence
 from auggie.approval import ReviewDecision, approval_for
-from auggie.compose.template import COMPOSER, applies, compose_draft, select_play
+from auggie.compose.model import facts_for, proof_passages, rewrite
+from auggie.compose.openrouter import TextModel
+from auggie.compose.template import applies, compose_draft, draft_of, fill, select_play
 from auggie.contracts import (
     Actor,
     Artifact,
@@ -36,6 +38,7 @@ from auggie.contracts import (
     HumanApproval,
     OperationalEvent,
     Person,
+    Play,
     QualificationDecision,
     RecordRef,
     SubjectRef,
@@ -464,11 +467,16 @@ def research_run(
     per_run_ids: bool = False,
     clock: Callable[[], datetime] | None = None,
     listings: ListingReader | None = None,
+    writer: TextModel | None = None,
 ) -> RunResult:
     """Observe, validate, judge and compose for one account, then stop for review.
 
     When the strategy counts hiring and the account names a careers listing,
     ``listings`` reads it once; without a reader, those criteria are unknown.
+
+    When the play is written by a model, ``writer`` rewrites its filled template
+    (ADR 0031); without one, or when its text fails the checks twice, the
+    template draft stands and says why.
 
     Each stage is stamped from ``clock`` when one is given, at the moment it
     happens; otherwise from the planned ``times``, as synthetic scenarios do.
@@ -569,9 +577,99 @@ def research_run(
         listing=listing,
         proofs=proofs,
     )
+    if play.writer == "model":
+        draft = _model_draft(
+            store,
+            writer,
+            template=draft,
+            play=play,
+            strategy=strategy,
+            decision=decision,
+            account=account,
+            sources=sources,
+            listing=listing,
+            proofs=proofs,
+            run_id=run_id,
+        )
     store.put_artifact(draft)
     _append_composed(store, draft, run_id)
     return RunResult(verdicts, decision, draft, snapshot=read)
+
+
+def _model_draft(
+    store: Store,
+    writer: TextModel | None,
+    *,
+    template: Artifact,
+    play: Play,
+    strategy: LoadedStrategy,
+    decision: QualificationDecision,
+    account: Account,
+    sources: Mapping[str, Verdict],
+    listing: ListingReadings | None,
+    proofs: Mapping[str, ProofCheck],
+    run_id: str,
+) -> Artifact:
+    """The model's rewrite of ``template``, checked; or ``template``, saying why it stands.
+    Each paid call is recorded, with its charge, before the draft is (ADR 0031)."""
+    if writer is None:
+        return _with_fallback(template, "this run had no model to ask")
+    filled = fill(
+        play=play,
+        strategy=strategy,
+        decision=decision,
+        account=account,
+        sources=sources,
+        listing=listing,
+        proofs=proofs,
+    )
+    facts = facts_for(
+        play=play, strategy=strategy, filled=filled, sources=sources, template=template.content
+    )
+    rewritten = rewrite(writer, customer_id=decision.customer_id, facts=facts)
+    draft_id = template.ref.artifact_id
+    for n, attempt in enumerate(rewritten.attempts, start=1):
+        attributes: dict[str, AttributeValue] = {
+            **attempt.reply.attributes,
+            "attempt": n,
+            "result": attempt.result,
+        }
+        if attempt.detail is not None:
+            attributes["detail"] = attempt.detail[:500]
+        _append(
+            store,
+            "model.called",
+            at=template.composed_at,
+            actor=writer.actor,
+            refs=[
+                RecordRef(kind="qualification", id=decision.decision_id),
+                RecordRef(kind="account", id=account.account_id),
+            ],
+            key=f"model.called:{draft_id}:{n}",
+            run_id=run_id,
+            attributes=attributes,
+        )
+    if rewritten.text is None:
+        return _with_fallback(template, rewritten.fallback or "the model's draft was not used")
+    reply = rewritten.attempts[-1].reply
+    model = reply.served_by or str(reply.attributes.get("model") or "unknown")
+    return draft_of(
+        artifact_id=draft_id,
+        content=rewritten.text,
+        play=play,
+        strategy=strategy,
+        decision=decision,
+        account=account,
+        sources=sources,
+        filled=filled,
+        passages=proof_passages(rewritten.text, facts.proof) if facts.proof else (),
+        composed_by=Actor(kind="model", id=model),
+        at=template.composed_at,
+    )
+
+
+def _with_fallback(template: Artifact, reason: str) -> Artifact:
+    return Artifact.model_validate({**template.model_dump(), "fallback": reason})
 
 
 def _append_composed(store: Store, draft: Artifact, run_id: str | None) -> Appended:
@@ -579,7 +677,7 @@ def _append_composed(store: Store, draft: Artifact, run_id: str | None) -> Appen
         store,
         "draft.composed",
         at=draft.composed_at,
-        actor=COMPOSER,
+        actor=draft.composed_by,
         refs=[
             RecordRef(kind="artifact", id=draft.ref.artifact_id),
             RecordRef(kind="qualification", id=draft.qualification_id),

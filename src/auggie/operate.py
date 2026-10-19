@@ -18,6 +18,7 @@ from auggie.acquisition import Acquisition
 from auggie.acquisition.careers import ListingReader
 from auggie.acquisition.fixture import RecordedListing, RecordedResponse
 from auggie.approval import ReviewDecision
+from auggie.compose.openrouter import TextModel
 from auggie.contracts import (
     Actor,
     Artifact,
@@ -88,10 +89,12 @@ def research_prospect(
     operator: str,
     now: Clock = utc_now,
     listings: ListingReader | None = None,
+    writer: TextModel | None = None,
 ) -> RunResult:
     """Research one prospect from its sources up to a draft, then stop for review.
 
-    ``listings`` reads the prospect's careers listing when the strategy counts hiring.
+    ``listings`` reads the prospect's careers listing when the strategy counts hiring, and
+    ``writer`` rewrites the draft of a play written by a model (ADR 0031).
 
     The prospect and the strategy must belong to the store's customer; nothing
     is written otherwise. Each stage is stamped by ``now`` as it happens.
@@ -118,7 +121,14 @@ def research_prospect(
         per_run_ids=True,
         clock=now,
         listings=listings,
+        writer=writer,
     )
+
+
+def model_calls(strategy: LoadedStrategy) -> int:
+    """The most model calls one account's research makes: two when a play is written by a
+    model, a text and one retry (ADR 0031); otherwise none."""
+    return 2 if any(play.writer == "model" for play in strategy.strategy.plays) else 0
 
 
 ListStatus = Literal["researched", "skipped", "waiting", "stopped"]
@@ -160,12 +170,14 @@ def research_list(
     again: bool = False,
     now: Clock = utc_now,
     listings: ListingReader | None = None,
+    writer: TextModel | None = None,
 ) -> list[ListLine]:
     """Research each prospect in order, in this one foreground run (ADR 0027).
 
     ``budget`` is the list's one cap, shared by every account; None when nothing is paid, as
-    in a rehearsal. An account starts only when its worst case, one page ceiling for each
-    source it names, fits what is left; the first that does not fit waits, with the rest.
+    in a rehearsal. An account starts only when its worst case fits what is left: one page
+    ceiling for each source it names and, when a play is written by a model, the most two
+    model calls can cost. The first that does not fit waits, with the rest.
     Accounts already researched are skipped unless ``again``, after finishing any draft event
     their run left unrecorded. An error stops the list.
 
@@ -180,6 +192,10 @@ def research_list(
         raise ValueError("a list names an account twice")
     if getattr(acquisition, "budget", None) is not budget:
         raise ValueError("the list's budget must be the one its acquisition spends from")
+    if writer is not None and writer.budget is not budget:
+        raise ValueError("the list's budget must be the one its model spends from")
+    calls = model_calls(strategy) if writer is not None else 0
+    draft_ceiling = calls * writer.most_per_call() if writer is not None and calls else 0
     lines: list[ListLine] = []
     for n, prospect in enumerate(prospects):
         account_id = prospect.account_id
@@ -196,6 +212,8 @@ def research_list(
                 again=again,
                 now=now,
                 listings=listings,
+                writer=writer,
+                draft_ceiling_micro_usd=draft_ceiling,
             )
         except Exception as error:
             # Anything that fails, recovery included, stops the list here, and says so.
@@ -222,6 +240,8 @@ def _research_one(
     again: bool,
     now: Clock,
     listings: ListingReader | None,
+    writer: TextModel | None = None,
+    draft_ceiling_micro_usd: int = 0,
 ) -> ListLine:
     """One prospect of a list: skipped, waiting for room under the cap, or researched."""
     account_id = prospect.account_id
@@ -232,7 +252,7 @@ def _research_one(
             detail += "; recorded its draft, which that run left unfinished"
         return ListLine(account_id, "skipped", detail)
     pages = sum(kind in prospect.sources for kind in strategy.strategy.sources)
-    worst = pages * page_ceiling_micro_usd
+    worst = pages * page_ceiling_micro_usd + draft_ceiling_micro_usd
     if budget is not None and budget.committed_micro_usd + worst > budget.limit_micro_usd:
         left = budget.limit_micro_usd - budget.committed_micro_usd
         why = f"needs up to {worst} micro-USD, and {left} of {budget.limit_micro_usd} is left"
@@ -246,6 +266,7 @@ def _research_one(
         operator=operator,
         now=now,
         listings=listings,
+        writer=writer,
     )
     spent = (budget.spent_micro_usd if budget is not None else 0) - before
     decision = result.decision

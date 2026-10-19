@@ -115,7 +115,14 @@ class TextModel(Protocol):
     """Writes text for one scope, one paid call at a time."""
 
     @property
-    def budget(self) -> RunBudget: ...
+    def actor(self) -> Actor:
+        """The adapter, as the events of its calls name it."""
+        ...
+
+    @property
+    def budget(self) -> RunBudget | None:
+        """The run budget every call is reserved against; None for one that never pays."""
+        ...
 
     def most_per_call(self) -> int:
         """The most one call can cost, in micro-USD, at the longest prompt it sends."""
