@@ -44,13 +44,21 @@ def ms(at: datetime) -> str:
     return str(int(at.timestamp() * 1000))
 
 
-def message(message_id: str, at: datetime, sender: str, *labels: str) -> dict[str, Any]:
+def message(
+    message_id: str, at: datetime, sender: str, *labels: str, in_reply_to: str = ""
+) -> dict[str, Any]:
+    headers = [
+        {"name": "From", "value": sender},
+        {"name": "Message-ID", "value": f"<{message_id}@mail.example>"},
+    ]
+    if in_reply_to:
+        headers.append({"name": "In-Reply-To", "value": f"<{in_reply_to}@mail.example>"})
     return {
         "id": message_id,
         "threadId": THREAD,
         "labelIds": list(labels),
         "internalDate": ms(at),
-        "payload": {"headers": [{"name": "From", "value": sender}]},
+        "payload": {"headers": headers},
     }
 
 
@@ -136,7 +144,10 @@ def test_a_thread_is_read_headers_only_with_a_token_for_gmail_metadata_only(
     renewal, minimal, metadata = google.requests
     assert renewal.url == TOKEN_URL
     assert minimal.url == f"{MESSAGES_URL}/{SENT}?format=minimal"
-    assert metadata.url == f"{THREADS_URL}/{THREAD}?format=metadata&metadataHeaders=From"
+    assert metadata.url == (
+        f"{THREADS_URL}/{THREAD}?format=metadata"
+        "&metadataHeaders=From&metadataHeaders=Message-ID&metadataHeaders=In-Reply-To"
+    )
     assert all(r.method == "GET" and r.body == b"" for r in (minimal, metadata))
     assert minimal.headers["Authorization"] == f"Bearer {ACCESS_TOKEN}"
     jordan = read[2]
@@ -166,15 +177,26 @@ def test_a_message_gmail_no_longer_has_has_no_thread(tmp_path: Path) -> None:
     ("answers", "problem"),
     [
         ({"minimal": reply(200, {"id": SENT, "threadId": "not hex"})}, "no usable thread"),
-        ({"thread": reply(200, {"id": THREAD})}, "without its messages"),
+        ({"thread": reply(200, {"id": THREAD})}, "one without its messages"),
+        ({"thread": reply(200, {"id": "18c2f0a1b2c3d4ff", "messages": []})}, "another thread"),
         ({"thread": reply(500, {})}, "HTTP 500"),
-        ({"thread": reply(200, {"messages": [{"id": JORDAN, "labelIds": []}]})}, "had no time"),
+        (
+            {"thread": reply(200, {"id": THREAD, "messages": [{"id": JORDAN, "labelIds": []}]})},
+            "had no time",
+        ),
         (
             {"minimal": reply(200, {"id": ACCESS_TOKEN, "threadId": THREAD})},
             "repeated a credential",
         ),
     ],
-    ids=["bad-thread-id", "no-messages", "server-error", "no-time", "echoed-token"],
+    ids=[
+        "bad-thread-id",
+        "no-messages",
+        "another-thread",
+        "server-error",
+        "no-time",
+        "echoed-token",
+    ],
 )
 def test_a_reply_unlike_gmails_is_refused(
     answers: dict[str, Any], problem: str, tmp_path: Path
@@ -216,7 +238,7 @@ def test_new_messages_from_others_wait_for_the_person_and_are_kept_as_outcomes(
 ) -> None:
     store = InMemoryBackend().open(live_scope())
     draft_id = delivered(store)
-    waiting = replies.pending(store, reader(tmp_path, FakeGmail()))
+    waiting = replies.pending(store, reader(tmp_path, FakeGmail())).replies
     assert [(r.draft_id, r.first_name, r.message.message_id) for r in waiting] == [
         (draft_id, "Jordan", DAEMON),
         (draft_id, "Jordan", JORDAN),
@@ -225,7 +247,7 @@ def test_new_messages_from_others_wait_for_the_person_and_are_kept_as_outcomes(
     assert appended.event.attributes == {"outcome": "positive_reply", "reply": JORDAN}
     assert appended.event.occurred_at == sent_at() + timedelta(hours=3)
     assert appended.event.actor.id == "demo-seller"
-    still = replies.pending(store, reader(tmp_path / "again", FakeGmail()))
+    still = replies.pending(store, reader(tmp_path / "again", FakeGmail())).replies
     assert [r.message.message_id for r in still] == [DAEMON]
     with pytest.raises(ValueError, match="already answered"):
         replies.record_reply(store, waiting[1], "negative_reply", "demo-seller")
@@ -300,3 +322,196 @@ def test_replies_are_read_only_for_a_scope_that_sends_live_from_gmail(
     ]
     assert main(argv) == 1
     assert "only for a scope that sends live from Gmail" in capsys.readouterr().out
+
+
+# What Pi's review found
+
+
+SECOND = "18c2f0a1b2c3d4e6"
+
+
+def two_sent(store: Store) -> tuple[str, str]:
+    first = researched(store)
+    approve(store, first)
+    deliver_draft(
+        store, draft_id=first.ref.artifact_id, sender=FakeSender(outcomes=[SENT]), now=sent_at
+    )
+    second = researched(store)
+    approve(store, second)
+    later = sent_at() + timedelta(minutes=10)
+    deliver_draft(
+        store,
+        draft_id=second.ref.artifact_id,
+        sender=FakeSender(outcomes=[SECOND]),
+        now=lambda: later,
+    )
+    return first.ref.artifact_id, second.ref.artifact_id
+
+
+def shared(*inbound: dict[str, Any]) -> FakeGmail:
+    sent = sent_at()
+    both = [
+        message(SENT, sent, "Riley <riley@seller.example>", "SENT"),
+        message(SECOND, sent + timedelta(minutes=10), "Riley <riley@seller.example>", "SENT"),
+        *inbound,
+    ]
+    return FakeGmail(thread=reply(200, {"id": THREAD, "messages": both}))
+
+
+class ByReceipt(FakeGmail):
+    """Answers each sent message's own minimal lookup."""
+
+    def send(self, request: HttpRequest) -> HttpResponse:
+        if request.url.startswith(MESSAGES_URL):
+            self.requests.append(request)
+            asked = request.url.rsplit("/", 1)[1].split("?")[0]
+            return reply(200, {"id": asked, "threadId": THREAD})
+        return super().send(request)
+
+
+def test_a_reply_in_a_shared_thread_goes_to_the_one_draft_it_answers(tmp_path: Path) -> None:
+    store = InMemoryBackend().open(live_scope())
+    _first, second = two_sent(store)
+    answer = message(
+        JORDAN,
+        sent_at() + timedelta(hours=1),
+        "Jordan <j@northstar.example>",
+        "INBOX",
+        in_reply_to=SECOND,
+    )
+    google = ByReceipt(thread=shared(answer).thread)
+    found = replies.pending(store, reader(tmp_path, google))
+    assert [(r.draft_id, r.message.message_id) for r in found.replies] == [(second, JORDAN)]
+    replies.record_reply(store, found.replies[0], "positive_reply", "demo-seller")
+    again = replies.pending(
+        store, reader(tmp_path / "again", ByReceipt(thread=shared(answer).thread))
+    )
+    assert again.replies == []  # answered once, for any draft
+
+
+def test_a_reply_that_could_answer_either_draft_is_left_to_the_person(tmp_path: Path) -> None:
+    store = InMemoryBackend().open(live_scope())
+    first, second = two_sent(store)
+    unclear = message(
+        JORDAN, sent_at() + timedelta(hours=1), "Jordan <j@northstar.example>", "INBOX"
+    )
+    found = replies.pending(store, reader(tmp_path, ByReceipt(thread=shared(unclear).thread)))
+    assert found.replies == []
+    assert found.notes == [
+        f"a reply at {(sent_at() + timedelta(hours=1)).isoformat()} could answer any of "
+        f"{first}, {second}; record it by hand with auggie outcome --draft"
+    ]
+
+
+def test_a_thread_without_its_sent_message_offers_nothing(tmp_path: Path) -> None:
+    store = InMemoryBackend().open(live_scope())
+    draft_id = delivered(store)
+    earlier = message(
+        JORDAN, sent_at() - timedelta(days=1), "Jordan <j@northstar.example>", "INBOX"
+    )
+    google = FakeGmail(thread=reply(200, {"id": THREAD, "messages": [earlier]}))
+    found = replies.pending(store, reader(tmp_path, google))
+    assert found.replies == []
+    assert found.notes == [f"{draft_id}: its sent message is no longer in Gmail; nothing read"]
+
+
+def test_an_escaped_credential_in_a_header_is_never_shown(tmp_path: Path) -> None:
+    # The From value is the access token, each character written as a JSON \uXXXX escape.
+    escaped = "".join(f"\\u{ord(c):04x}" for c in ACCESS_TOKEN)
+    plain = json.dumps(thread())
+    body = plain.replace("Jordan <jordan.avery@northstar.example>", escaped)
+    assert (
+        ACCESS_TOKEN not in body
+        and json.loads(body)["messages"][1]["payload"]["headers"][0]["value"] == ACCESS_TOKEN
+    )
+    google = FakeGmail(thread=HttpResponse(200, {}, body.encode()))
+    with pytest.raises(ReadRefused, match="repeated a credential"):
+        reader(tmp_path, google).thread_of(SENT)
+
+
+def test_only_an_opaque_id_is_kept_as_a_reply_id() -> None:
+    from auggie.contracts import Actor
+    from auggie.pipeline import OutcomeReport, record_outcome
+
+    store = InMemoryBackend().open(live_scope())
+    draft_id = delivered(store)
+    report = OutcomeReport(
+        outcome="positive_reply",
+        reported_by=Actor(kind="human", id="demo-seller"),
+        occurred_at=sent_at(),
+    )
+    with pytest.raises(ValueError, match="the mailbox's opaque ID"):
+        record_outcome(
+            store, artifact_id=draft_id, report=report, reply_id="Jordan <j@northstar.example>: hi"
+        )
+
+
+def test_only_a_listed_answer_records_an_outcome(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from pymongo import monitoring
+
+    class Commands(monitoring.CommandListener):
+        def __init__(self) -> None:
+            self.names: list[str] = []
+
+        def started(self, event: monitoring.CommandStartedEvent) -> None:
+            self.names.append(event.command_name)
+
+        def succeeded(self, event: monitoring.CommandSucceededEvent) -> None:
+            return None
+
+        def failed(self, event: monitoring.CommandFailedEvent) -> None:
+            return None
+
+    scope = live_scope()
+    scope_file = tmp_path / "scope.json"
+    scope_file.write_text(scope.model_dump_json(), encoding="utf-8")
+    credentials(tmp_path / "credentials", scope)
+    monkeypatch.setattr(cli, "google_transport", lambda: FakeGmail())
+    monkeypatch.setattr(cli, "interactive", lambda: True)
+    with mongo_backend() as backend:
+        delivered(backend.open(scope))
+        argv = [
+            "outcome",
+            str(scope_file),
+            "--replies",
+            "--reporter",
+            "demo-seller",
+            "--credentials",
+            str(tmp_path / "credentials"),
+            "--mongodb",
+            os.environ[MONGODB_URI],
+            "--database-prefix",
+            backend.database_prefix,
+        ]
+        seen = Commands()
+        monitoring.register(seen)
+        answers = iter(["maybe", "not sure", "s", "q"])
+        monkeypatch.setattr("builtins.input", lambda prompt="": next(answers))
+        assert main(argv) == 0
+        out = capsys.readouterr().out
+        assert out.count("answer with one of the letters shown") == 2
+        assert "Recorded 0 outcomes." in out
+        assert not {"createIndexes", "collMod", "insert"} & set(seen.names)  # only read
+
+
+def test_a_missing_read_token_is_refused_before_connecting(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    scope_file = tmp_path / "scope.json"
+    scope_file.write_text(live_scope().model_dump_json(), encoding="utf-8")
+    monkeypatch.setattr(cli, "interactive", lambda: True)
+    argv = [
+        "outcome",
+        str(scope_file),
+        "--replies",
+        "--reporter",
+        "demo-seller",
+        "--credentials",
+        str(tmp_path / "none"),
+        "--mongodb",
+        "mongodb://127.0.0.1:1",
+    ]
+    assert main(argv) == 1
+    assert "gmail-read-token" in capsys.readouterr().out

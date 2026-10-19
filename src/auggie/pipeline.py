@@ -948,6 +948,8 @@ def record_outcome(
 ) -> Appended:
     """Record what happened after a delivery. There must have been one. ``reply_id`` is the
     mailbox's opaque ID for the reply it answers, when one was read (ADR 0029)."""
+    if reply_id is not None and not RECEIPT.fullmatch(reply_id):
+        raise ValueError("a reply ID is the mailbox's opaque ID, and nothing else")
     recipient_id = store.latest_artifact(artifact_id).recipient_id
     if recipient_id is None:
         raise ValueError(f"{artifact_id} has no recipient")

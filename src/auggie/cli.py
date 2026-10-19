@@ -1282,11 +1282,13 @@ def prospect_command(args: argparse.Namespace, out: Print, ask: Callable[[str], 
             existing = backend.open_existing(scope)  # a mistyped name stops here, not afresh
         if outcomes is not None and existing is not None and not args.write:
             return _outcomes_from(args, existing, outcomes, out)  # a preview only reads
+        if args.command == "outcome" and args.replies and existing is not None:
+            # Replies are found through the read-only Store; it is opened for writing only
+            # once the person answers one.
+            return _classify_replies(args, existing, lambda: backend.open(scope), out, ask)
         store = backend.open(scope)
         if outcomes is not None:
             return _outcomes_from(args, store, outcomes, out)
-        if args.command == "outcome" and args.replies:
-            return _classify_replies(args, store, out, ask)
         if prepared is not None:
             return _research_list(args, store, prepared, out)
         return _prospect_step(args, store, out, ask)
@@ -1417,11 +1419,17 @@ def _prospect_step(
 
 REPLY_CHOICES: dict[str, str] = {
     "p": "positive_reply",
+    "positive": "positive_reply",
     "n": "negative_reply",
+    "negative": "negative_reply",
     "m": "meeting_booked",
+    "meeting": "meeting_booked",
     "o": "opt_out",
+    "opt-out": "opt_out",
     "b": "bounce",
+    "bounce": "bounce",
 }
+"""The only answers that record an outcome. Anything else is asked again."""
 
 
 def _cannot_read_replies(args: argparse.Namespace, scope: CustomerScope) -> str | None:
@@ -1435,14 +1443,25 @@ def _cannot_read_replies(args: argparse.Namespace, scope: CustomerScope) -> str 
         return "replies are read only for a scope that sends live from Gmail"
     if not execution.external_providers:
         return f"scope {scope.customer_id!r} does not allow calls to external services"
+    from auggie.credentials import CredentialError
+    from auggie.delivery.gmail import READ_CREDENTIAL
+
+    try:
+        CredentialFiles(args.credentials).secret(scope, READ_CREDENTIAL)
+    except CredentialError as error:
+        return str(error)
     return None
 
 
 def _classify_replies(
-    args: argparse.Namespace, store: Store, out: Print, ask: Callable[[str], str]
+    args: argparse.Namespace,
+    store: Store,
+    writable: Callable[[], Store],
+    out: Print,
+    ask: Callable[[str], str],
 ) -> int:
     """Put each new reply to a draft sent from Gmail to the person, who says what it was
-    (ADR 0029). Nothing is recorded without their answer."""
+    (ADR 0029). Nothing is recorded without one of the listed answers."""
     from auggie import replies
     from auggie.delivery.gmail import GmailReader
 
@@ -1451,10 +1470,14 @@ def _classify_replies(
         credentials=CredentialFiles(args.credentials),
         transport=google_transport(),
     )
-    waiting = replies.pending(store, reader)
-    out(f"{len(waiting)} new messages in the threads of drafts you sent from Gmail")
+    found = replies.pending(store, reader)
+    for note in found.notes:
+        out(f"note      {note}")
+    out(f"{len(found.replies)} new messages in the threads of drafts you sent from Gmail")
     recorded = 0
-    for reply in waiting:
+    recording: Store | None = None
+    question = "[p]ositive / [n]egative / [m]eeting / [o]pt-out / [b]ounce / [s]kip / [q]uit: "
+    for reply in found.replies:
         message = reply.message
         bounce = " (it looks like a delivery failure)" if message.looks_like_bounce else ""
         out("")
@@ -1462,23 +1485,22 @@ def _classify_replies(
             f"reply     {reply.draft_id} to {reply.first_name}: from {message.sender or 'unknown'}"
             f" at {message.at.isoformat()}{bounce}"
         )
-        try:
-            answer = (
-                ask(
-                    "[p]ositive / [n]egative / [m]eeting / [o]pt-out / [b]ounce / [s]kip / [q]uit: "
-                )
-                .strip()
-                .lower()
-            )
-        except EOFError:
-            answer = "q"
+        while True:
+            try:
+                answer = ask(question).strip().lower()
+            except EOFError:
+                answer = "q"
+            if answer in ("q", "quit", "s", "skip") or answer in REPLY_CHOICES:
+                break
+            out("          answer with one of the letters shown")
         if answer in ("q", "quit"):
             break
-        outcome = REPLY_CHOICES.get(answer[:1]) if answer and answer[0] != "s" else None
-        if outcome is None:
+        if answer in ("s", "skip"):
             out("skipped   nothing recorded; you will be asked again next time")
             continue
-        appended = replies.record_reply(store, reply, outcome, args.reporter)
+        recording = recording or writable()
+        outcome = REPLY_CHOICES[answer]
+        appended = replies.record_reply(recording, reply, outcome, args.reporter)
         out(f"recorded  {outcome} ({appended.event.idempotency_key})")
         recorded += 1
     out("")

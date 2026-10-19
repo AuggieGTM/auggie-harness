@@ -435,6 +435,9 @@ uv run auggie outcome <scope.json> --replies --reporter "your name" --mongodb <u
 For each message in a sent draft's thread that came after it and that you did not send, it
 shows who it is from and when, marks a mail system's delivery-failure notice as a likely
 bounce, and asks you: positive, negative, meeting, opt-out, bounce, or skip. Nothing is
-recorded without your answer, and a skipped message is asked about again next time. The
+recorded without one of those answers, and a skipped message is asked about again next time.
+A reply is tied to the draft it answers; one in a thread with more than one of your drafts that
+does not say which it answers is listed for you to record by hand, and a reply is never counted
+for two drafts. The
 harness keeps only the outcome you chose, the reply's time and Gmail's ID for it: no addresses,
 names or subjects. It is tested against a fake Google only.

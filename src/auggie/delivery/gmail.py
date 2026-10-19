@@ -233,12 +233,17 @@ class ThreadMessage:
     """One message of a thread, as headers-only reading shows it."""
 
     message_id: str
+    thread_id: str
     at: datetime
     """When Gmail received it."""
     from_seller: bool
     """It carries Gmail's SENT label: the seller sent it."""
     sender: str
     """Its From header, for a person to read: control characters removed, never stored."""
+    header_id: str = ""
+    in_reply_to: str = ""
+    """Its Message-ID and In-Reply-To headers, held only to tell which message a reply
+    answers; never shown or stored."""
 
     @property
     def looks_like_bounce(self) -> bool:
@@ -268,20 +273,24 @@ class GmailReader:
 
     def thread_of(self, message_id: str) -> list[ThreadMessage]:
         """Every message in the thread of a message the seller sent, oldest first. Empty when
-        Gmail no longer has the message."""
+        Gmail no longer has the message. Every ID in Gmail's replies must be the one asked for.
+        """
         if not MESSAGE_ID.fullmatch(message_id):
             raise ReadRefused(f"{message_id!r} is not a Gmail message ID")
         found = self._get(f"{MESSAGES_URL}/{message_id}?format=minimal")
         if found is None:
             return []
         thread_id = found.get("threadId")
+        if found.get("id") != message_id:
+            raise ReadRefused("Gmail answered about another message than the one asked for")
         if not isinstance(thread_id, str) or not MESSAGE_ID.fullmatch(thread_id):
             raise ReadRefused("Gmail returned no usable thread for the sent message")
-        thread = self._get(f"{THREADS_URL}/{thread_id}?format=metadata&metadataHeaders=From")
+        headers = "&".join(f"metadataHeaders={h}" for h in THREAD_HEADERS)
+        thread = self._get(f"{THREADS_URL}/{thread_id}?format=metadata&{headers}")
         messages = thread.get("messages") if thread else None
-        if not isinstance(messages, list):
-            raise ReadRefused("Gmail returned a thread without its messages")
-        read = [_thread_message(m) for m in messages]
+        if thread is None or thread.get("id") != thread_id or not isinstance(messages, list):
+            raise ReadRefused("Gmail returned another thread, or one without its messages")
+        read = [_thread_message(m, thread_id) for m in messages]
         return sorted(read, key=lambda m: (m.at, m.message_id))
 
     def _get(self, url: str) -> dict[str, object] | None:
@@ -318,12 +327,43 @@ class GmailReader:
             raise ReadRefused("Gmail's reply was not JSON") from None
         if not isinstance(data, dict):
             raise ReadRefused("Gmail's reply was not an object")
+        # Escaped in JSON, a credential only shows once the reply is decoded.
+        if any(secret in text for text in _strings(data) for secret in secrets):
+            raise ReadRefused("Gmail's reply repeated a credential; none of it was used")
         return data
 
 
-def _thread_message(message: object) -> ThreadMessage:
+THREAD_HEADERS = ("From", "Message-ID", "In-Reply-To")
+
+
+def _strings(value: object) -> list[str]:
+    """Every string in a decoded JSON value, keys included."""
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        return [s for k, v in value.items() for s in (*_strings(k), *_strings(v))]
+    if isinstance(value, list):
+        return [s for item in value for s in _strings(item)]
+    return []
+
+
+def _header(headers: object, name: str) -> str:
+    found = next(
+        (
+            h.get("value")
+            for h in (headers if isinstance(headers, list) else [])
+            if isinstance(h, dict) and str(h.get("name", "")).lower() == name.lower()
+        ),
+        "",
+    )
+    return found if isinstance(found, str) else ""
+
+
+def _thread_message(message: object, thread_id: str) -> ThreadMessage:
     if not isinstance(message, dict):
         raise ReadRefused("a message of the thread was not an object")
+    if message.get("threadId", thread_id) != thread_id:
+        raise ReadRefused("a message of the thread belongs to another thread")
     message_id = message.get("id")
     labels = message.get("labelIds", [])
     received = message.get("internalDate")
@@ -335,21 +375,16 @@ def _thread_message(message: object) -> ThreadMessage:
         raise ReadRefused("a message of the thread had unreadable labels")
     payload = message.get("payload")
     headers = payload.get("headers", []) if isinstance(payload, dict) else []
-    sender = next(
-        (
-            h.get("value")
-            for h in (headers if isinstance(headers, list) else [])
-            if isinstance(h, dict) and str(h.get("name", "")).lower() == "from"
-        ),
-        "",
-    )
     try:
         at = datetime.fromtimestamp(int(received) / 1000, tz=UTC)
     except (OverflowError, ValueError, OSError):
         raise ReadRefused("a message of the thread had an impossible time") from None
     return ThreadMessage(
         message_id=message_id,
+        thread_id=thread_id,
         at=at,
         from_seller="SENT" in labels,
-        sender=_shown(sender if isinstance(sender, str) else ""),
+        sender=_shown(_header(headers, "From")),
+        header_id=_header(headers, "Message-ID").strip(),
+        in_reply_to=_header(headers, "In-Reply-To").strip(),
     )
