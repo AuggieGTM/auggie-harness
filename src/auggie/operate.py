@@ -444,13 +444,23 @@ def describe_draft(store: Store, draft: Artifact, out: Print) -> None:
     out(f"draft     {draft.ref.artifact_id}, version sha256 {draft.ref.content_hash[7:19]}")
     out(f"          for {draft.recipient_id} at {draft.account_id}, composed {draft.composed_at}")
     first = first_version(store, draft)
-    if first.composed_by.kind == "model":
+    if draft.composed_by.kind == "model":
         out(
-            f"          written by the model {first.composed_by.id}, and checked: it holds no "
+            f"          written by the model {draft.composed_by.id}, and checked: it holds no "
             "number, quote, link or name it was not given. Check that each fact is right."
         )
-    elif first.fallback is not None:
-        out(f"          from the play's template, not the model's draft: {first.fallback}")
+    elif draft.fallback is not None:
+        out(f"          from the play's template, not the model's draft: {draft.fallback}")
+    elif draft.composed_by.kind == "human" and first.composed_by.kind == "model":
+        out(
+            f"          revised by {draft.composed_by.id} from a draft the model "
+            f"{first.composed_by.id} wrote; the revision was not checked"
+        )
+    elif draft.composed_by.kind == "human" and first.fallback is not None:
+        out(
+            f"          revised by {draft.composed_by.id} from the play's template, which "
+            f"stood because {first.fallback}"
+        )
     if draft.recipient_id is not None:
         person = store.get_person(draft.recipient_id)
         out(f"          to {person.first_name} <{person.email or 'no address recorded'}>")

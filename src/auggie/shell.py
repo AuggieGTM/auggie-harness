@@ -352,6 +352,8 @@ def _research(session: Session, args: list[str]) -> None:
     ):
         session.out("nothing read")
         return
+    if session.live and writer is not None:
+        writer.most_per_call()  # a model that cannot be priced stops here, before any page
     result = operate.research_prospect(
         session.store,
         strategy=session.strategy,
@@ -383,6 +385,11 @@ def _research_hiring(session: Session, *, again: bool) -> None:
     if reader is None:
         raise ValueError("this session has no way to read listings")
     operate.screen_criteria(strategy)  # refused before asking, if there is nothing to screen by
+    acquisition = session.acquisition()
+    budget = getattr(acquisition, "budget", None)
+    writer = session.writer(budget)
+    if writer is not None:
+        writer.ready()  # refused before asking: no external calls, or no key
     listed = len(operate.to_screen(session.store, prospects, again=again))
     if session.live and listed:
         require_external_calls(session.store.scope)  # refused before asking
@@ -404,11 +411,6 @@ def _research_hiring(session: Session, *, again: bool) -> None:
     session.out(f"{len(chosen)} of {len(screened)} passed the screen")
     if not chosen:
         return
-    acquisition = session.acquisition()
-    budget = getattr(acquisition, "budget", None)
-    writer = session.writer(budget)
-    if writer is not None:
-        writer.ready()  # refused before asking: no external calls, or no key
     if session.live:
         pages = sum(k in p.sources for p in chosen for k in strategy.strategy.sources)
         if not _yes(

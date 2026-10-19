@@ -626,7 +626,9 @@ def _model_draft(
     facts = facts_for(
         play=play, strategy=strategy, filled=filled, sources=sources, template=template.content
     )
-    rewritten = rewrite(writer, customer_id=decision.customer_id, facts=facts)
+    rewritten = rewrite(
+        writer, customer_id=decision.customer_id, facts=facts, account_id=account.account_id
+    )
     draft_id = template.ref.artifact_id
     for n, attempt in enumerate(rewritten.attempts, start=1):
         attributes: dict[str, AttributeValue] = {

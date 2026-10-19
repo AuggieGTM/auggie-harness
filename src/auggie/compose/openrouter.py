@@ -144,8 +144,11 @@ class TextModel(Protocol):
         """The most one call can cost, in micro-USD, at the longest prompt it sends."""
         ...
 
-    def write(self, *, customer_id: str, messages: Sequence[Message]) -> ModelReply:
-        """Make one call, or raise before anything paid is sent."""
+    def write(
+        self, *, customer_id: str, messages: Sequence[Message], account_id: str | None = None
+    ) -> ModelReply:
+        """Make one call, or raise before anything paid is sent. ``account_id`` names the
+        account the draft is for; it is never sent to a provider."""
         ...
 
 
@@ -197,7 +200,9 @@ class OpenRouterWriter:
             MAX_PROMPT_BYTES, MAX_MESSAGES, self._writer.max_output_tokens
         )
 
-    def write(self, *, customer_id: str, messages: Sequence[Message]) -> ModelReply:
+    def write(
+        self, *, customer_id: str, messages: Sequence[Message], account_id: str | None = None
+    ) -> ModelReply:
         """Make one paid call, unless the scope, its key, the prices or the budget forbid it.
 
         Refusals raise before anything paid is sent. A call that was sent always returns a

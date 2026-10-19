@@ -13,6 +13,7 @@ from typing import Any
 import pytest
 
 from auggie import cli, operate, shell
+from auggie.acquisition.fixture import RecordedListing, RecordedListings
 from auggie.compose.fixture import RecordedModel, RecordedReplies
 from auggie.compose.openrouter import OpenRouterWriter
 from auggie.contracts import Actor, CustomerScope
@@ -211,7 +212,9 @@ def test_a_live_list_without_a_key_stops_before_the_store_opens(
 # The shell
 
 
-def session(tmp_path: Path, answers: list[str], key: bool = True) -> tuple[Any, list[str]]:
+def session(
+    tmp_path: Path, answers: list[str], key: bool = True, prices: HttpResponse | None = None
+) -> tuple[Any, list[str]]:
     scope, _, acquisition, _ = paid(10_000, tmp_path)
     if key:
         folder = tmp_path / "credentials" / scope.credential_namespace
@@ -234,7 +237,7 @@ def session(tmp_path: Path, answers: list[str], key: bool = True) -> tuple[Any, 
             credentials=CredentialFiles(tmp_path / "credentials"),
             budget=budget,
             writer=RULES.strategy.writer,  # type: ignore[arg-type]
-            transport=FakeOpenRouter(listing(endpoint()), completion(RECORDED)),
+            transport=FakeOpenRouter(prices or listing(endpoint()), completion(RECORDED)),
         )
 
     run = shell.Session(
@@ -279,7 +282,7 @@ def test_the_shell_refuses_a_model_without_its_key_before_asking(tmp_path: Path)
 
 def test_review_says_which_model_wrote_a_draft_or_why_the_template_stands() -> None:
     store = InMemoryBackend().open(SCOPE)
-    replies = [RecordedReplies(account="Fernhollow Logistics", texts=(RECORDED,))]
+    replies = [RecordedReplies(account_id="acc-fernhollow", texts=(RECORDED,))]
     lines = rehearse(store, strategy=RULES, writer=RecordedModel(MODEL, replies))
     shown: list[str] = []
     operate.describe_draft(store, lines[0].result.draft, shown.append)
@@ -297,7 +300,7 @@ def test_learning_counts_a_plays_model_and_template_drafts_apart() -> None:
     from auggie.operate import deliver_draft, report_outcome, review_draft
 
     store = InMemoryBackend().open(SCOPE)
-    replies = [RecordedReplies(account="Fernhollow Logistics", texts=(RECORDED,))]
+    replies = [RecordedReplies(account_id="acc-fernhollow", texts=(RECORDED,))]
     lines = rehearse(store, strategy=RULES, writer=RecordedModel(MODEL, replies))
     draft = lines[0].result.draft
     answers = iter(["y", "", "y"])
@@ -336,3 +339,90 @@ def test_a_key_is_never_printed_or_kept(tmp_path: Path) -> None:
             writer=RULES.strategy.writer,  # type: ignore[arg-type]
         ).ready()
     assert "sk-x" not in str(refused.value) and "sk-x" not in json.dumps(REPLAY)
+
+
+# What Pi's review found
+
+
+def test_a_model_that_cannot_be_priced_stops_a_list_cleanly_before_anything_is_paid(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    scope_file, credentials = live_scope(tmp_path)
+    treg = Replay(page("https://fernhollow.example/security", "x"))
+    model = FakeOpenRouter(prices=HttpResponse(404, {}, b"{}"))
+    monkeypatch.setattr(cli, "treg_transport", lambda: treg)
+    monkeypatch.setattr(cli, "openrouter_transport", lambda: model)
+    argv = [
+        "research-list",
+        str(scope_file),
+        "--prospects",
+        str(folder_of_prospects(tmp_path)),
+        *strategy_repo(tmp_path),
+        "--operator",
+        "demo-seller",
+        "--credentials",
+        str(credentials),
+        "--mongodb",
+        "mongodb://127.0.0.1:1",  # never reached
+    ]
+    assert cli.main(argv) == 1
+    assert "stopped   ModelRefused: cannot read the prices" in capsys.readouterr().out
+    assert treg.requests == [] and [r.method for r in model.requests] == ["GET"]
+
+
+def test_the_shell_prices_the_model_after_the_yes_and_before_any_page(tmp_path: Path) -> None:
+    run, asked = session(
+        tmp_path, ["research acc-fernhollow", "y"], prices=HttpResponse(404, {}, b"{}")
+    )
+    printed: list[str] = []
+    run.out = printed.append
+    shell.run(run)
+    assert any("go ahead" in q for q in asked)
+    assert any(line.startswith("stopped   ModelRefused") for line in printed)
+    assert run.store.list_events(type="evidence.recorded") == ()
+
+
+def test_the_shell_screen_checks_the_key_before_its_first_question(tmp_path: Path) -> None:
+    run, asked = session(tmp_path, ["research --hiring", "y"], key=False)
+    printed: list[str] = []
+    run.out = printed.append
+    run.listings = lambda: RecordedListings(
+        [RecordedListing.model_validate(r) for r in REPLAY["listings"]]
+    )
+    shell.run(run)
+    assert [q for q in asked if "go ahead" in q] == []
+    assert any(line.startswith("stopped   CredentialError") for line in printed)
+    assert run.store.list_events() == ()
+
+
+def test_review_says_a_persons_revision_of_a_model_draft_was_not_checked() -> None:
+    from auggie.pipeline import record_revision
+
+    store = InMemoryBackend().open(SCOPE)
+    replies = [RecordedReplies(account_id="acc-fernhollow", texts=(RECORDED,))]
+    draft = rehearse(store, strategy=RULES, writer=RecordedModel(MODEL, replies))[0].result.draft
+    revised = record_revision(
+        store,
+        previous=draft.ref,
+        content=draft.content.replace("short coverage checklist", "coverage checklist"),
+        by=Actor(kind="human", id="demo-seller"),
+        at=draft.composed_at,
+    )
+    shown: list[str] = []
+    operate.describe_draft(store, revised, shown.append)
+    assert not any("and checked" in s for s in shown)
+    assert any(
+        f"revised by demo-seller from a draft the model recorded {MODEL} wrote; the revision "
+        "was not checked" in s
+        for s in shown
+    )
+
+
+def test_recorded_replies_belong_to_one_account_id() -> None:
+    store = InMemoryBackend().open(SCOPE)
+    other = [RecordedReplies(account_id="acc-other-fernhollow", texts=(RECORDED,))]
+    draft = rehearse(store, strategy=RULES, writer=RecordedModel(MODEL, other))[0].result.draft
+    assert draft.composed_by.kind == "service" and draft.fallback is not None
+    twice = [RecordedReplies(account_id="acc-fernhollow", texts=(RECORDED,))] * 2
+    with pytest.raises(ValueError, match="names an account twice"):
+        RecordedModel(MODEL, twice)

@@ -357,14 +357,16 @@ class Rewritten:
     fallback: str | None
 
 
-def rewrite(model: TextModel, *, customer_id: str, facts: Facts) -> Rewritten:
+def rewrite(
+    model: TextModel, *, customer_id: str, facts: Facts, account_id: str | None = None
+) -> Rewritten:
     """Ask the model for the draft, and once more if its text fails the checks. A refusal
     before a call, or a call that brought no text, leaves the template standing."""
     messages = messages_for(facts)
     attempts: list[Attempt] = []
     for _ in range(2):
         try:
-            reply = model.write(customer_id=customer_id, messages=messages)
+            reply = model.write(customer_id=customer_id, messages=messages, account_id=account_id)
         except (ModelRefused, CredentialError, ExternalCallRefused, SpendRefused) as refused:
             asked = "asked again" if attempts else "asked"
             return Rewritten(

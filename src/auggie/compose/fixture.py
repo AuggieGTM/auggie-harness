@@ -3,14 +3,13 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Mapping, Sequence
 
 from pydantic import Field
 
-from auggie.compose.model import LABELS
 from auggie.compose.openrouter import Message, ModelReply
 from auggie.contracts import Actor, Contract
+from auggie.contracts.common import RecordId
 from auggie.contracts.events import AttributeValue
 from auggie.spend import RunBudget
 
@@ -18,8 +17,7 @@ from auggie.spend import RunBudget
 class RecordedReplies(Contract):
     """What the model is recorded as writing for one account, attempt by attempt."""
 
-    account: str = Field(min_length=1, max_length=200)
-    """The account's name, as the facts give it."""
+    account_id: RecordId
     texts: tuple[str, ...] = Field(min_length=1, max_length=2)
 
 
@@ -30,7 +28,10 @@ class RecordedModel:
 
     def __init__(self, model: str, replies: Sequence[RecordedReplies]) -> None:
         self._model = model
-        self._replies: Mapping[str, list[str]] = {r.account: list(r.texts) for r in replies}
+        ids = [r.account_id for r in replies]
+        if len(set(ids)) != len(ids):
+            raise ValueError("model_replies names an account twice")
+        self._replies: Mapping[str, list[str]] = {r.account_id: list(r.texts) for r in replies}
 
     @property
     def budget(self) -> RunBudget | None:
@@ -46,15 +47,15 @@ class RecordedModel:
     def most_per_call(self) -> int:
         return 0
 
-    def write(self, *, customer_id: str, messages: Sequence[Message]) -> ModelReply:
-        facts = json.loads(messages[1].content)["facts"]
-        name = next(f["value"] for f in facts if f["fact"] == LABELS["account_name"])
+    def write(
+        self, *, customer_id: str, messages: Sequence[Message], account_id: str | None = None
+    ) -> ModelReply:
         attributes: dict[str, AttributeValue] = {
             "route": "recorded",
             "model": self._model,
             "cost_micro_usd": 0,
         }
-        pending = self._replies.get(name, [])
+        pending = self._replies.get(account_id or "", [])
         if not pending:
             return ModelReply(None, "No reply was recorded for this account.", None, attributes)
         served = f"recorded {self._model}"

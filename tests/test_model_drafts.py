@@ -68,7 +68,9 @@ class Fake:
     def most_per_call(self) -> int:
         return self.ceiling
 
-    def write(self, *, customer_id: str, messages: Sequence[Message]) -> ModelReply:
+    def write(
+        self, *, customer_id: str, messages: Sequence[Message], account_id: str | None = None
+    ) -> ModelReply:
         assert customer_id == "demo-security"
         self.asked.append(list(messages))
         answer = self.answers.pop(0)

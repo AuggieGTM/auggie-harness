@@ -191,7 +191,7 @@
   ],
   "model_replies": [
     {
-      "account": "Fernhollow Logistics",
+      "account_id": "acc-fernhollow",
       "texts": [
         "Subject: Detection coverage for Fernhollow Logistics\n\nHi Casey,\n\nFernhollow Logistics is listing several detection engineering roles. Teams at that stage often decide early which alerts the new hires will own first, and it helps to settle that before they start.\n\nIf it would help, I can send the short coverage checklist we use with teams like yours.\n\nRiley\nLanternwatch (synthetic example seller)\n"
       ]

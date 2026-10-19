@@ -1236,6 +1236,7 @@ def prospect_command(args: argparse.Namespace, out: Print, ask: Callable[[str], 
         return 1
     from pydantic import ValidationError
 
+    from auggie.compose.openrouter import ModelRefused
     from auggie.credentials import CredentialError
     from auggie.delivery.gmail import ReadRefused
     from auggie.external import ExternalCallRefused
@@ -1254,6 +1255,7 @@ def prospect_command(args: argparse.Namespace, out: Print, ask: Callable[[str], 
         *BLOCKING,
         CredentialError,
         ExternalCallRefused,
+        ModelRefused,
         ReadRefused,
         SpendRefused,
         StrategyError,
