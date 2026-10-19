@@ -71,6 +71,19 @@ HEADERS = (
         "patterns",
         "links",
     ),
+    (
+        "strategy",
+        "kind",
+        "key",
+        "delivered",
+        "positive",
+        "negative",
+        "opted_out",
+        "bounced",
+        "waiting",
+        "settled",
+        "rate",
+    ),
 )
 CAREERS = "https://northstar.example/careers/it-operations-manager"
 NEWS = "https://news.example/2026/northstar-works-opens-second-office"
@@ -296,6 +309,7 @@ def test_csv_files_round_trip_in_tab_order_without_writing_elsewhere(
         "evidence.csv",
         "drafts.csv",
         "hiring.csv",
+        "learning.csv",
     ]
     assert list(tmp_path.iterdir()) == [directory]
     assert set(directory.iterdir()) == set(paths)
@@ -379,3 +393,29 @@ def test_the_hiring_tab_counts_each_accounts_newest_read_by_the_sellers_families
     _, newest = project(kestrel.store, strategy)[TABS[4]]
     assert newest[1] == "snap-fernhollow-002"
     assert newest[4:] == ("failed: The listing service answered HTTP 503.", "", "", "", "", "")
+
+
+def test_the_learning_tab_counts_what_deliveries_led_to_by_strategy_file() -> None:
+    kestrel = run_scenario(NORTHSTAR.parent / "kestrel-security")  # delivered; a meeting booked
+    header, *rows = project(kestrel.store)[TABS[5]]
+    assert header == HEADERS[5]
+    by_key = {(row[1], row[2]): row for row in rows}
+    assert by_key[("play", "detection-triage")] == (
+        "strategy/security.toml",
+        "play",
+        "detection-triage",
+        "1",
+        "1",
+        "0",
+        "0",
+        "0",
+        "0",
+        "1",
+        "1.000",
+    )
+    assert ("pain", "alert-triage") in by_key and ("proof", "harborview-triage") in by_key
+    assert ("criterion", "detection-hiring") in by_key
+    # No person's record or page text: the strategy's path and IDs as written, and counts.
+    cells = " ".join(cell for row in rows for cell in row)
+    assert "Casey" not in cells and "casey.lindqvist" not in cells
+    assert "Harborview Freight" not in cells

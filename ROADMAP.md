@@ -58,8 +58,8 @@ contract ([ADR 0014](docs/adr/0014-artifact-contract.md)), both Accepted.
 - A judgment engine chosen ([ADR 0009](docs/adr/0009-judgment-and-synthesis-engines.md)). *Decided:
   rules for judgment, templates for synthesis.*
 - Read-only Sheets projection; Docs later. *Built: managed tabs regenerated from the Store
-  (five since M4 added hiring), with no page text, written as CSV, by an operator's agent
-  connector, or by a scope's own service account
+  (six since M4 added hiring and M8 learning), with no page text, written as CSV, by an
+  operator's agent connector, or by a scope's own service account
   ([ADR 0019](docs/adr/0019-projection-writers-and-agent-connectors.md)).
   The connector path passed a live check on 2026-10-17 on synthetic Northstar data: the grid
   read-back showed every tab at exactly the projection's size, from A1, every cell literal text
@@ -174,7 +174,7 @@ reproduce what was learned, land here.
   built: reading replies from the seller's mailbox. Built since: `auggie outcome --replies`,
   headers only with a second token, each reply classified by the person
   ([ADR 0029](docs/adr/0029-reading-replies-from-gmail.md)), tested against a fake Google
-  only.*
+  only; and a learning tab in the workbook, by strategy file.*
 
 ## Later, each its own decision
 

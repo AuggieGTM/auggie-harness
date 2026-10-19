@@ -176,7 +176,7 @@ def test_project_writes_a_stores_tabs_as_csv_or_to_its_sheet(
         store = ["--mongodb", os.environ[MONGODB_URI], "--database-prefix", backend.database_prefix]
         offline = scope_file(tmp_path, external=False)
         assert main(["project", str(offline), *store, "--csv", str(tmp_path / "csv")]) == 0
-        assert "Projected 9 rows" in capsys.readouterr().out
+        assert "Projected 13 rows" in capsys.readouterr().out
         sheet = ["--spreadsheet", "synthetic-spreadsheet-0000000001"]
         assert main(["project", str(offline), *store, *sheet]) == 1
         assert "stopped   ExternalCallRefused" in capsys.readouterr().out
@@ -214,7 +214,7 @@ def test_an_agent_written_sheet_is_verified_against_its_workbook(
     readback = tmp_path / "readback.json"
     readback.write_text(json.dumps(reply), encoding="utf-8")
     assert main(["verify-sheet", str(workbook), str(readback)]) == 0
-    assert "match     the sheet holds exactly the projection: 5 tabs" in capsys.readouterr().out
+    assert "match     the sheet holds exactly the projection: 6 tabs" in capsys.readouterr().out
 
     reply["sheets"][0]["data"][0]["rowData"][1]["values"][1] = {
         "userEnteredValue": {"stringValue": "disqualified"}

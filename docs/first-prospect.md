@@ -64,9 +64,9 @@ uv run auggie outcome $E/scope.json --draft <draft id> --outcome positive_reply 
 uv run auggie project $E/scope.json $M --workbook ~/auggie-rehearsal.json
 ```
 
-The workbook holds the five tabs a sheet would show (accounts, findings, evidence, drafts and
-hiring), without page text. Write it outside the clone, so it never sits in this repository's
-working tree. To see it in a sheet, follow
+The workbook holds the six tabs a sheet would show (accounts, findings, evidence, drafts,
+hiring and learning), without page text. Write it outside the clone, so it never sits in this
+repository's working tree. To see it in a sheet, follow
 [Writing a projection with your agent](../README.md#writing-a-projection-with-your-agent).
 
 Try the refusals too, each on a fresh `research` run:

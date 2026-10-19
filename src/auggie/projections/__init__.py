@@ -19,6 +19,7 @@ TABS = (
     "auggie: evidence",
     "auggie: drafts",
     "auggie: hiring",
+    "auggie: learning",
 )
 
 HEADERS: tuple[Row, ...] = (
@@ -78,7 +79,23 @@ HEADERS: tuple[Row, ...] = (
         "patterns",
         "links",
     ),
+    (
+        "strategy",
+        "kind",
+        "key",
+        "delivered",
+        "positive",
+        "negative",
+        "opted_out",
+        "bounced",
+        "waiting",
+        "settled",
+        "rate",
+    ),
 )
+
+COUNTS = ("delivered", "positive", "negative", "opted_out", "bounced", "waiting", "settled")
+LEARNED = (("plays", "play"), ("pains", "pain"), ("proofs", "proof"), ("criteria", "criterion"))
 
 
 def _approval(approval: HumanApproval) -> str:
@@ -131,9 +148,10 @@ def project(store: Store, strategy: Strategy | None = None) -> Workbook:
     The hiring tab counts roles with ``strategy``'s vocabulary (ADR 0024); without it, the tab
     shows only what each read was.
     """
+    from auggie.learning import learn_view
     from auggie.queries import hiring_view
 
-    accounts, findings, evidence, drafts, hiring = ([header] for header in HEADERS)
+    accounts, findings, evidence, drafts, hiring, learning = ([header] for header in HEADERS)
     decisions: dict[str, None] = {}
     artifacts: dict[str, None] = {}
     validations: dict[str, str] = {}
@@ -232,10 +250,13 @@ def project(store: Store, strategy: Strategy | None = None) -> Workbook:
         )
     counted = strategy is not None and strategy.signals.hiring is not None
     hiring.extend(_hiring(row, counted) for row in hiring_view(store, strategy))
-    return dict(
-        zip(
-            TABS,
-            (tuple(accounts), tuple(findings), tuple(evidence), tuple(drafts), tuple(hiring)),
-            strict=True,
-        )
-    )
+    # What deliveries led to, per strategy file (ADR 0028): the strategy's path and IDs as
+    # written, and counts. No person's record, contact field or page text is read into it.
+    for learned in learn_view(store)["strategies"]:
+        for group, kind in LEARNED:
+            for row in learned[group]:
+                rate = "" if row["rate"] is None else f"{row['rate']:.3f}"
+                counts = tuple(str(row[name]) for name in COUNTS)
+                learning.append((learned["strategy"], kind, row["key"], *counts, rate))
+    tabs = (accounts, findings, evidence, drafts, hiring, learning)
+    return dict(zip(TABS, (tuple(tab) for tab in tabs), strict=True))
