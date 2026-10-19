@@ -100,7 +100,7 @@ flowchart LR
 | MongoDB Community | Per-customer operational database behind the Store | **Exists** for synthetic runs ([0015](adr/0015-mongodb-store-layout.md)) |
 | Acquisition (Treg) | Data acquisition, recorded as `SourceEvidence` | First route built, tested on synthetic replies ([0024](adr/0024-careers-snapshots-and-hiring-tallies.md), [0017](adr/0017-first-treg-route.md)) |
 | Careers snapshots | Whole job listings from listing services' public feeds, recorded as `CareersSnapshot`; hiring tallies counted by rules | Readers for Lever, Greenhouse and Ashby built, tested on synthetic replies ([0023](adr/0023-signal-vocabulary-in-the-strategy.md), [0024](adr/0024-careers-snapshots-and-hiring-tallies.md)) |
-| Judgment and synthesis | Deterministic rules and play templates; model engines only after evaluation | **Exists** ([0009](adr/0009-judgment-and-synthesis-engines.md)) |
+| Judgment and synthesis | Deterministic rules; play templates, which a model may rewrite for plays that turn it on, checked against the facts it was given | Rules and templates exist; the OpenRouter writer exists, tested against a fake OpenRouter only ([0031](adr/0031-a-model-writes-drafts.md)) |
 | Task scheduler | Exactly one; Herdr or Foreman | **Open** ([0007](adr/0007-single-task-scheduler.md)) |
 | Delivery adapter | One thin adapter per sending platform, the seller's mailbox first; simulated first | Gmail adapter exists, tested against a fake Google only ([0020](adr/0020-one-delivery-adapter-per-sending-platform.md), [0022](adr/0022-live-delivery-records.md)) |
 | Projections | Sheets/Docs views generated from the Store | CSV, agent connector (live-checked) and service account (fake-tested) ([0003](adr/0003-systems-of-record.md), [0019](adr/0019-projection-writers-and-agent-connectors.md)) |
@@ -161,8 +161,9 @@ src/auggie/
   credentials.py Exists    per-customer secret files (ADR 0016)
   spend.py       Exists    per-run spend limit (ADR 0016)
   acquisition/   Exists    fixture replay, evidence validation, Treg page text (ADR 0017)
-  judgment/      Exists    deterministic rules behind the Qualifier interface (ADR 0009)
-  compose/       Exists    draft composition from strategy play templates; briefs proposed
+  judgment/      Exists    deterministic rules behind the Qualifier interface (ADR 0031)
+  compose/       Exists    drafts from play templates, and a model's checked rewrite through
+                           OpenRouter (ADR 0031); briefs proposed
   approval/      Exists    recording a reviewer's decision; review and revise at a terminal
   delivery/      Exists    authorization gate, simulated hand-off, Gmail adapter (ADR 0022)
   pipeline.py    Exists    the slice as plain sequential calls
@@ -182,8 +183,10 @@ Scheduler integration has no package until ADR 0007 is decided.
 These have no decision yet. Each needs an ADR before work depends on it.
 
 - Task scheduler: Herdr or Foreman ([ADR 0007](adr/0007-single-task-scheduler.md)).
-- Whether a model engine (Jev, OpenRouter) ever earns a place, and its calibration thresholds
-  ([ADR 0009](adr/0009-judgment-and-synthesis-engines.md)).
+- Whether a model engine ever earns a place in judgment, and its calibration thresholds
+  ([ADR 0031](adr/0031-a-model-writes-drafts.md) keeps rules for judgment).
+- OpenRouter's and its providers' retention terms for prompts, beyond the `data_collection`
+  and zero-data-retention preferences each call sends ([ADR 0031](adr/0031-a-model-writes-drafts.md)).
 - Per-customer deployment topology and sizing.
 - Authentication and usage terms for provider CLIs in production, and Treg's and Exa's
   retention terms for fetched content ([ADR 0017](adr/0017-first-treg-route.md)).

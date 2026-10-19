@@ -15,7 +15,9 @@ Both follow [Your first prospect](first-prospect.md) and leave three things to y
 - **Credentials.** You create and save tokens in your own terminal
   ([ADR 0016](adr/0016-credentials-and-spend-limits.md)). `treg` prints tokens, and whatever an
   agent session prints stays in its context and logs.
-- **Spending.** The agent asks before every paid call and tells you the most it can cost.
+- **Spending.** The agent asks before every paid call and tells you the most it can cost. A
+  play written by a model makes up to two paid OpenRouter calls for each draft
+  ([ADR 0031](adr/0031-a-model-writes-drafts.md)), with an OpenRouter key you create.
 
 At each of these points, the prompt has the agent stop and give you the exact command.
 
@@ -121,5 +123,9 @@ Ground rules:
   only once I say so. auggie learn --json only reads; write a --propose patch only when I ask,
   outside the harness clone, and leave applying it to me. outcome --replies is mine, like
   review, and so is the read sign-in.
+- If my strategy has a [writer], research also makes up to two paid OpenRouter calls for each
+  draft. Tell me the model and the most a call can cost, as research prints it, before my yes.
+  The OpenRouter key is mine to create and save, like the Treg token. Leave model drafts to my
+  review like any other draft.
 - Push nothing without asking me.
 ```

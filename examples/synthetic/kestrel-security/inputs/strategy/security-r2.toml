@@ -1,0 +1,124 @@
+# SYNTHETIC strategy for the demo-security scope, revision 2: revision 1 with model drafts
+# turned on (ADR 0031). Each play's template is still approved copy: the model rewrites the
+# filled template for each account, the harness checks the result, and the template stands
+# when the check fails. The seller, its products, the accounts and the people are all invented.
+
+schema_version = 1
+strategy_id = "strategy-security-r2"
+customer_id = "demo-security"
+
+# An account qualifies only when every required criterion is met.
+required = ["detection-hiring"]
+
+[sources.security]
+label = "security page"
+
+[[criteria]]
+id = "detection-hiring"
+question = "Is the account listing at least two detection engineering roles?"
+rule = "hiring_family"
+family = "detection"
+min_roles = 2
+
+[[criteria]]
+id = "detection-openings-new"
+question = "Did detection openings appear since the last reading of the listing?"
+rule = "hiring_pattern"
+family = "detection"
+pattern = "new_openings"
+
+[[criteria]]
+id = "names-beaconlog"
+question = "Does the account's security page name Beaconlog as its log platform?"
+rule = "stack_term"
+source = "security"
+term = "beaconlog"
+
+[[plays]]
+id = "detection-triage"
+requires = ["detection-hiring"]
+pain = "alert-triage"
+hiring = "detection-hiring"
+writer = "model"
+template = '''Subject: Alert triage while the detection team forms
+
+Hi {first_name},
+
+{account_name} listed {hiring_count} {hiring_family} roles on {hiring_date}. {pain}
+
+From our case study with {proof_customer}: "{proof_claim}"
+
+Would {offer} be useful?
+
+Riley
+Lanternwatch (synthetic example seller)
+'''
+
+# Used when no proof of the pain above is usable.
+[[plays]]
+id = "detection-build-out"
+requires = ["detection-hiring"]
+writer = "model"
+template = '''Subject: Detection coverage while the team is still forming
+
+Hi {first_name},
+
+{account_name} is listing several detection engineering roles. Teams at that stage often
+decide early which alerts the new hires will own first.
+
+If it would help, I can send the short coverage checklist we use with teams like yours.
+
+Would that be useful?
+
+Riley
+Lanternwatch (synthetic example seller)
+'''
+
+[signals.hiring.families.detection]
+label = "detection engineering"
+titles = ["detection engineer", "threat detection", "detection and response"]
+
+[signals.hiring.families.secops]
+label = "security operations"
+titles = ["soc analyst", "security operations", "incident responder"]
+
+[signals.hiring.families.identity]
+label = "identity and access"
+titles = ["identity engineer", "iam engineer", "access management"]
+
+[signals.hiring.patterns.new_openings]
+label = "new detection openings"
+min_roles = 2
+
+[signals.stack.terms.beaconlog]
+label = "Beaconlog"
+phrases = ["Beaconlog"]
+near = ["SIEM", "log platform"]
+
+# The seller's point of view (ADR 0026). The customer, its numbers and the page are invented.
+[proofs]
+max_age_days = 180
+
+[proofs.harborview-triage]
+customer = "Harborview Freight"
+url = "https://lanternwatch.example/customers/harborview-freight"
+claim = "Harborview Freight cut the time to triage a detection alert from four hours to twenty minutes."
+kind = "result"
+caveat = "One customer's own measurement; its detection team already had three engineers."
+
+[pains.alert-triage]
+statement = "New detection teams often spend their first months triaging alerts by hand before they can write new detections."
+fit = "Lanternwatch ranks and groups the alerts the log platform raises, so a small team triages the few that matter first."
+limits = "Lanternwatch does not write detections or replace the log platform; the team still owns both."
+offer = "a 20-minute walkthrough of how teams like Harborview set their first triage rules"
+proofs = ["harborview-triage"]
+metric = "Hours from an alert firing to its triage."
+threshold = "More than one working day."
+consequence = "Alerts age out unreviewed, and new detections wait behind them."
+
+# The model that rewrites each play's draft. The seller brings their own OpenRouter key; the
+# harness never holds one. The model ID is invented.
+[writer]
+model = "synthetic-lab/writer-1"
+voice = "Plain and warm, in short sentences. No hype words. One question at the end."
+max_words = 120

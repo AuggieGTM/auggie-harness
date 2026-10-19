@@ -176,7 +176,7 @@ def test_project_writes_a_stores_tabs_as_csv_or_to_its_sheet(
         store = ["--mongodb", os.environ[MONGODB_URI], "--database-prefix", backend.database_prefix]
         offline = scope_file(tmp_path, external=False)
         assert main(["project", str(offline), *store, "--csv", str(tmp_path / "csv")]) == 0
-        assert "Projected 13 rows" in capsys.readouterr().out
+        assert "Projected 14 rows" in capsys.readouterr().out  # learning holds one by writer
         sheet = ["--spreadsheet", "synthetic-spreadsheet-0000000001"]
         assert main(["project", str(offline), *store, *sheet]) == 1
         assert "stopped   ExternalCallRefused" in capsys.readouterr().out

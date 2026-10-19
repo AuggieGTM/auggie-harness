@@ -334,6 +334,83 @@ uv run auggie review $K/scope.json --next --reviewer "your name" $M
 - `review --next` shows the oldest draft waiting for you, then asks whether to go on. Each draft
   is still reviewed and approved on its own.
 
+## Drafts written by a model
+
+A play can have a model rewrite its draft for each account
+([ADR 0031](adr/0031-a-model-writes-drafts.md)). The harness fills the play's template as
+before, then gives the model that draft and the facts behind it: the account's name, the
+recipient's first name, the hiring tally, the pain with where you fit and where you stop, the
+proof's customer and claim, the offer, the page excerpts the play's findings cite, and your
+voice notes. It never gives the recipient's email address. The model has no tools.
+
+The harness keeps the model's text only if every number, quoted passage, link and mid-sentence
+name in it is in what the model was given, its first line is `Subject: `, it stays within your
+word limit, and it quotes the play's proof word for word on one line. A text that fails is sent
+back once with what failed. If the second text fails too, or the call brings nothing back, you
+get the template draft, and review says why. The checks catch a new number, quote, link or
+name. They do not catch a fact restated wrongly or a promise past your limits, so read every
+draft: review says which model wrote it and shows your fit and limits beside it.
+
+### Turning it on
+
+Add a `[writer]` table to your strategy, and `writer = "model"` to each play it should write:
+
+```toml
+[writer]
+model = "<an OpenRouter model ID, author/slug>"
+voice = "Plain and warm, in short sentences. No hype words. One question at the end."
+max_words = 120             # 20 to 400; default 150
+max_output_tokens = 1000    # the most the model may write per call, reasoning included
+zero_data_retention = false # true sends OpenRouter's zdr preference too
+```
+
+Each play keeps its template: it is what the model rewrites, and what you get when the model's
+text fails. Revision 2 of the security seller,
+`examples/synthetic/kestrel-security/inputs/strategy/security-r2.toml`, turns it on for both
+plays. Rehearse it with the list above: `list-replay.json` records what the model wrote for one
+account, so nothing is called.
+
+```bash
+S2="--strategy-repo . --strategy-path $K/inputs/strategy/security-r2.toml"
+uv run auggie research-list $K/scope.json --prospects ~/auggie-prospects $S2 \
+  --operator "your name" --replay $K/list-replay.json --again $M
+uv run auggie review $K/scope.json --next --reviewer "your name" $M
+```
+
+### Your OpenRouter key
+
+The harness calls the model through [OpenRouter](https://openrouter.ai) with a key of your own;
+it holds none. A coding agent's subscription gives no such key. Create a key in your OpenRouter
+account, buy credits, and consider a credit limit on the key. In the account's privacy settings,
+check whether prompts are logged. Your company's policies must allow sending prospect facts,
+page excerpts and your strategy's wording to OpenRouter and the provider it routes to.
+
+Save the key in your own terminal, as the Treg token is saved (step 3), under the name
+`openrouter-key`:
+
+```bash
+( D=~/.config/auggie/credentials/<credential_namespace>; T=; umask 077
+  mkdir -p "$D" && chmod 700 "$D" && read -rs KEY &&
+  T=$(mktemp "$D/.openrouter-key.XXXXXX") && printf '%s\n' "$KEY" > "$T" &&
+  python3 -c 'import os, sys; os.replace(sys.argv[1], sys.argv[2])' "$T" "$D/openrouter-key" ||
+  { [ -z "$T" ] || rm -f "$T"; false; } )
+```
+
+### What it costs
+
+Each draft is up to two paid calls, counted in the run's spending limit with the Treg pages.
+Before each call the harness reads the model's listed prices from OpenRouter, free. It asks
+OpenRouter for providers no dearer than those prices, and only ones that neither keep nor train
+on the data. The most a call can cost is those prices for the longest prompt the harness sends
+and every output token up to `max_output_tokens`. `research` and `research-list` print that
+figure before anything is paid for, and stop there if the key is missing or the model cannot
+be priced. A list starts an account only when its pages and two such calls fit what is left.
+The calls usually cost far less than that bound. Each call's charge is recorded, and the run
+settles to what OpenRouter reports.
+
+`learn` counts each play's model and template drafts apart, so you can see which led to more
+replies.
+
 ## Learning from what happened
 
 Record what each delivery led to, one at a time with `auggie outcome --draft`, or from a list

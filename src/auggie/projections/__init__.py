@@ -95,7 +95,13 @@ HEADERS: tuple[Row, ...] = (
 )
 
 COUNTS = ("delivered", "positive", "negative", "opted_out", "bounced", "waiting", "settled")
-LEARNED = (("plays", "play"), ("pains", "pain"), ("proofs", "proof"), ("criteria", "criterion"))
+LEARNED = (
+    ("plays", "play"),
+    ("pains", "pain"),
+    ("proofs", "proof"),
+    ("criteria", "criterion"),
+    ("writers", "writer"),
+)
 
 
 def _approval(approval: HumanApproval) -> str:

@@ -63,6 +63,7 @@ from auggie.strategy import LoadedStrategy, StrategyError, load_strategy_at
 from auggie.synthetic import ScenarioRun, load_inputs, run_scenario
 
 if TYPE_CHECKING:
+    from auggie.compose.openrouter import TextModel
     from auggie.https import Transport
     from auggie.projections.sheets import SheetsApi
     from auggie.store.mongodb import MongoBackend
@@ -979,7 +980,13 @@ def _session(
 
         def listings() -> ListingReader:
             return RecordedListings(listed)
+
+        def writer(budget: RunBudget | None) -> TextModel | None:
+            return writer_for(args, scope, loaded, None) if loaded else None
     else:
+
+        def writer(budget: RunBudget | None) -> TextModel | None:
+            return writer_for(args, scope, loaded, budget) if loaded else None
 
         def acquisition() -> Acquisition:
             return TregPageText(
@@ -1014,6 +1021,7 @@ def _session(
         sender=sender,
         edit=edit_in_editor,
         research_clock=research_clock,
+        writer=writer,
     )
 
 
@@ -1094,6 +1102,7 @@ class _PreparedList:
     budget: RunBudget | None
     clock: Callable[[], datetime]
     header: str
+    writer: TextModel | None = None
 
 
 def _prepare_research_list(args: argparse.Namespace, scope: CustomerScope) -> _PreparedList:
@@ -1120,6 +1129,7 @@ def _prepare_research_list(args: argparse.Namespace, scope: CustomerScope) -> _P
             None,
             operate.replay_clock(recordings, listed),
             f"{scope.customer_id}: research of {len(prospects)} prospects from recorded responses",
+            writer_for(args, scope, strategy, None),
         )
     limit = scope.execution.max_run_spend_micro_usd if args.limit is None else args.limit
     budget = RunBudget(limit)
@@ -1129,6 +1139,13 @@ def _prepare_research_list(args: argparse.Namespace, scope: CustomerScope) -> _P
         budget=budget,
         transport=treg_transport(),
     )
+    writer = writer_for(args, scope, strategy, budget)
+    header = (
+        f"{scope.customer_id}: research of {len(prospects)} prospects through Treg, one limit "
+        f"of {limit} micro-USD for the whole list"
+    )
+    if writer is not None:
+        header += "\n" + drafting_line(writer)  # a missing key stops here, before the Store
     return _PreparedList(
         strategy,
         prospects,
@@ -1137,8 +1154,8 @@ def _prepare_research_list(args: argparse.Namespace, scope: CustomerScope) -> _P
         CareersReader(scope=scope, transport=listing_transport()),
         budget,
         operate.utc_now,
-        f"{scope.customer_id}: research of {len(prospects)} prospects through Treg, one limit "
-        f"of {limit} micro-USD for the whole list",
+        header,
+        writer,
     )
 
 
@@ -1151,7 +1168,8 @@ def _research_list(
 
     for ignored in prepared.ignored:
         out(f"ignored   {ignored}")
-    out(prepared.header)
+    for text in prepared.header.splitlines():
+        out(text)
     budget = prepared.budget
     out("")
     prospects = prepared.prospects
@@ -1182,6 +1200,7 @@ def _research_list(
         again=args.again,
         now=prepared.clock,
         listings=prepared.listings,
+        writer=prepared.writer,
     )
     for line in lines:
         paid = line.status in ("researched", "stopped")
@@ -1327,9 +1346,11 @@ def _prospect_step(
             acquisition = FixtureAcquisition(recordings)
             listings = RecordedListings(listed)
             clock = operate.replay_clock(recordings, listed)
+            writer = writer_for(args, store.scope, strategy, None)
             out(f"{store.scope.customer_id}: research from recorded responses, no provider calls")
         else:
             budget = RunBudget.for_scope(store.scope)
+            writer = writer_for(args, store.scope, strategy, budget)
             acquisition = TregPageText(
                 scope=store.scope,
                 credentials=CredentialFiles(args.credentials),
@@ -1344,6 +1365,8 @@ def _prospect_step(
             if reads_listing(strategy, prospect) and prospect.careers_listing is not None:
                 service = prospect.careers_listing.service
                 out(f"          and the prospect's careers listing on {service}, which is free")
+            if writer is not None:
+                out(drafting_line(writer))  # a missing key or unreadable price stops here
             clock = operate.utc_now
         out("")
         result = operate.research_prospect(
@@ -1354,6 +1377,7 @@ def _prospect_step(
             operator=args.operator,
             now=clock,
             listings=listings,
+            writer=writer,
         )
         report_research(strategy, args.operator, result, out, show_draft=args.show_draft)
         if result.draft is not None:
@@ -1688,6 +1712,51 @@ def listing_transport() -> Transport:
     from auggie.acquisition.careers import ListingTransport
 
     return ListingTransport()
+
+
+def openrouter_transport() -> Transport:
+    """The transport the OpenRouter writer uses; tests replace it."""
+    from auggie.compose.openrouter import HttpsTransport
+
+    return HttpsTransport()
+
+
+def writer_for(
+    args: argparse.Namespace,
+    scope: CustomerScope,
+    strategy: LoadedStrategy,
+    budget: RunBudget | None,
+) -> TextModel | None:
+    """The model that rewrites drafts when a play of ``strategy`` is written by one (ADR 0031):
+    the replay file's recorded replies with ``--replay``, else OpenRouter with the scope's own
+    key, spending from ``budget``. None when no play is written by a model."""
+    from auggie import operate
+    from auggie.compose.fixture import recorded_model
+    from auggie.compose.openrouter import OpenRouterWriter
+
+    writer = strategy.strategy.writer
+    if writer is None or not operate.model_calls(strategy):
+        return None
+    if args.replay is not None:
+        return recorded_model(writer.model, json.loads(args.replay.read_text(encoding="utf-8")))
+    if budget is None:
+        raise ValueError("a model call needs the run's spending limit")
+    return OpenRouterWriter(
+        scope=scope,
+        credentials=CredentialFiles(args.credentials),
+        budget=budget,
+        writer=writer,
+        transport=openrouter_transport(),
+    )
+
+
+def drafting_line(model: TextModel) -> str:
+    """What a live command says about its model calls, after reading the model's prices."""
+    most = model.most_per_call()
+    return (
+        f"          and drafts through OpenRouter: up to 2 calls to {model.model} for each, "
+        f"at most {most} micro-USD a call"
+    )
 
 
 def google_transport() -> Transport:

@@ -13,7 +13,10 @@ tested against synthetic replies; it calls Treg only for a scope that allows ext
 and sets a run budget, and no test does. A Gmail delivery adapter is built and tested against
 a fake Google; it sends only for a live scope, and no test sends email. Careers listing readers
 for Lever, Greenhouse and Ashby are built and tested against synthetic replies; they call a
-listing service only for a scope that allows external providers, and no test does.
+listing service only for a scope that allows external providers, and no test does. An
+OpenRouter writer that rewrites a play's draft is built and tested against a fake OpenRouter;
+it calls OpenRouter only for a scope that allows external providers, with the seller's own
+key and a run budget, and no test does.
 Never describe planned or proposed work as built, supported or tested.
 
 ## Commands

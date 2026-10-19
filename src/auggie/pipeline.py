@@ -689,6 +689,13 @@ def _append_composed(store: Store, draft: Artifact, run_id: str | None) -> Appen
     )
 
 
+def first_version(store: Store, draft: Artifact) -> Artifact:
+    """The version of ``draft`` research composed, before any person's edit."""
+    while draft.supersedes is not None:
+        draft = store.get_artifact(draft.ref.model_copy(update={"content_hash": draft.supersedes}))
+    return draft
+
+
 def complete_research(store: Store, decision_id: str) -> bool:
     """Record the composition of a research run's draft, if the run stored the draft and
     stopped before recording it (ADR 0015). True when it did; nothing else is redone."""
@@ -702,8 +709,7 @@ def complete_research(store: Store, decision_id: str) -> bool:
         draft = store.latest_artifact(draft_id)
     except RecordNotFound:
         return False
-    while draft.supersedes is not None:  # the version research composed, not a later edit
-        draft = store.get_artifact(draft.ref.model_copy(update={"content_hash": draft.supersedes}))
+    draft = first_version(store, draft)  # the version research composed, not a later edit
     decided = [
         e
         for e in store.list_events(type="qualification.decided")

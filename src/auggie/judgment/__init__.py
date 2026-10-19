@@ -1,7 +1,7 @@
 """Judge stage: qualify an account against an exact strategy revision, citing evidence.
 
-Engines sit behind ``Qualifier`` so they can be swapped or combined
-(ADR 0009, Open). Only deterministic rules exist so far.
+Engines sit behind ``Qualifier`` so they can be swapped or combined.
+Judgment uses deterministic rules (ADR 0031).
 """
 
 from __future__ import annotations

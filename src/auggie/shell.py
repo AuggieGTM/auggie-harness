@@ -20,6 +20,7 @@ from auggie.accounts import Account
 from auggie.acquisition import Acquisition
 from auggie.acquisition.careers import ListingReader
 from auggie.acquisition.treg import CEILING_MICRO_USD
+from auggie.compose.openrouter import TextModel
 from auggie.contracts import sha256_digest
 from auggie.contracts.events import OutcomeKind
 from auggie.delivery import Sender
@@ -36,6 +37,7 @@ from auggie.queries import (
     proofs_view,
     stack_view,
 )
+from auggie.spend import RunBudget
 from auggie.store import Store
 from auggie.strategy import LoadedStrategy
 
@@ -87,6 +89,9 @@ class Session:
     edit: Callable[[str], str] = lambda text: text
     now: Callable[[], datetime] = operate.utc_now
     research_clock: Callable[[], datetime] | None = None
+    writer: Callable[[RunBudget | None], TextModel | None] = lambda budget: None
+    """The model a command's drafts are written with, spending from that command's budget
+    (ADR 0031); None when no play is written by one."""
 
 
 def run(session: Session) -> int:
@@ -275,6 +280,23 @@ def _cost(pages: int) -> str:
     return f"at most ${pages * CEILING_MICRO_USD / 1_000_000:.3f}"
 
 
+def _drafting(writer: TextModel | None, budget: RunBudget | None, each: bool = False) -> str:
+    """What a question says about the model calls: their price is OpenRouter's, read only
+    once the person says yes, so the bound given is the command's limit."""
+    cap = (
+        f", under this command's limit of ${budget.limit_micro_usd / 1_000_000:.3f}"
+        if budget is not None
+        else ""
+    )
+    if writer is None:
+        return cap
+    which = "each draft" if each else "the draft"
+    return (
+        f", and {which} through OpenRouter: up to 2 calls to {writer.model} at its listed "
+        f"price{cap}"
+    )
+
+
 def _fetch(session: Session, args: list[str]) -> None:
     _need(args, 2, "fetch <account> <url>")
     account_id, url = args
@@ -316,11 +338,17 @@ def _research(session: Session, args: list[str]) -> None:
         raise ValueError("start the shell with --strategy-repo and --strategy-path to research")
     kinds = [k for k in session.strategy.strategy.sources if k in prospect.sources]
     acquisition = session.acquisition()
+    budget = getattr(acquisition, "budget", None)
+    writer = session.writer(budget)
+    if writer is not None:
+        writer.ready()  # refused before asking: no external calls, or no key
     listing = prospect.careers_listing
     reads = reads_listing(session.strategy, prospect) and listing is not None
     also = f", and the careers listing on {listing.service}, free" if reads and listing else ""
     if session.live and not _yes(
-        session, f"{len(kinds)} pages through Treg, {_cost(len(kinds))}{also}; go ahead?"
+        session,
+        f"{len(kinds)} pages through Treg, {_cost(len(kinds))}{also}"
+        f"{_drafting(writer, budget) if writer else ''}; go ahead?",
     ):
         session.out("nothing read")
         return
@@ -332,6 +360,7 @@ def _research(session: Session, args: list[str]) -> None:
         operator=session.me,
         now=session.research_clock or operate.utc_now,
         listings=session.listings(),
+        writer=writer,
     )
     decision = result.decision
     session.out(f"judged    {decision.account_id} {decision.outcome} ({decision.decision_id})")
@@ -377,17 +406,15 @@ def _research_hiring(session: Session, *, again: bool) -> None:
         return
     acquisition = session.acquisition()
     budget = getattr(acquisition, "budget", None)
+    writer = session.writer(budget)
+    if writer is not None:
+        writer.ready()  # refused before asking: no external calls, or no key
     if session.live:
         pages = sum(k in p.sources for p in chosen for k in strategy.strategy.sources)
-        cap = (
-            f", under this command's limit of ${budget.limit_micro_usd / 1_000_000:.3f}"
-            if budget
-            else ""
-        )
         if not _yes(
             session,
             f"research {_count(len(chosen), 'account')}: {_count(pages, 'page')} through Treg, "
-            f"{_cost(pages)}{cap}; go ahead?",
+            f"{_cost(pages)}{_drafting(writer, budget, each=True)}; go ahead?",
         ):
             session.out("nothing researched")
             return
@@ -402,6 +429,7 @@ def _research_hiring(session: Session, *, again: bool) -> None:
         again=again,
         now=session.research_clock or operate.utc_now,
         listings=session.listings(),
+        writer=writer,
     )
     for line in lines:
         session.out(f"{line.status:<12} {line.account_id:<28} {line.detail}")
@@ -603,7 +631,7 @@ def render_learn(view: Mapping[str, Any]) -> list[str]:
 
 def _learned(view: Mapping[str, Any]) -> list[str]:
     lines = []
-    for group in ("plays", "pains", "proofs", "criteria"):
+    for group in ("plays", "pains", "proofs", "criteria", "writers"):
         rows = view[group]
         if not rows:
             continue

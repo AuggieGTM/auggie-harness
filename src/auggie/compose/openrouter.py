@@ -37,7 +37,7 @@ ROUTE = "openrouter.chat.completions"
 KEY = "openrouter-key"
 """Name of the API key file in the scope's credential folder."""
 
-MAX_PROMPT_BYTES = 32_000
+MAX_PROMPT_BYTES = 24_000
 """The longest prompt sent, in UTF-8 bytes, so the most a call can cost is known before it."""
 
 MAX_MESSAGES = 8
@@ -130,6 +130,16 @@ class TextModel(Protocol):
         """The run budget every call is reserved against; None for one that never pays."""
         ...
 
+    @property
+    def model(self) -> str:
+        """The model it asks."""
+        ...
+
+    def ready(self) -> None:
+        """Raise, sending nothing, if no call could be made: the scope allows no external
+        calls, or there is no usable key."""
+        ...
+
     def most_per_call(self) -> int:
         """The most one call can cost, in micro-USD, at the longest prompt it sends."""
         ...
@@ -171,6 +181,10 @@ class OpenRouterWriter:
     @property
     def model(self) -> str:
         return self._writer.model
+
+    def ready(self) -> None:
+        require_external_calls(self._scope)
+        self._key()
 
     def prices(self) -> Prices:
         """Read the model's listed prices, free. Raises ``ModelRefused`` if they cannot be

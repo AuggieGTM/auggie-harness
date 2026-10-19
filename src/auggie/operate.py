@@ -41,6 +41,7 @@ from auggie.pipeline import (
     deliver,
     delivery_state,
     ensure_undelivered,
+    first_version,
     record_outcome,
     record_person,
     record_review,
@@ -442,6 +443,14 @@ def describe_draft(store: Store, draft: Artifact, out: Print) -> None:
     decision: QualificationDecision = store.get_qualification(draft.qualification_id)
     out(f"draft     {draft.ref.artifact_id}, version sha256 {draft.ref.content_hash[7:19]}")
     out(f"          for {draft.recipient_id} at {draft.account_id}, composed {draft.composed_at}")
+    first = first_version(store, draft)
+    if first.composed_by.kind == "model":
+        out(
+            f"          written by the model {first.composed_by.id}, and checked: it holds no "
+            "number, quote, link or name it was not given. Check that each fact is right."
+        )
+    elif first.fallback is not None:
+        out(f"          from the play's template, not the model's draft: {first.fallback}")
     if draft.recipient_id is not None:
         person = store.get_person(draft.recipient_id)
         out(f"          to {person.first_name} <{person.email or 'no address recorded'}>")

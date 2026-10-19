@@ -1,5 +1,5 @@
 {
-  "note": "SYNTHETIC recorded responses for researching the security seller's three-account list (prospects.csv) with research-list --replay. Every company, page, role and identifier is invented, and domains use the reserved .example TLD. The listing replies are the ones in examples/synthetic/listings.",
+  "note": "SYNTHETIC recorded responses for researching the security seller's three-account list (prospects.csv) with research-list --replay. Every company, page, role and identifier is invented, and domains use the reserved .example TLD. The listing replies are the ones in examples/synthetic/listings. model_replies holds what the model is recorded as writing for an account, for strategy revision 2 (ADR 0031); nothing calls OpenRouter.",
   "responses": [
     {
       "url": "https://fernhollow.example/security",
@@ -187,6 +187,14 @@
           }
         ]
       }
+    }
+  ],
+  "model_replies": [
+    {
+      "account": "Fernhollow Logistics",
+      "texts": [
+        "Subject: Detection coverage for Fernhollow Logistics\n\nHi Casey,\n\nFernhollow Logistics is listing several detection engineering roles. Teams at that stage often decide early which alerts the new hires will own first, and it helps to settle that before they start.\n\nIf it would help, I can send the short coverage checklist we use with teams like yours.\n\nRiley\nLanternwatch (synthetic example seller)\n"
+      ]
     }
   ]
 }

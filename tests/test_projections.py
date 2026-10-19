@@ -415,6 +415,11 @@ def test_the_learning_tab_counts_what_deliveries_led_to_by_strategy_file() -> No
     )
     assert ("pain", "alert-triage") in by_key and ("proof", "harborview-triage") in by_key
     assert ("criterion", "detection-hiring") in by_key
+    # Model and template drafts are counted apart (ADR 0031); this one is the template's.
+    assert (
+        by_key[("writer", "detection-triage, by template")][3:]
+        == by_key[("play", "detection-triage")][3:]
+    )
     # No person's record or page text: the strategy's path and IDs as written, and counts.
     cells = " ".join(cell for row in rows for cell in row)
     assert "Casey" not in cells and "casey.lindqvist" not in cells

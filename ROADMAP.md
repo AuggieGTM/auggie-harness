@@ -56,7 +56,9 @@ contract ([ADR 0014](docs/adr/0014-artifact-contract.md)), both Accepted.
   carries no charge header, so the run budget counted the full ceiling, as ADR 0016 requires. A
   paid page fetch waits for a funded team and confirmed Treg and Exa retention terms.*
 - A judgment engine chosen ([ADR 0009](docs/adr/0009-judgment-and-synthesis-engines.md)). *Decided:
-  rules for judgment, templates for synthesis.*
+  rules for judgment, templates for synthesis. Superseded by
+  [ADR 0031](docs/adr/0031-a-model-writes-drafts.md): rules still judge, and a play may have a
+  model rewrite its filled template.*
 - Read-only Sheets projection; Docs later. *Built: managed tabs regenerated from the Store
   (six since M4 added hiring and M8 learning), with no page text, written as CSV, by an
   operator's agent connector, or by a scope's own service account
@@ -132,6 +134,13 @@ each part. No listing has been read live yet.*
 person still approves each draft. *Met on synthetic data on 2026-10-18; no proof page has been
 read live yet.*
 
+Since then, drafts worded by a model ([ADR 0031](docs/adr/0031-a-model-writes-drafts.md)). *Built:
+a play may turn on `writer = "model"`; the model, through OpenRouter with the seller's own key,
+rewrites the play's filled template from the same facts; a text holding a number, quote, link
+or name it was not given, or a proof not word for word, is retried once and then the template
+stands. Tested against a fake OpenRouter and recorded replies only; OpenRouter has not been
+called.*
+
 ## M6: Many accounts (Done on synthetic data)
 
 *Decided: [ADR 0027](docs/adr/0027-many-accounts.md). Built: `auggie import`, `auggie
@@ -183,8 +192,6 @@ reproduce what was learned, land here.
 - A weekly refresh of watched accounts, which needs the scheduler
   ([ADR 0007](docs/adr/0007-single-task-scheduler.md), Open).
 - Discovery: accounts hiring for the seller's vocabulary, proposed for the seller to accept.
-- Drafts worded by a model, where code decides every fact and a sentence without a source is
-  dropped ([ADR 0009](docs/adr/0009-judgment-and-synthesis-engines.md) would be revisited).
 
 ## Public release readiness (Later)
 

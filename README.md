@@ -5,7 +5,8 @@
 > records kept in memory or in a local MongoDB. A seller can run the same steps for one real
 > prospect. One Treg acquisition route and a Gmail delivery adapter exist, tested against
 > synthetic replies; the Treg route has been live-checked only up to an unfunded refusal, and
-> nothing has been sent through Gmail yet. The scenario and the tests never call a provider.
+> nothing has been sent through Gmail yet. An OpenRouter writer that rewrites drafts is tested
+> against a fake only. The scenario and the tests never call a provider.
 > There is no installer. Anything described below as planned or proposed is not built.
 
 Auggie is a **GTM-as-code harness**. It turns versioned go-to-market strategy into an
@@ -19,7 +20,7 @@ evidence-to-action-to-learning loop:
 | Observe | Sources about an account are acquired and recorded as dated evidence. |
 | Validate | Evidence is checked: retrieved, attributable, fresh, in scope. |
 | Judge | The account is qualified against an exact strategy revision, citing evidence. |
-| Compose | Briefs and drafts are written from validated evidence only. |
+| Compose | Drafts are written from validated evidence only: a play's template, or a model's checked rewrite of it. |
 | Approve | A person approves one exact artifact version for one purpose. |
 | Deliver | Approved drafts go out through an existing sending platform. |
 | Learn | Outcomes are recorded and inform the next strategy revision, after human review. |
@@ -72,6 +73,13 @@ product.
   quoted in a draft only while a read of its page holds the claim word for word. Drafts pair
   the account's evidence with a pain, a proof and an offer
   ([ADR 0026](docs/adr/0026-the-sellers-point-of-view.md)). Tested on synthetic pages only.
+- `src/auggie/compose/model.py` lets a model rewrite a play's draft
+  ([ADR 0031](docs/adr/0031-a-model-writes-drafts.md)). A play that turns it on has the model
+  rewrite its filled template for each account, through OpenRouter with your own key
+  (`src/auggie/compose/openrouter.py`). The harness checks the text: every number, quote, link
+  and name must be in what the model was given, and a proof must be word for word. A text that
+  fails gets one retry, then the template draft stands, saying why. You still review every
+  draft. Tested against a fake OpenRouter and recorded replies only.
 - `src/auggie/prospect_list.py` turns a CSV list of accounts into prospect files after a
   preview. `auggie research-list` researches a folder of them in one run within one spending
   cap, and `auggie review --next` steps through the drafts waiting for a person

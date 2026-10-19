@@ -1,5 +1,6 @@
 """Learning from outcomes (ADR 0028): what each delivery led to, counted by play, pain, proof
-and met criterion. Reads the Store only, and judges nothing a person has not reported."""
+and met criterion, and by what wrote each play's drafts (ADR 0031). Reads the Store only, and
+judges nothing a person has not reported."""
 
 from __future__ import annotations
 
@@ -7,6 +8,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from auggie.pipeline import first_version
 from auggie.store import Store
 
 Result = Literal["positive", "negative", "bounced", "waiting"]
@@ -28,6 +30,8 @@ class Delivery:
     strategy: str = ""
     """The strategy file it was composed under. Plays, pains and proofs are named within one
     file: the same ID in another file is another play."""
+    writer: Literal["model", "template"] = "template"
+    """What wrote the version research composed, before any person's edit (ADR 0031)."""
 
     @property
     def result(self) -> Result:
@@ -62,6 +66,7 @@ def deliveries(store: Store) -> list[Delivery]:
     for draft_id in delivered:
         # A delivered draft is never revised again, so its latest version is the one sent.
         draft = store.latest_artifact(draft_id)
+        composed = first_version(store, draft)
         view = draft.point_of_view
         decision = store.get_qualification(draft.qualification_id)
         found.append(
@@ -73,6 +78,7 @@ def deliveries(store: Store) -> list[Delivery]:
                 criteria=tuple(f.criterion for f in decision.findings if f.assessment == "meets"),
                 outcomes=tuple(outcomes.get(draft_id, ())),
                 strategy=draft.strategy.path,
+                writer="model" if composed.composed_by.kind == "model" else "template",
             )
         )
     return found
@@ -155,4 +161,10 @@ def _strategy_view(path: str, found: list[Delivery]) -> dict[str, Any]:
         "pains": [t.view() for t in tally(found, lambda d: [d.pain] if d.pain else [])],
         "proofs": [t.view() for t in tally(found, lambda d: [d.proof] if d.proof else [])],
         "criteria": [t.view() for t in tally(found, lambda d: d.criteria)],
+        "writers": [t.view() for t in tally(found, lambda d: [_written(d)])],
     }
+
+
+def _written(delivery: Delivery) -> str:
+    """A play's drafts by what wrote them, so model and template drafts are counted apart."""
+    return f"{delivery.play or NO_PLAY}, by {delivery.writer}"
