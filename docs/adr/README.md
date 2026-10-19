@@ -21,7 +21,7 @@ behavior or the public boundary. The process is described in
 | [0006](0006-delivery-through-existing-platforms.md) | Deliver through existing sending platforms; no SMTP | Superseded by [0020](0020-one-delivery-adapter-per-sending-platform.md) |
 | [0007](0007-single-task-scheduler.md) | One task scheduler: Herdr or Foreman | Open |
 | [0008](0008-treg-for-acquisition.md) | Treg for data acquisition, behind an adapter | Superseded by [0024](0024-careers-snapshots-and-hiring-tallies.md) |
-| [0009](0009-judgment-and-synthesis-engines.md) | Judgment and synthesis engines | Accepted |
+| [0009](0009-judgment-and-synthesis-engines.md) | Judgment and synthesis engines | Superseded by [0031](0031-a-model-writes-drafts.md) |
 | [0010](0010-public-repository-boundary.md) | Public repository boundary | Accepted |
 | [0011](0011-sageox-engineering-context.md) | SageOx holds engineering context, not customer intelligence | Accepted |
 | [0012](0012-contract-conventions.md) | Contract conventions and development checks | Accepted |
@@ -43,3 +43,4 @@ behavior or the public boundary. The process is described in
 | [0028](0028-learning-from-outcomes.md) | Learning from outcomes: a report, and proposals as a patch | Accepted |
 | [0029](0029-reading-replies-from-gmail.md) | Reading replies from the seller's Gmail | Accepted |
 | [0030](0030-screening-a-list-by-hiring.md) | Screening a list by hiring before paying to research it | Accepted |
+| [0031](0031-a-model-writes-drafts.md) | A model writes drafts, through OpenRouter, with the seller's own key | Accepted |

@@ -370,7 +370,9 @@ class Play(Contract):
     The template's fixed wording is approved copy. Only its ``{field}``
     placeholders are filled, and rendering never reflows text. A play that names
     a ``pain`` may use its fields; one that names a ``hiring`` criterion may use
-    that tally's fields (ADR 0026).
+    that tally's fields (ADR 0026). With ``writer = "model"``, the strategy's model
+    rewrites the filled template for each account; the template stays its fallback
+    (ADR 0031).
     """
 
     id: Slug
@@ -379,6 +381,7 @@ class Play(Contract):
     fields: FrozenMap[FieldName, MergeField] = Field(default_factory=dict, validate_default=True)
     pain: Slug | None = None
     hiring: Slug | None = None
+    writer: Literal["template", "model"] = "template"
 
     @property
     def uses_proof(self) -> bool:
@@ -404,6 +407,28 @@ class Play(Contract):
         return self
 
 
+ModelId = Annotated[
+    str,
+    StringConstraints(
+        min_length=3, max_length=100, pattern=r"^[a-z0-9][a-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$"
+    ),
+]
+"""An OpenRouter model ID, ``author/slug``, with no variant suffix."""
+
+
+class Writer(Contract):
+    """``[writer]``: the model that rewrites the drafts of plays that turn it on (ADR 0031)."""
+
+    model: ModelId
+    voice: Copy
+    """The seller's notes on tone, given to the model with every draft."""
+    max_words: Annotated[int, Field(ge=20, le=400)] = 150
+    max_output_tokens: Annotated[int, Field(ge=100, le=16_000)] = 1000
+    """The most the model may write per call, sent as ``max_tokens``; reasoning counts."""
+    zero_data_retention: bool = False
+    """Send ``provider.zdr``: use only providers that keep no prompts."""
+
+
 class Strategy(Contract):
     """One approved strategy revision."""
 
@@ -417,6 +442,7 @@ class Strategy(Contract):
     signals: Signals = Field(default_factory=Signals)
     proofs: Proofs = Field(default_factory=Proofs)
     pains: FrozenMap[Slug, Pain] = Field(default_factory=dict, validate_default=True)
+    writer: Writer | None = None
 
     @model_validator(mode="after")
     def _references_resolve(self) -> Strategy:
@@ -444,6 +470,8 @@ class Strategy(Contract):
                 if proof_id not in self.proofs.by_id:
                     raise ValueError(f"pain {pain_id!r} names undefined proof {proof_id!r}")
         for play in self.plays:
+            if play.writer == "model" and self.writer is None:
+                raise ValueError(f"play {play.id!r} is written by a model, and [writer] is missing")
             for name in play.requires:
                 if name not in ids:
                     raise ValueError(f"play {play.id!r} requires undefined criterion {name!r}")

@@ -48,6 +48,7 @@ from auggie.contracts.strategy import (
     Source,
     StackMention,
     Strategy,
+    Writer,
 )
 
 __all__ = [
@@ -93,6 +94,7 @@ __all__ = [
     "Strategy",
     "StrategyRef",
     "SubjectRef",
+    "Writer",
     "check_isolated",
     "ensure_in_scope",
     "roles_digest",

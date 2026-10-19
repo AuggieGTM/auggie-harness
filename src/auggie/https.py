@@ -7,6 +7,7 @@ redirect would carry its credential to another address, so none is followed.
 from __future__ import annotations
 
 import http.client
+import json
 import urllib.error
 import urllib.request
 from collections.abc import Mapping
@@ -92,3 +93,26 @@ class LimitedTransport:
             raise OSError(
                 f"the {self._provider} call failed before a complete reply arrived"
             ) from None
+
+
+def echoes(response: HttpResponse, secret: str) -> bool:
+    """Whether the reply repeats the credential: in a header, the raw body or any JSON string."""
+    if any(secret in value for value in response.headers.values()):
+        return True
+    if secret.encode() in response.body:
+        return True
+    try:
+        pending: list[object] = [json.loads(response.body)]
+    except (ValueError, RecursionError):
+        return False
+    while pending:  # iterative, so a deep reply cannot exhaust the stack
+        item = pending.pop()
+        if isinstance(item, str):
+            if secret in item:
+                return True
+        elif isinstance(item, dict):
+            pending.extend(item.keys())
+            pending.extend(item.values())
+        elif isinstance(item, list):
+            pending.extend(item)
+    return False

@@ -31,7 +31,14 @@ from auggie.contracts.events import AttributeValue
 from auggie.contracts.evidence import RetrievalStatus
 from auggie.credentials import CredentialError, CredentialFiles
 from auggie.external import require_external_calls
-from auggie.https import MAX_BODY_BYTES, HttpRequest, HttpResponse, LimitedTransport, Transport
+from auggie.https import (
+    MAX_BODY_BYTES,
+    HttpRequest,
+    HttpResponse,
+    LimitedTransport,
+    Transport,
+    echoes,
+)
 from auggie.spend import RunBudget, SpendRefused
 
 TREG_ORIGIN = "https://treg.to"
@@ -153,7 +160,7 @@ class TregPageText:
             "cost_micro_usd": charged,
             "treg_idempotency_key": key,
         }
-        echoed = response is not None and _echoes(response, token.reveal())
+        echoed = response is not None and echoes(response, token.reveal())
         if response is not None and not echoed:
             for header, name, allowed in (
                 ("x-treg-call-id", "treg_call_id", r"[A-Za-z0-9_.:-]{1,200}"),
@@ -186,29 +193,6 @@ class TregPageText:
             failure_reason=None if retrieved else details["reason"],
         )
         return Acquired(evidence, attributes)
-
-
-def _echoes(response: HttpResponse, secret: str) -> bool:
-    """Whether the reply repeats the credential: in a header, the raw body or any JSON string."""
-    if any(secret in value for value in response.headers.values()):
-        return True
-    if secret.encode() in response.body:
-        return True
-    try:
-        pending: list[object] = [json.loads(response.body)]
-    except (ValueError, RecursionError):
-        return False
-    while pending:  # iterative, so a deep reply cannot exhaust the stack
-        item = pending.pop()
-        if isinstance(item, str):
-            if secret in item:
-                return True
-        elif isinstance(item, dict):
-            pending.extend(item.keys())
-            pending.extend(item.values())
-        elif isinstance(item, list):
-            pending.extend(item)
-    return False
 
 
 def _charge(response: HttpResponse | None) -> int | None:

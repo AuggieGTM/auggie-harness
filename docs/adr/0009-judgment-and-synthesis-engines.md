@@ -1,6 +1,6 @@
 # ADR 0009: Judgment and synthesis engines
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR 0031](0031-a-model-writes-drafts.md)
 - **Date:** 2026-10-17
 
 ## Question
