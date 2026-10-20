@@ -138,6 +138,9 @@ AUGGIE_TEST_MONGODB_URI=mongodb://127.0.0.1:27017 uv run pytest   # MongoDB test
 uv run auggie run examples/synthetic/northstar-msp --mongodb mongodb://127.0.0.1:27017
 ```
 
+On a Linux kernel 6.19 or newer, MongoDB 8 refuses to start (a known incompatibility,
+SERVER-121912); use `docker.io/library/mongo:7.0` there, as CI does for now.
+
 The CLI writes to one database per scope (`auggie_demo_msp` for Northstar); `--database-prefix`
 keeps a demo apart from other data on the same server. Outside development, install the
 `auggie-harness[mongodb]` extra.

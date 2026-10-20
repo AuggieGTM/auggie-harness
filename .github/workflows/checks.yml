@@ -13,8 +13,10 @@ jobs:
     runs-on: ubuntu-24.04
     services:
       # Official image, pulled by digest and never redistributed (ADR 0010, ADR 0015).
+      # MongoDB 7.0: MongoDB 8 refuses to start on the runners' Linux kernel (6.19 or newer),
+      # a known incompatibility (SERVER-121912). Move back to 8 once a release starts there.
       mongodb:
-        image: mongo:8@sha256:0e900a3364da37b76d642b73b0bba56bd4c6c509ab470cf700436fd866bee3ff # 8.3.13
+        image: mongo:7.0@sha256:c53852c00c23ca9f23fc39690350ffa9a80e3642fe8f96879726d8da0abe80a7 # 7.0.45
         ports:
           - 27017:27017
         options: >-
