@@ -1,7 +1,7 @@
 [project]
 name = "auggie-harness"
 version = "0.0.0"
-description = "GTM-as-code harness: versioned strategy turned into an evidence-to-action-to-learning loop."
+description = "Prospecting research and drafts for a seller and their coding agent, each draft approved by a person."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]

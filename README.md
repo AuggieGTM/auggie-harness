@@ -1,6 +1,11 @@
-# Auggie Harness
+# Auggie
 
-> **Status: early.** The harness runs one synthetic scenario end to end: recorded sources,
+Auggie researches the accounts on your list: who is hiring for what you sell, what their pages
+say, and which of your customer stories fits. For each account that fits your strategy, it
+writes a draft, and nothing is sent until you approve it. You can run it yourself or have your
+coding agent run it; the approvals, the keys and the spending stay yours.
+
+> **Status: early.** Auggie runs one synthetic scenario end to end: recorded sources,
 > deterministic rules, a template draft, scripted human approvals and simulated delivery, with
 > records kept in memory or in a local MongoDB. A seller can run the same steps for one real
 > prospect. One Treg acquisition route and a Gmail delivery adapter exist, tested against
@@ -9,8 +14,8 @@
 > against a fake only. The scenario and the tests never call a provider.
 > There is no installer. Anything described below as planned or proposed is not built.
 
-Auggie is a **GTM-as-code harness**. It turns versioned go-to-market strategy into an
-evidence-to-action-to-learning loop:
+Underneath, Auggie is a GTM-as-code harness: it turns your versioned go-to-market strategy
+into an evidence-to-action-to-learning loop:
 
 **Define → Observe → Validate → Judge → Compose → Approve → Deliver → Learn**
 
