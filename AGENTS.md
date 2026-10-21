@@ -70,7 +70,7 @@ If a task needs a decision that is Proposed or Open, stop and ask the maintainer
 When you operate the harness for a person, follow [docs/agent-setup.md](docs/agent-setup.md). The
 person runs `review`, `revise` and `shell` and creates credentials in their own terminal. Ask
 them before each paid call. Answer their questions with the read-only `accounts`, `brief`, `find`,
-`stack`, `hiring` and `proofs` commands and `--json`, quoting what they return.
+`stack`, `hiring`, `proofs` and `learn` commands and `--json`, quoting what they return.
 
 ## Public repository rules
 
